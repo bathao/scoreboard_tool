@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.env
+.env.*
+.vscode/
+.idea/
+dist/
+build/
+*.sqlite3
+renders/
+*.mp4
+*.avi
