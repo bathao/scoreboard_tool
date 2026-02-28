@@ -1,6 +1,10 @@
 from backend.models import MatchState, SetScore
-from backend.config import SETS_TO_WIN
-from backend.exceptions import MatchFinishedError, MaximumSetsReachedError
+from backend.exceptions import (
+    MatchFinishedError,
+    MaximumSetsReachedError,
+    InvalidOperationError
+)
+
 
 class ScoreEngine:
 
@@ -8,8 +12,12 @@ class ScoreEngine:
         self.match = match
 
     def add_point(self, player: str):
+
         if self.match.is_finished:
             raise MatchFinishedError("Match already finished")
+
+        if player not in ("player_a", "player_b"):
+            raise InvalidOperationError("Invalid player")
 
         current_set = self._get_or_create_current_set()
 
@@ -22,6 +30,7 @@ class ScoreEngine:
         self._recalculate_match_state()
 
     def _get_or_create_current_set(self):
+
         if not self.match.sets:
             self.match.sets.append(SetScore())
 
@@ -44,13 +53,16 @@ class ScoreEngine:
             set_score.winner = "player_a" if a > b else "player_b"
 
     def _recalculate_match_state(self):
+
+        sets_to_win = (self.match.best_of // 2) + 1
+
         a_sets = sum(1 for s in self.match.sets if s.winner == "player_a")
         b_sets = sum(1 for s in self.match.sets if s.winner == "player_b")
 
-        if a_sets >= SETS_TO_WIN:
+        if a_sets >= sets_to_win:
             self.match.winner = "player_a"
             self.match.is_finished = True
-        elif b_sets >= SETS_TO_WIN:
+        elif b_sets >= sets_to_win:
             self.match.winner = "player_b"
             self.match.is_finished = True
         else:
