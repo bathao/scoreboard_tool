@@ -1,19 +1,18 @@
+from backend.models import RallyEvent
 from backend.timeline import build_match_timeline
 from render.renderer import ScoreboardRenderer
 
 
 def main():
 
-    winner_sequence = (
-        ["player_a"] * 11 +
-        ["player_b"] * 11 +
-        ["player_a"] * 11
-    )
+    events = [
+        RallyEvent("player_a", 3.0),
+        RallyEvent("player_b", 7.0),
+        RallyEvent("player_a", 11.0),
+        RallyEvent("player_a", 15.0),
+    ]
 
-    timeline = build_match_timeline(
-        best_of=5,
-        winner_sequence=winner_sequence
-    )
+    timeline = build_match_timeline(best_of=5, events=events)
 
     renderer = ScoreboardRenderer(
         input_path="input.mp4",

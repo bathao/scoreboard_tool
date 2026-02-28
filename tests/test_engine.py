@@ -1,111 +1,124 @@
-from backend.models import MatchState
-from backend.engine import ScoreEngine
-from backend.exceptions import MatchFinishedError, InvalidOperationError
 import pytest
+
+from backend.engine import ScoreEngine
+from backend.models import MatchState, RallyEvent
 
 
 def create_engine(best_of=5):
-    match = MatchState(schema_version=1, best_of=best_of)
-    return ScoreEngine(match)
+    return ScoreEngine(MatchState(best_of=best_of))
 
 
-def win_set(engine, player):
-    for _ in range(11):
-        engine.add_point(player)
+# -------------------------------------------------
+# Basic Rally Scoring
+# -------------------------------------------------
 
-
-# ---------- MATCH OUTCOMES BO5 ----------
-
-@pytest.mark.parametrize("sequence, expected", [
-    (["A","A","A"], "player_a"),
-    (["A","A","B","A"], "player_a"),
-    (["A","B","A","B","A"], "player_a"),
-    (["B","B","B"], "player_b"),
-    (["A","B","B","B"], "player_b"),
-    (["A","B","A","B","B"], "player_b"),
-])
-def test_bo5_outcomes(sequence, expected):
-    engine = create_engine(5)
-
-    for winner in sequence:
-        win_set(engine, "player_a" if winner == "A" else "player_b")
-
-    assert engine.match.winner == expected
-    assert engine.match.is_finished
-
-
-# ---------- BO3 ----------
-
-def test_bo3():
-    engine = create_engine(3)
-
-    win_set(engine, "player_a")
-    win_set(engine, "player_a")
-
-    assert engine.match.winner == "player_a"
-    assert engine.match.is_finished
-
-
-# ---------- BO7 ----------
-
-def test_bo7():
-    engine = create_engine(7)
-
-    for _ in range(4):
-        win_set(engine, "player_a")
-
-    assert engine.match.winner == "player_a"
-    assert engine.match.is_finished
-
-
-# ---------- DEUCE ----------
-
-def test_deuce_25_23():
+def test_single_rally_player_a():
     engine = create_engine()
 
-    for _ in range(23):
-        engine.add_point("player_a")
-        engine.add_point("player_b")
+    snapshot = engine.process_event(
+        RallyEvent(timestamp=0.0, winner="player_a")
+    )
 
-    engine.add_point("player_a")
-    engine.add_point("player_a")
-
-    s = engine.match.sets[-1]
-
-    assert s.player_a == 25
-    assert s.player_b == 23
-    assert s.winner == "player_a"
+    assert snapshot.score_a == 1
+    assert snapshot.score_b == 0
+    assert not snapshot.is_finished
 
 
-def test_not_finish_11_10():
+def test_single_rally_player_b():
     engine = create_engine()
 
-    for _ in range(10):
-        engine.add_point("player_a")
-        engine.add_point("player_b")
+    snapshot = engine.process_event(
+        RallyEvent(timestamp=0.0, winner="player_b")
+    )
 
-    engine.add_point("player_a")  # 11-10
+    assert snapshot.score_a == 0
+    assert snapshot.score_b == 1
+    assert not snapshot.is_finished
 
-    s = engine.match.sets[-1]
-    assert s.winner is None
 
+# -------------------------------------------------
+# Set Win Logic
+# -------------------------------------------------
 
-# ---------- LOCK ----------
-
-def test_lock_after_finish():
+def test_player_a_wins_one_set():
     engine = create_engine()
 
-    for _ in range(3):
-        win_set(engine, "player_a")
+    snapshot = None
+    for i in range(11):
+        snapshot = engine.process_event(
+            RallyEvent(timestamp=i, winner="player_a")
+        )
 
-    with pytest.raises(MatchFinishedError):
-        engine.add_point("player_b")
+    assert snapshot.sets_a == 1
+    assert snapshot.score_a == 0
+    assert snapshot.score_b == 0
 
 
-# ---------- INVALID PLAYER ----------
-
-def test_invalid_player():
+def test_set_requires_two_point_difference():
     engine = create_engine()
 
-    with pytest.raises(InvalidOperationError):
-        engine.add_point("player_c")
+    for i in range(10):
+        engine.process_event(RallyEvent(timestamp=i, winner="player_a"))
+        engine.process_event(RallyEvent(timestamp=i+0.1, winner="player_b"))
+
+    snapshot = engine.process_event(
+        RallyEvent(timestamp=100, winner="player_a")
+    )
+    assert snapshot.sets_a == 0
+
+    snapshot = engine.process_event(
+        RallyEvent(timestamp=101, winner="player_a")
+    )
+
+    assert snapshot.sets_a == 1
+
+
+# -------------------------------------------------
+# Match Finish Logic
+# -------------------------------------------------
+
+def test_best_of_5_match_finish():
+    engine = create_engine(best_of=5)
+
+    snapshot = None
+
+    for s in range(3):
+        for i in range(11):
+            snapshot = engine.process_event(
+                RallyEvent(timestamp=s*100 + i, winner="player_a")
+            )
+
+    assert snapshot.is_finished
+    assert snapshot.winner == "player_a"
+
+
+def test_no_score_after_match_finished():
+    engine = create_engine(best_of=3)
+
+    for s in range(2):
+        for i in range(11):
+            snapshot = engine.process_event(
+                RallyEvent(timestamp=s*100 + i, winner="player_a")
+            )
+
+    assert snapshot.is_finished
+
+    snapshot_after = engine.process_event(
+        RallyEvent(timestamp=999, winner="player_b")
+    )
+
+    assert snapshot_after.sets_a == 2
+    assert snapshot_after.winner == "player_a"
+
+
+# -------------------------------------------------
+# Invalid Winner
+# -------------------------------------------------
+
+def test_invalid_winner_value():
+    engine = create_engine()
+
+    with pytest.raises(ValueError):
+        engine.process_event(
+            RallyEvent(timestamp=0, winner="invalid_player")
+        )

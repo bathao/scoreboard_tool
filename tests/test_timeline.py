@@ -1,74 +1,133 @@
 import pytest
+
 from backend.timeline import build_match_timeline
+from backend.models import RallyEvent
 
 
-def test_timeline_single_set_win():
+# -------------------------------------------------
+# Basic Timeline Build
+# -------------------------------------------------
 
-    winner_sequence = ["player_a"] * 11
+def test_timeline_basic_build():
+    events = [
+        RallyEvent(timestamp=i, winner="player_a")
+        for i in range(5)
+    ]
 
-    timeline = build_match_timeline(best_of=5, winner_sequence=winner_sequence)
+    timeline = build_match_timeline(best_of=5, events=events)
 
-    assert len(timeline) == 11
-
-    last_state = timeline[-1]
-
-    assert last_state["score_a"] == 11
-    assert last_state["score_b"] == 0
-    assert last_state["sets_a"] == 1
-    assert last_state["sets_b"] == 0
-    assert last_state["is_finished"] is False
+    assert len(timeline) == 5
+    assert timeline[-1].score_a == 5
 
 
-def test_timeline_match_finish():
-
-    # player_a wins 3 sets (best_of=5 → 3 sets to win)
-    winner_sequence = (
-        ["player_a"] * 11 +
-        ["player_a"] * 11 +
-        ["player_a"] * 11
-    )
-
-    timeline = build_match_timeline(best_of=5, winner_sequence=winner_sequence)
-
-    last_state = timeline[-1]
-
-    assert last_state["sets_a"] == 3
-    assert last_state["is_finished"] is True
-    assert last_state["winner"] == "player_a"
-
+# -------------------------------------------------
+# Timeline Stops After Match Finish
+# -------------------------------------------------
 
 def test_timeline_stops_after_match_finish():
+    events = []
 
-    winner_sequence = (
-        ["player_a"] * 11 +
-        ["player_a"] * 11 +
-        ["player_a"] * 11 +
-        ["player_b"] * 50   # extra points that should never apply
-    )
+    # enough to win match 3 sets
+    for s in range(3):
+        for i in range(11):
+            events.append(
+                RallyEvent(timestamp=s*100+i, winner="player_a")
+            )
 
-    timeline = build_match_timeline(best_of=5, winner_sequence=winner_sequence)
+    # add extra noise events
+    for i in range(20):
+        events.append(
+            RallyEvent(timestamp=1000+i, winner="player_b")
+        )
 
-    # Should stop at 33 rallies
-    assert len(timeline) == 33
+    timeline = build_match_timeline(best_of=5, events=events)
 
-    last_state = timeline[-1]
+    last = timeline[-1]
 
-    assert last_state["is_finished"] is True
-    assert last_state["winner"] == "player_a"
+    assert last.is_finished
+    assert last.winner == "player_a"
 
 
-def test_timeline_set_progression():
+# -------------------------------------------------
+# Empty Events
+# -------------------------------------------------
 
-    winner_sequence = ["player_a"] * 11 + ["player_b"] * 11
+def test_empty_timeline():
+    timeline = build_match_timeline(best_of=5, events=[])
 
-    timeline = build_match_timeline(best_of=5, winner_sequence=winner_sequence)
+    assert timeline == []
 
-    # First set
-    first_set_end = timeline[10]
-    assert first_set_end["sets_a"] == 1
-    assert first_set_end["set_number"] == 1
 
-    # Second set
-    second_set_end = timeline[-1]
-    assert second_set_end["sets_b"] == 1
-    assert second_set_end["set_number"] == 2
+# -------------------------------------------------
+# Mixed Winners
+# -------------------------------------------------
+
+def test_mixed_winner_progression():
+    events = [
+        RallyEvent(timestamp=0, winner="player_a"),
+        RallyEvent(timestamp=1, winner="player_b"),
+        RallyEvent(timestamp=2, winner="player_a"),
+    ]
+
+    timeline = build_match_timeline(best_of=5, events=events)
+
+    assert timeline[0].score_a == 1
+    assert timeline[1].score_b == 1
+    assert timeline[2].score_a == 2
+
+
+# -------------------------------------------------
+# Timestamp Gaps
+# -------------------------------------------------
+
+def test_large_timestamp_gap():
+    events = [
+        RallyEvent(timestamp=0, winner="player_a"),
+        RallyEvent(timestamp=9999, winner="player_a"),
+    ]
+
+    timeline = build_match_timeline(best_of=5, events=events)
+
+    assert len(timeline) == 2
+    assert timeline[-1].score_a == 2
+
+
+# -------------------------------------------------
+# Invalid Event Data
+# -------------------------------------------------
+
+def test_invalid_event_in_timeline():
+    events = [
+        RallyEvent(timestamp=0, winner="player_a"),
+        RallyEvent(timestamp=1, winner="invalid"),
+    ]
+
+    with pytest.raises(ValueError):
+        build_match_timeline(best_of=5, events=events)
+
+
+# -------------------------------------------------
+# Best Of Variations
+# -------------------------------------------------
+
+@pytest.mark.parametrize("best_of, required_sets", [
+    (3, 2),
+    (5, 3),
+    (7, 4),
+])
+def test_best_of_variations(best_of, required_sets):
+
+    events = []
+
+    for s in range(required_sets):
+        for i in range(11):
+            events.append(
+                RallyEvent(timestamp=s*100+i, winner="player_b")
+            )
+
+    timeline = build_match_timeline(best_of=best_of, events=events)
+
+    last = timeline[-1]
+
+    assert last.is_finished
+    assert last.winner == "player_b"

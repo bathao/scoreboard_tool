@@ -1,127 +1,131 @@
 import cv2
-from pathlib import Path
+from typing import List
+from backend.models import MatchSnapshot
 
 
 class ScoreboardRenderer:
 
-    def __init__(self, input_path: str, output_path: str, timeline: list[dict]):
-        self.input_path = Path(input_path)
-        self.output_path = Path(output_path)
+    def __init__(self, input_path: str, output_path: str, timeline: List[MatchSnapshot]):
+        self.input_path = input_path
+        self.output_path = output_path
         self.timeline = timeline
+
+        if not self.timeline:
+            raise ValueError("Timeline cannot be empty")
 
     def render(self):
 
-        # Validate timeline
-        if not self.timeline:
-            raise ValueError("Timeline is empty. Nothing to render.")
+        cap = cv2.VideoCapture(self.input_path)
 
-        # Validate input file existence
-        if not self.input_path.exists():
-            raise FileNotFoundError(
-                f"Input video not found: {self.input_path}"
-            )
-
-        cap = cv2.VideoCapture(str(self.input_path))
-
-        # Validate video can open
         if not cap.isOpened():
-            raise RuntimeError(
-                f"Cannot open video file: {self.input_path}"
-            )
+            raise RuntimeError("Cannot open input video")
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        if fps == 0:
-            raise RuntimeError("Invalid video FPS detected.")
-
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(
-            str(self.output_path),
-            fourcc,
-            fps,
-            (width, height)
-        )
+        out = cv2.VideoWriter(self.output_path, fourcc, fps, (width, height))
 
         frame_count = 0
-        rally_index = 0
-
-        # Temporary mapping: 3 seconds per rally
-        frames_per_rally = int(fps * 3)
-
-        print("Starting render...")
-        print(f"Input: {self.input_path}")
-        print(f"Output: {self.output_path}")
-        print(f"FPS: {fps}")
-        print(f"Resolution: {width}x{height}")
-        print(f"Total rallies: {len(self.timeline)}")
+        state_index = 0
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            if rally_index < len(self.timeline):
-                state = self.timeline[rally_index]
-            else:
-                state = self.timeline[-1]
+            current_time = frame_count / fps
 
-            self._draw_scoreboard(frame, state)
+            # advance timeline by timestamp
+            while (
+                state_index + 1 < len(self.timeline)
+                and current_time >= self.timeline[state_index + 1].timestamp
+            ):
+                state_index += 1
+
+            current_state = self.timeline[state_index]
+
+            self._draw_scoreboard(frame, current_state, width, height)
 
             out.write(frame)
-
             frame_count += 1
-
-            if frame_count % frames_per_rally == 0:
-                rally_index += 1
 
         cap.release()
         out.release()
 
-        print("Render completed successfully.")
+    # ----------------------------------------------------
+    # DRAWING
+    # ----------------------------------------------------
 
-    def _draw_scoreboard(self, frame, state):
+    def _draw_scoreboard(self, frame, state: MatchSnapshot, width: int, height: int):
 
-        height, width, _ = frame.shape
+        scoreboard_width = 280
+        scoreboard_height = 110
 
-        text_score = f"A {state['score_a']} - {state['score_b']} B"
-        text_sets = f"Sets: {state['sets_a']} - {state['sets_b']}"
-
-        # ---- Box size ----
-        box_width = 480
-        box_height = 130
         margin = 20
 
-        # Bottom-right positioning
-        x1 = width - box_width - margin
-        y1 = height - box_height - margin
+        # bottom-right corner
+        x1 = width - scoreboard_width - margin
+        y1 = height - scoreboard_height - margin
         x2 = width - margin
         y2 = height - margin
 
-        # Background box
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), -1)
+        # background box
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)
+        alpha = 0.6
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-        # Text positions relative to box
-        score_pos = (x1 + 20, y1 + 55)
-        sets_pos = (x1 + 20, y1 + 100)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        white = (255, 255, 255)
 
+        # Titles
+        cv2.putText(frame, "PLAYER A", (x1 + 15, y1 + 30), font, 0.6, white, 2)
+        cv2.putText(frame, "PLAYER B", (x1 + 15, y1 + 60), font, 0.6, white, 2)
+
+        # Scores
         cv2.putText(
             frame,
-            text_score,
-            score_pos,
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.3,
-            (255, 255, 255),
-            3,
-        )
-
-        cv2.putText(
-            frame,
-            text_sets,
-            sets_pos,
-            cv2.FONT_HERSHEY_SIMPLEX,
+            str(state.score_a),
+            (x2 - 60, y1 + 30),
+            font,
             0.9,
-            (255, 255, 255),
+            white,
             2,
         )
+
+        cv2.putText(
+            frame,
+            str(state.score_b),
+            (x2 - 60, y1 + 60),
+            font,
+            0.9,
+            white,
+            2,
+        )
+
+        # Set score
+        set_text = f"Sets: {state.sets_a} - {state.sets_b}"
+        cv2.putText(
+            frame,
+            set_text,
+            (x1 + 15, y1 + 90),
+            font,
+            0.6,
+            white,
+            2,
+        )
+
+        # If match finished
+        if state.is_finished:
+            winner_text = f"Winner: {state.winner}"
+            cv2.putText(
+                frame,
+                winner_text,
+                (x1 + 15, y1 - 10),
+                font,
+                0.7,
+                (0, 255, 0),
+                2,
+            )
