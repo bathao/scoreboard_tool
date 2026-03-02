@@ -21,7 +21,7 @@ import subprocess
 
 def main():
     # --- CONFIGURATION ---
-    VIDEO_INPUT = "Vinh_set1_2events.mp4"
+    VIDEO_INPUT = "Vinh_set1.mp4"
     YOLO_WEIGHTS = "weights/yolov8x_table.pt"
     OLLAMA_MODEL = "llama3.2-vision"
 

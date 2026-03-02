@@ -98,7 +98,9 @@ def run_debug(json_path_str: str, video_path_str: str):
 
 if __name__ == "__main__":
     # Update these filenames to match your current test case
-    TARGET_JSON = "matches/Vinh_set1_2events_draft.json"
+#    TARGET_JSON = "matches/Vinh_set1_2events_draft.json"
+#    TARGET_VIDEO = "Vinh_set1_2events.mp4"
+    TARGET_JSON = "matches/Vinh_set1_draft.json"
     TARGET_VIDEO = "Vinh_set1_2events.mp4"
     
     run_debug(TARGET_JSON, TARGET_VIDEO)

@@ -6,19 +6,19 @@
   "best_of": 5,
   "created_at": "",
   "roi": {
-    "x": 939,
-    "y": 775,
-    "w": 509,
-    "h": 190,
-    "confidence": 0.16266754269599915,
-    "method": "v8x_surface_corrected",
-    "notes": "Shifted from AI-box to Blue-surface"
+    "x": 845,
+    "y": 746,
+    "w": 711,
+    "h": 226,
+    "confidence": 0.1152687817811966,
+    "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+    "notes": "score=0.688; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255)"
   },
   "points": [
     {
       "id": "r_001",
       "t_start": 4.871533333333334,
-      "t_end": 6.840166666666667,
+      "t_end": 8.041366666666667,
       "winner": "player_a",
       "confidence": 0.0,
       "flags": [],
@@ -27,8 +27,8 @@
     },
     {
       "id": "r_002",
-      "t_start": 11.077733333333333,
-      "t_end": 12.846166666666667,
+      "t_start": 10.977633333333333,
+      "t_end": 13.8138,
       "winner": "player_a",
       "confidence": 0.0,
       "flags": [],
