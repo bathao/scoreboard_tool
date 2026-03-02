@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Optional, List, Tuple
 
 from backend.ai_table_roi import TableROI
@@ -10,18 +10,61 @@ from backend.ai_table_roi import TableROI
 @dataclass(frozen=True)
 class DLConfig:
     """
-    Configuration for Deep Learning based ROI detection.
+    ROI Configuration optimized for Blue Playing Surface.
+    Designed to ignore the table legs and under-structure.
     """
     weights_path: str
-    conf_thres: float = 0.25
+    conf_thres: float = 0.10
     iou_thres: float = 0.45
     device: str = "cuda"
-    class_name: str = "table"
+
+def _find_blue_surface_box(frame: np.ndarray, search_area: Tuple[int, int, int, int]) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Focuses specifically on finding the blue rectangular playing surface 
+    within a broader area identified by AI.
+    """
+    x, y, w, h = search_area
+    # Expand the search area upwards slightly to catch the surface if YOLO caught the legs
+    search_y1 = max(0, y - int(h * 0.8))
+    search_y2 = min(frame.shape[0], y + h)
+    
+    roi_zone = frame[search_y1:search_y2, x:x+w]
+    if roi_zone.size == 0: return None
+
+    # Convert to HSV for robust blue detection
+    hsv = cv2.cvtColor(roi_zone, cv2.COLOR_BGR2HSV)
+    
+    # Strict range for the blue table top
+    lower_blue = np.array([95, 80, 50])
+    upper_blue = np.array([125, 255, 255])
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+    # Clean the mask (remove net lines and noise)
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours: return None
+
+    # Filter contours by area and shape
+    valid_contours = []
+    for cnt in contours:
+        bx, by, bw, bh = cv2.boundingRect(cnt)
+        if bw > (w * 0.4) and (bw / bh) > 1.2:
+            valid_contours.append((bx, by, bw, bh))
+
+    if not valid_contours: return None
+
+    # Pick the contour that is most central horizontally in the search zone
+    valid_contours.sort(key=lambda c: abs((c[0] + c[2]/2) - (w/2)))
+    bx, by, bw, bh = valid_contours[0]
+
+    return x + bx, search_y1 + by, bw, bh
 
 def _try_import_ultralytics():
-    """Attempts to import YOLO from ultralytics library."""
     try:
-        from ultralytics import YOLO # type: ignore
+        from ultralytics import YOLO
         return YOLO
     except ImportError:
         return None
@@ -30,117 +73,70 @@ def detect_table_roi_dl(
     video_path: str,
     *,
     cfg: Optional[DLConfig] = None,
-    sample_time_sec: float = 1.0,
-    max_frames: int = 3,
+    sample_time_sec: float = 2.0,
+    max_frames: int = 5,
     debug: bool = False
 ) -> TableROI:
     """
-    Strict YOLO-based table detection with Centrality Logic.
-    
-    If no table is found with sufficient confidence, it RAISES an error 
-    instead of falling back to classical methods.
+    Custom Table ROI Detection:
+    1. Uses YOLO to find the general 'Table' vicinity (often catches legs).
+    2. Uses _find_blue_surface_box to shift the ROI UP to the blue surface.
+    3. Prioritizes the central axis of the video.
     """
-    
     YOLO = _try_import_ultralytics()
-    
-    # --- PHASE 0: Environment Validation ---
-    if YOLO is None:
-        raise RuntimeError("CRITICAL: 'ultralytics' library not installed. Cannot run YOLO detection.")
-    
-    if cfg is None:
-        raise ValueError("CRITICAL: DLConfig missing for detect_table_roi_dl.")
+    if YOLO is None or cfg is None:
+        raise RuntimeError("CRITICAL: Environment/Config Error.")
 
-    # --- PHASE 1: Model Loading ---
-    try:
-        model = YOLO(cfg.weights_path)
-    except Exception as e:
-        raise RuntimeError(f"CRITICAL: Failed to load YOLO weights from {cfg.weights_path}. Error: {e}")
-
-    # --- PHASE 2: Video Setup ---
+    model = YOLO(cfg.weights_path)
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"CRITICAL: Cannot open video file: {video_path}")
-
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
     
-    video_center = np.array([W / 2, H / 2])
-    max_possible_dist = np.linalg.norm(video_center)
+    # Sample at different times to get a clear view
+    check_times = [2.0, 4.0, 6.0]
+    best_candidate = None
+    max_score = -1.0
 
-    # Seek to sample time
-    frame_idx0 = int(round(sample_time_sec * fps))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx0)
-
-    best_roi: Optional[TableROI] = None
-    highest_selection_score = -1.0
-
-    # --- PHASE 3: Detection & Centrality Scoring ---
-    for i in range(max_frames):
+    for ts in check_times:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(ts * (cap.get(cv2.CAP_PROP_FPS) or 60.0)))
         ret, frame = cap.read()
         if not ret: break
 
-        results = model.predict(
-            frame, 
-            conf=cfg.conf_thres, 
-            iou=cfg.iou_thres, 
-            device=cfg.device, 
-            verbose=False
-        )
+        results = model.predict(frame, conf=cfg.conf_thres, device=cfg.device, verbose=False)
+        if not results or len(results[0].boxes) == 0: continue
 
-        if not results or len(results[0].boxes) == 0:
-            continue
+        for box in results[0].boxes:
+            if int(box.cls[0]) == 0: continue # Skip person
+            
+            x1, y1, x2, y2 = box.xyxy.cpu().numpy()[0]
+            bw_ai, bh_ai = x2 - x1, y2 - y1
 
-        boxes = results[0].boxes
-        for box in boxes:
-            xyxy = box.xyxy.cpu().numpy()[0]
-            conf = float(box.conf.cpu().numpy()[0])
-            
-            x1, y1, x2, y2 = xyxy
-            bw, bh = x2 - x1, y2 - y1
-            
-            # Centrality Logic
-            box_center = np.array([(x1 + x2) / 2, (y1 + y2) / 2])
-            dist_to_center = np.linalg.norm(box_center - video_center)
-            centrality_score = 1.0 - (dist_to_center / max_possible_dist)
-            
-            # Area Importance
-            area_ratio = (bw * bh) / (W * H)
-            
-            # Heuristic: 60% Centrality, 40% Area. Multiplied by AI Confidence.
-            selection_score = ((centrality_score * 0.6) + (area_ratio * 0.4)) * conf
+            # Ignore banners (Anything in the top 40% of the screen)
+            if y1 < (H * 0.40): continue
 
-            if debug:
-                print(f"[roi-dl] Table Candidate: Score={selection_score:.3f} | Conf={conf:.2f}")
+            # --- CORRECTION STEP: PULL ROI UP TO BLUE SURFACE ---
+            surface = _find_blue_surface_box(frame, (int(x1), int(y1), int(bw_ai), int(bh_ai)))
+            
+            if surface:
+                sx, sy, sw, sh = surface
+                
+                # Ranking score: Horizontal Centrality (70%) + Confidence (30%)
+                dist_center_x = abs((sx + sw/2) - (W/2))
+                centrality = 1.0 - (dist_center_x / (W/2))
+                score = centrality * 0.7 + float(box.conf[0]) * 0.3
 
-            if selection_score > highest_selection_score:
-                highest_selection_score = selection_score
-                best_roi = TableROI(
-                    x=int(max(0, x1)),
-                    y=int(max(0, y1)),
-                    w=int(min(bw, W - x1)),
-                    h=int(min(bh, H - y1)),
-                    confidence=conf,
-                    method="dl_yolo_v8x_centralized",
-                    notes=f"CentralityScore: {selection_score:.2f}"
-                )
+                if score > max_score:
+                    max_score = score
+                    best_candidate = TableROI(
+                        x=sx, y=sy, w=sw, h=sh,
+                        confidence=float(box.conf[0]),
+                        method="v8x_surface_corrected",
+                        notes=f"Shifted from AI-box to Blue-surface"
+                    )
 
     cap.release()
 
-    # --- PHASE 4: Strict Validation ---
-    if best_roi is None:
-        raise RuntimeError(
-            f"CRITICAL: YOLO failed to detect ANY table in '{video_path}'.\n"
-            "Check if the table is visible, or adjust 'sample_time_sec'."
-        )
+    if best_candidate is None:
+        raise RuntimeError("CRITICAL: Failed to locate blue table surface. Check lighting.")
 
-    if best_roi.confidence < 0.40: # Strict confidence threshold
-        raise RuntimeError(
-            f"CRITICAL: Detected table confidence too low ({best_roi.confidence:.2f}).\n"
-            "Execution stopped to prevent incorrect rally tracking."
-        )
-
-    if debug:
-        print(f"[roi-dl] FINAL SELECTION: {best_roi.as_tuple()} (Conf: {best_roi.confidence:.2f})")
-
-    return best_roi
+    return best_candidate

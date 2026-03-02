@@ -5,11 +5,20 @@
   "video_fps": 59.94005994005994,
   "best_of": 5,
   "created_at": "",
+  "roi": {
+    "x": 939,
+    "y": 775,
+    "w": 509,
+    "h": 190,
+    "confidence": 0.16266754269599915,
+    "method": "v8x_surface_corrected",
+    "notes": "Shifted from AI-box to Blue-surface"
+  },
   "points": [
     {
       "id": "r_001",
-      "t_start": 0.13346666666666668,
-      "t_end": 6.373033333333334,
+      "t_start": 4.871533333333334,
+      "t_end": 6.840166666666667,
       "winner": "player_a",
       "confidence": 0.0,
       "flags": [],
@@ -18,8 +27,8 @@
     },
     {
       "id": "r_002",
-      "t_start": 8.5085,
-      "t_end": 14.547866666666668,
+      "t_start": 11.077733333333333,
+      "t_end": 12.846166666666667,
       "winner": "player_a",
       "confidence": 0.0,
       "flags": [],
