@@ -17,47 +17,7 @@
   "points": [
     {
       "id": "r_001",
-      "t_start": 5.138466666666667,
-      "t_end": 6.9069,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_002",
-      "t_start": 11.611600000000001,
-      "t_end": 12.812800000000001,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_003",
-      "t_start": 21.354666666666667,
-      "t_end": 24.157466666666668,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_004",
-      "t_start": 26.259566666666668,
-      "t_end": 30.7307,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_005",
-      "t_start": 35.16846666666667,
+      "t_start": 0.03336666666666667,
       "t_end": 38.07136666666667,
       "winner": "unknown",
       "confidence": 0.0,
@@ -66,9 +26,49 @@
       "corrections": []
     },
     {
+      "id": "r_002",
+      "t_start": 40.90753333333333,
+      "t_end": 45.045,
+      "winner": "unknown",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "r_003",
+      "t_start": 47.01363333333333,
+      "t_end": 48.782066666666665,
+      "winner": "unknown",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "r_004",
+      "t_start": 52.685966666666666,
+      "t_end": 57.39066666666667,
+      "winner": "unknown",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "r_005",
+      "t_start": 63.39666666666667,
+      "t_end": 74.10736666666666,
+      "winner": "unknown",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
       "id": "r_006",
-      "t_start": 55.88916666666667,
-      "t_end": 57.023633333333336,
+      "t_start": 77.84443333333334,
+      "t_end": 84.55113333333334,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],
@@ -77,8 +77,8 @@
     },
     {
       "id": "r_007",
-      "t_start": 66.7667,
-      "t_end": 70.00326666666666,
+      "t_start": 89.45603333333334,
+      "t_end": 109.44266666666667,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],
@@ -87,8 +87,8 @@
     },
     {
       "id": "r_008",
-      "t_start": 72.60586666666667,
-      "t_end": 73.8738,
+      "t_start": 111.0109,
+      "t_end": 116.0159,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],
@@ -97,8 +97,8 @@
     },
     {
       "id": "r_009",
-      "t_start": 83.41666666666667,
-      "t_end": 85.7857,
+      "t_start": 121.25446666666667,
+      "t_end": 126.69323333333334,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],
@@ -107,8 +107,8 @@
     },
     {
       "id": "r_010",
-      "t_start": 88.5885,
-      "t_end": 90.3903,
+      "t_start": 128.96216666666666,
+      "t_end": 138.7386,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],
@@ -117,68 +117,8 @@
     },
     {
       "id": "r_011",
-      "t_start": 93.62686666666667,
-      "t_end": 95.92916666666667,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_012",
-      "t_start": 98.66523333333333,
-      "t_end": 100.66723333333333,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_013",
-      "t_start": 105.4053,
-      "t_end": 106.43966666666667,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_014",
-      "t_start": 107.64086666666667,
-      "t_end": 108.84206666666667,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_015",
-      "t_start": 114.8147,
-      "t_end": 116.116,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_016",
-      "t_start": 120.85406666666667,
-      "t_end": 124.25746666666667,
-      "winner": "unknown",
-      "confidence": 0.0,
-      "flags": [],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "r_017",
-      "t_start": 137.0369,
-      "t_end": 139.6395,
+      "t_start": 141.9418,
+      "t_end": 154.52103333333335,
       "winner": "unknown",
       "confidence": 0.0,
       "flags": [],

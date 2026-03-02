@@ -1,0 +1,183 @@
+hệ thống đang làm: Phân tích clip raw đánh bóng bàn để add scoreboard 
+Clip raw Bóng bàn, Không có Scoreboard, môi trường nhà thi đấu, nhiều noise
+✔ Upload video 20–30 phút (Định dạng 1K/2K 60fps, tripod cố định)
+✔ Backend detect set
+✔ AI phân tích rally → JSON
+✔ Bạn chỉnh sửa nếu sai
+✔ Render 1080p có scoreboard
+
+Đã làm được:
+Nếu chia toàn bộ project thành 5 tầng:
+1️⃣ Domain Core (Score Engine)
+
+Set logic
+
+BO3/5/7
+
+Deterministic replay
+
+Timeline build
+
+Snapshot
+
+👉 Bạn đã hoàn thành 95% tầng này.
+
+2️⃣ Session / Application Layer
+
+Load JSON
+
+Validate event
+
+Replay
+
+Reset
+
+Export
+
+👉 Bạn vừa hoàn thành xong.
+
+3️⃣ AI Contract Layer
+
+Định nghĩa chuẩn JSON
+
+Validation schema
+
+Confidence handling
+
+Error correction flow
+
+👉 Chưa xác định được bao nhiêu %
+
+4️⃣ Video Processing Layer
+
+Extract frame
+
+Timestamp sync
+
+Render scoreboard 1080p
+
+Overlay pipeline
+
+👉 10-20%
+
+5️⃣ Local AI Layer
+
+Model detect rally
+
+Audio cue detection?
+
+Motion segmentation?
+
+Local inference optimization
+
+👉 5%
+
+Tôi cần bạn hiểu cấu trúc thư mục, đọc tất cả code tôi đang có trước. không cần gợi ý hướng tiếp theo lúc này. Cấu trúc thư mục, các file python sẽ được input sau
+
+Cấu hình máy tính: Core i9, Ram 32G, GPU: 16VRAM
+OS: Window 11
+
+List cấu trúc thư mục:
+Get-ChildItem -Recurse |
+Where-Object {
+    -not ($_.Attributes -band [IO.FileAttributes]::Hidden) -and
+    $_.FullName -notmatch '\\\.(venv|pytest|git)\\' -and
+    $_.FullName -notmatch '__pycache__\\' -and
+    ($_.PSIsContainer -or $_.Extension -eq ".py")
+}
+
+Output: 
+ Directory: C:\Users\MSI\scoreboard_tool
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----         2/28/2026   4:03 PM                .pytest_cache
+d-----          3/2/2026   9:09 AM                .venv
+d-----          3/2/2026   9:25 AM                backend
+d-----          3/2/2026   4:22 PM                debug_report
+d-----          3/2/2026  12:09 PM                matches
+d-----         2/28/2026   9:56 PM                render
+d-----          3/2/2026  12:16 PM                scripts
+d-----          3/1/2026   2:09 AM                tests
+d-----          3/2/2026  10:22 AM                weights
+d-----          3/2/2026   8:20 AM                __pycache__
+-a----          3/2/2026   4:23 PM           7110 main.py
+-a----          3/2/2026  12:32 PM           2625 pipeline_v1.py
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\.pytest_cache
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----         2/28/2026   4:03 PM                v
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\.pytest_cache\v
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----         2/28/2026   4:08 PM                cache
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\backend
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----          3/2/2026   4:18 PM                __pycache__
+-a----          3/2/2026  12:42 PM           6117 ai_contract.py
+-a----          3/2/2026   8:37 AM           1199 ai_ollama_client.py
+-a----          3/2/2026   9:06 AM           2689 ai_rally_segmentation.py
+-a----          3/1/2026   4:11 PM           5389 ai_table_roi.py
+-a----          3/2/2026   4:18 PM          18682 ai_table_roi_dl.py
+-a----         2/28/2026   3:33 PM            181 config.py
+-a----          3/1/2026   1:28 AM           4745 engine.py
+-a----         2/28/2026   3:34 PM            154 exceptions.py
+-a----          3/1/2026   2:20 AM           2727 match_session.py
+-a----          3/1/2026  12:59 AM            683 models.py
+-a----         2/28/2026   3:35 PM            810 storage.py
+-a----          3/1/2026   1:00 AM            446 timeline.py
+-a----          3/2/2026   9:33 AM           2513 video_gpu_io.py
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\render
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----          3/2/2026   8:27 AM                __pycache__
+-a----          3/1/2026   1:02 AM           3556 renderer.py
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\scripts
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----          3/1/2026   9:50 PM                __pycache__
+-a----          3/1/2026   9:50 PM          13634 ai_generate_draft.py
+-a----          3/2/2026   9:42 AM           2381 ai_refine_draft.py
+-a----          3/1/2026   4:12 PM           1379 calibrate_table_roi.py
+-a----          3/2/2026   4:33 PM           4076 debug_pipeline.py
+-a----          3/2/2026   9:51 AM           3811 final_render.py
+-a----          3/1/2026   1:02 AM            606 render_demo.py
+-a----          3/2/2026   8:27 AM           1733 render_from_draft.py
+
+
+    Directory: C:\Users\MSI\scoreboard_tool\tests
+
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----          3/2/2026   7:57 AM                __pycache__
+-a----          3/1/2026   1:16 AM           3194 test_engine.py
+-a----          3/1/2026   1:38 AM           5423 test_engine_advanced.py
+-a----          3/1/2026   2:21 AM           4203 test_match_session.py
+-a----          3/1/2026   1:10 AM           3483 test_timeline.py
+
+Rule chung:  
+- Không sử dụng tiếng việt trong phần comments trong code
+- Ưu tiên generate full file hoàn chỉnh để dễ copy/paste

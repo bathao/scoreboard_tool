@@ -15,3 +15,5 @@ renders/
 *.mp4
 *.avi
 yolov8x_table.pt
+yolov8n-pose.pt
+yolov8x-pose.pt
