@@ -14,3 +14,4 @@ build/
 renders/
 *.mp4
 *.avi
+yolov8x_table.pt

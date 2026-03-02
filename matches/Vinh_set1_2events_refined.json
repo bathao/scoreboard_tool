@@ -1,0 +1,30 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1_2events.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "",
+  "points": [
+    {
+      "id": "r_001",
+      "t_start": 0.13346666666666668,
+      "t_end": 6.373033333333334,
+      "winner": "player_a",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "r_002",
+      "t_start": 8.5085,
+      "t_end": 14.547866666666668,
+      "winner": "player_a",
+      "confidence": 0.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    }
+  ]
+}

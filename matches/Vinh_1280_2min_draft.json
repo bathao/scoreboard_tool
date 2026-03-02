@@ -1,0 +1,154 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_1280_2min.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-02T08:39:08.378476",
+  "points": [
+    {
+      "id": "rally_001",
+      "t_start": 0.0,
+      "t_end": 3.55,
+      "winner": "unknown",
+      "confidence": 0.9190003573894501,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_002",
+      "t_start": 8.21,
+      "t_end": 15.57,
+      "winner": "unknown",
+      "confidence": 0.8180687099695205,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_003",
+      "t_start": 18.27,
+      "t_end": 27.08,
+      "winner": "unknown",
+      "confidence": 0.6378617748618125,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_004",
+      "t_start": 32.88,
+      "t_end": 45.85,
+      "winner": "unknown",
+      "confidence": 0.8145194619894027,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_005",
+      "t_start": 47.8,
+      "t_end": 49.0,
+      "winner": "unknown",
+      "confidence": 0.616987133026123,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_006",
+      "t_start": 50.8,
+      "t_end": 52.3,
+      "winner": "unknown",
+      "confidence": 0.6686887040734291,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_007",
+      "t_start": 63.16,
+      "t_end": 73.07,
+      "winner": "unknown",
+      "confidence": 0.6731260001659394,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_008",
+      "t_start": 76.83,
+      "t_end": 79.98,
+      "winner": "unknown",
+      "confidence": 0.7393934547901153,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_009",
+      "t_start": 81.13,
+      "t_end": 82.13,
+      "winner": "unknown",
+      "confidence": 0.536434468626976,
+      "flags": [
+        "SEGMENT_SHORT"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_010",
+      "t_start": 83.28,
+      "t_end": 88.84,
+      "winner": "unknown",
+      "confidence": 0.6663772180676459,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_011",
+      "t_start": 90.14,
+      "t_end": 91.34,
+      "winner": "unknown",
+      "confidence": 0.593434864282608,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_012",
+      "t_start": 93.19,
+      "t_end": 113.91,
+      "winner": "unknown",
+      "confidence": 0.793083181977272,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_013",
+      "t_start": 114.66,
+      "t_end": 115.67,
+      "winner": "unknown",
+      "confidence": 0.6007925510406493,
+      "flags": [
+        "SEGMENT_SHORT"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "rally_014",
+      "t_start": 116.52,
+      "t_end": 119.97,
+      "winner": "unknown",
+      "confidence": 0.7265512287616729,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    }
+  ]
+}
