@@ -179,5 +179,6 @@ d-----          3/2/2026   7:57 AM                __pycache__
 -a----          3/1/2026   1:10 AM           3483 test_timeline.py
 
 Rule chung:  
-- Không sử dụng tiếng việt trong phần comments trong code
+- Ghi chú (comments) và chuỗi (strings) trong code 100% bằng tiếng Anh, giải thích bên ngoài bằng tiếng Việt.
 - Ưu tiên generate full file hoàn chỉnh để dễ copy/paste
+- Luôn luôn ưu tiên dùng những thuật toán nâng cao mà có thể chạy được với card 5060Ti cho project này
