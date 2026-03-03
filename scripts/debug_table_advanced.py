@@ -4,7 +4,8 @@ import torch.nn.functional as F
 import cv2
 import numpy as np
 import sys
-import os
+import argparse
+import matplotlib.pyplot as plt
 from pathlib import Path
 
 # Ensure backend visibility
@@ -14,133 +15,130 @@ from backend.video_gpu_io import probe_video_ffprobe, nvdec_bgr24_stream
 from backend.ai_table_roi_dl import detect_table_roi_dl, DLConfig
 
 def format_time(seconds: float) -> str:
-    """Converts seconds to MM:SS format for video cross-referencing."""
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes:02d}:{secs:02d}"
+    """MM:SS format."""
+    return f"{int(seconds // 60):02d}:{int(seconds % 60):02d}"
 
-def run_advanced_table_pipeline(video_path_str: str, table_weights_str: str):
-    """
-    Advanced Table-Only Rally Detection.
-    Optimized for RTX 5060 Ti using GPU-based signal processing.
-    Uses Hysteresis thresholding for robust segmentation.
-    """
-    print("--- STARTING ADVANCED TABLE-ONLY PIPELINE ---")
+def run_advanced_debug_visual(video_path_str: str, table_weights_str: str):
+    # --- 1. STRICT FILE VERIFICATION ---
+    v_path = Path(video_path_str).absolute()
+    w_path = Path(table_weights_str).absolute()
+    
+    print(f"\n" + "="*80)
+    print(f" LOGIC: ADVANCED TABLE-ONLY (VISUAL DEBUG)")
+    print(f" PROCESSING FILE: {v_path}") # Kiểm tra đường dẫn tuyệt đối
+    print(f" WEIGHTS USED:    {w_path.name}")
+    print("="*80)
 
-    # 1. STRICT HARDWARE VALIDATION
-    if not torch.cuda.is_available():
-        print("CRITICAL ERROR: CUDA GPU is required. High-resolution analysis disabled on CPU.")
-        sys.exit(1)
-
-    v_path = Path(video_path_str)
-    w_path = Path(table_weights_str)
     if not v_path.exists():
-        print(f"CRITICAL ERROR: Video file not found: {v_path}")
-        sys.exit(1)
+        sys.exit(f"CRITICAL ERROR: File not found: {v_path}")
+    if not torch.cuda.is_available():
+        sys.exit("CRITICAL ERROR: CUDA GPU Required.")
 
     device = "cuda"
-    print(f"Hardware Verified: {torch.cuda.get_device_name(0)}")
+    
+    # 2. GET VIDEO INFO (To see total duration)
+    info = probe_video_ffprobe(str(v_path))
+    cap_temp = cv2.VideoCapture(str(v_path))
+    total_frames = int(cap_temp.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap_temp.release()
+    
+    duration_est = total_frames / info.fps
+    print(f"  > Video Properties: {info.width}x{info.height} | {info.fps}fps")
+    print(f"  > Total Frames:     {total_frames} (Approx {format_time(duration_est)})")
 
-    # 2. ANCHORING: Precise Table Surface
-    info = probe_video_ffprobe(v_path)
+    # 3. TABLE ANCHORING
+    print(f"  > Locating Table ROI for this specific file...")
     table_roi = detect_table_roi_dl(str(v_path), cfg=DLConfig(weights_path=str(w_path), device=device))
     tx, ty, tw, th = table_roi.as_tuple()
-    print(f"Table Surface Anchor: {tw}x{th} at ({tx}, {ty})")
+    print(f"  > Table Anchor: {tw}x{th} at ({tx}, {ty})")
 
-    # 3. GPU SIGNAL EXTRACTION
-    print("\nPhase 1: GPU Motion Energy Extraction...")
-    energies = []
-    timestamps = []
+    # 4. EXTRACTION (NO BREAK/NO LIMIT)
+    energies, timestamps = [], []
     prev_frame_gpu = None
-    stride = 2 # Process at 30Hz for stability
+    stride = 2 
     
     frame_gen = nvdec_bgr24_stream(str(v_path), info.width, info.height, crop_roi=(tx, ty, tw, th))
     
+    print("\nPhase 1: GPU Motion Extraction (Processing Full Stream)...")
+    # LƯU Ý: Không có lệnh 'if idx > 9000' ở đây!
     for idx, frame_np in enumerate(frame_gen):
         if idx % stride != 0: continue
-            
-        curr_gpu = torch.from_numpy(frame_np).to(device).float()
         
+        curr_gpu = torch.from_numpy(frame_np).to(device).float()
         if prev_frame_gpu is not None:
-            # A. Temporal Difference
             diff = torch.abs(curr_gpu - prev_frame_gpu)
-            
-            # B. Morphological Dilation on GPU (MaxPool)
-            # This amplifies the small ball signal across pixels
-            diff_max = F.max_pool2d(
-                diff.permute(2, 0, 1).unsqueeze(0), kernel_size=3, stride=1, padding=1
-            )
-            
-            # C. Energy Mean
-            energy = diff_max.mean().item()
-            energies.append(energy)
+            diff_max = F.max_pool2d(diff.permute(2, 0, 1).unsqueeze(0), kernel_size=3, stride=1, padding=1)
+            energies.append(diff_max.mean().item())
             timestamps.append(idx / info.fps)
             
         prev_frame_gpu = curr_gpu
         if idx % 500 == 0:
-            print(f"  > GPU Analysis: {idx} frames processed...", end="\r")
+            sys.stdout.write(f"\r    > Progress: Frame {idx}/{total_frames} analyzed...")
+            sys.stdout.flush()
 
     if not energies:
-        sys.exit("ERROR: No signal captured.")
+        sys.exit("\nERROR: No motion data captured. Check FFmpeg/NVDEC stream.")
 
-    # 4. GPU SIGNAL REFINEMENT (Advanced Smoothing)
-    print("\n\nPhase 2: Signal Smoothing & Hysteresis Segmentation...")
-    
-    # Move raw energies back to GPU for fast convolution
-    signal_tensor = torch.tensor(energies, device=device).view(1, 1, -1)
-    
-    # Gaussian Kernel for smoothing (Sigma 3.0)
+    # 5. SIGNAL REFINEMENT
+    print("\n\nPhase 2: Signal Smoothing & Normalization...")
+    sig_tensor = torch.tensor(energies, device=device, dtype=torch.float32).view(1, 1, -1)
     k_size, sigma = 11, 3.0
-    gx = torch.arange(k_size).to(device) - (k_size - 1) / 2
+    gx = torch.arange(k_size, device=device, dtype=torch.float32) - (k_size - 1) / 2
     kernel = (torch.exp(-gx.pow(2) / (2 * sigma**2))).view(1, 1, -1)
     kernel /= kernel.sum()
+    smoothed = F.conv1d(sig_tensor, kernel, padding=k_size//2).squeeze().cpu().numpy()
     
-    # GPU-based 1D Smoothing
-    smoothed_signal = F.conv1d(signal_tensor, kernel, padding=k_size//2).squeeze()
-    
-    # Normalization (Based on the robust Advanced logic)
-    e_np = smoothed_signal.cpu().numpy()
-    p10, p95 = np.percentile(e_np, 10), np.percentile(e_np, 95)
-    e_norm = np.clip((e_np - p10) / (p95 - p10 + 1e-6), 0.0, 1.0)
-    
-    t_final = timestamps[:len(e_norm)]
+    # Advanced Normalization
+    p10, p95 = np.percentile(smoothed, 10), np.percentile(smoothed, 95)
+    e_norm = np.clip((smoothed - p10) / (p95 - p10 + 1e-6), 0.0, 1.0)
+    ts_np = np.array(timestamps)
 
-    # 5. HYSTERESIS SEGMENTATION (The Core Logic)
-    HIGH_T, LOW_T = 0.25, 0.12 # Triggers and Sustain levels
-    MAX_GAP = 2.0              # Max seconds ball stays in air
-    MIN_DUR = 1.0              # Min rally duration
-    
-    rallies = []
-    active = False
-    s_time, l_time = 0.0, 0.0
+    # 6. HYSTERESIS SEGMENTATION
+    HIGH_T, LOW_T = 0.25, 0.12
+    MAX_GAP, MIN_DUR = 2.0, 1.0
+    rallies, active, s_t, l_t = [], False, 0.0, 0.0
     
     for i, val in enumerate(e_norm):
-        curr_t = t_final[i]
+        t = ts_np[i]
         if not active:
             if val > HIGH_T:
-                active, s_time, l_time = True, curr_t, curr_t
+                active, s_t, l_t = True, t, t
         else:
-            if val > LOW_T:
-                l_time = curr_t
-            if curr_t - l_time > MAX_GAP:
-                if l_time - s_time > MIN_DUR:
-                    rallies.append((s_time, l_time))
+            if val > LOW_T: l_t = t
+            if t - l_t > MAX_GAP:
+                if l_t - s_t > MIN_DUR: rallies.append((s_t, l_t))
                 active = False
+    if active and (l_t - s_t > MIN_DUR): rallies.append((s_t, l_t))
 
-    if active and (l_time - s_time > MIN_DUR):
-        rallies.append((s_time, l_time))
-
-    # 6. RESULTS
-    print("\n" + "═"*70)
-    print(f" ADVANCED PIPELINE RESULTS: {len(rallies)} RALLIES")
-    print("═"*70)
-    print(f"{'No.':<4} │ {'Start (MM:SS)':<15} │ {'End (MM:SS)':<15} │ {'Dur':<6}")
-    print("─"*70)
+    # 7. VISUALIZATION
+    print("Phase 3: Saving Energy Chart...")
+    plt.figure(figsize=(20, 7))
+    plt.plot(ts_np, e_norm, label="Motion Energy", color='blue', alpha=0.5)
+    plt.axhline(y=HIGH_T, color='red', linestyle='--', label="Start Threshold")
+    
     for i, (s, e) in enumerate(rallies):
-        print(f" #{i+1:02d} │ {format_time(s)} ({s:6.2f}s)   │ {format_time(e)} ({e:6.2f}s)   │ {e-s:4.1f}s")
-    print("═"*70)
+        plt.axvspan(s, e, color='green', alpha=0.3)
+        plt.text((s+e)/2, 0.95, str(i+1), ha='center', fontsize=8, color='green', fontweight='bold')
+
+    plt.title(f"Analysis: {v_path.name} ({len(rallies)} Rallies)")
+    plt.xlabel("Seconds")
+    plt.grid(True, alpha=0.2)
+    
+    plot_path = Path("debug_report") / f"energy_{v_path.stem}.png"
+    plt.savefig(str(plot_path), dpi=150)
+
+    # 8. RESULTS
+    print("\n" + "═"*80)
+    print(f" FINAL REPORT FOR: {v_path.name}")
+    print(f" TOTAL RALLIES FOUND: {len(rallies)}")
+    print("═"*80)
+    for i, (s, e) in enumerate(rallies):
+        print(f" #{i+1:02d} │ {format_time(s)} ({s:6.2f}s) ➔ {format_time(e)} ({e:6.2f}s) │ Dur: {e-s:4.1f}s")
+    print("═"*80 + "\n")
 
 if __name__ == "__main__":
-    TARGET_VIDEO = "Vinh_set1.mp4"
-    YOLO_WEIGHTS = "weights/yolov8x_table.pt"
-    run_advanced_table_pipeline(TARGET_VIDEO, YOLO_WEIGHTS)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("video")
+    parser.add_argument("--weights", default="weights/yolov8x_table.pt")
+    args = parser.parse_args()
+    run_advanced_debug_visual(args.video, args.weights)

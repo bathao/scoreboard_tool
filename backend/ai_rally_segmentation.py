@@ -1,9 +1,9 @@
 # backend/ai_rally_segmentation.py
-from __future__ import annotations
 import torch
+import torch.nn.functional as F
 import numpy as np
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 @dataclass(frozen=True)
 class RallySegment:
@@ -12,74 +12,83 @@ class RallySegment:
     confidence: float
     flags: List[str]
 
-def detect_rally_segments_gpu(
+def detect_rally_segments_advanced_gpu(
     energies: List[float],
     timestamps: List[float],
     effective_fps: float,
     *,
-    smooth_window_sec: float = 0.35,
-    active_threshold: float = 0.22,
-    min_segment_sec: float = 1.0,
-    merge_gap_sec: float = 0.8
+    high_thresh: float = 0.25,
+    low_thresh: float = 0.12,
+    max_gap_sec: float = 2.0,
+    min_dur_sec: float = 1.0
 ) -> List[RallySegment]:
     """
-    Process pre-calculated motion energies (from GPU) into Rally segments.
-    Logic is now separated from video IO for maximum speed.
+    Advanced Hysteresis Segmentation using GPU-based signal refinement.
+    Strictly processed on CUDA for high-performance table tennis dynamics.
     """
     if not energies:
         return []
 
-    e = np.array(energies, dtype=np.float32)
-    # Robust normalization
-    p10, p90 = np.percentile(e, 10), np.percentile(e, 90)
-    denom = float(max(1e-6, p90 - p10))
-    e_norm = np.clip((e - p10) / denom, 0.0, 1.0)
+    # 1. STRICT HARDWARE CHECK
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu":
+        raise RuntimeError("CRITICAL: CUDA GPU required for Advanced Segmentation.")
 
-    # Smoothing using NumPy (fast for 1D arrays)
-    win = max(1, int(round(smooth_window_sec * effective_fps)))
-    kernel = np.ones(win, dtype=np.float32) / float(win)
-    e_smooth = np.convolve(e_norm, kernel, mode="same")
-
-    # Masking activity
-    active = e_smooth >= float(active_threshold)
-
-    # Find raw segments
-    segments_idx: List[Tuple[int, int]] = []
-    in_seg, s = False, 0
-    for i, a in enumerate(active):
-        if a and not in_seg:
-            in_seg, s = True, i
-        elif (not a) and in_seg:
-            in_seg = False
-            segments_idx.append((s, i - 1))
-    if in_seg:
-        segments_idx.append((s, len(active) - 1))
-
-    # Merge and Filter
-    raw_segments: List[Tuple[float, float, float]] = []
-    for a, b in segments_idx:
-        t0, t1 = timestamps[a], timestamps[b]
-        if t1 - t0 < min_segment_sec:
-            continue
-        strength = float(np.mean(e_smooth[a:b+1]))
-        raw_segments.append((t0, t1, strength))
-
-    # Merging logic
-    merged: List[Tuple[float, float, float]] = []
-    for t0, t1, strength in raw_segments:
-        if not merged:
-            merged.append((t0, t1, strength))
-            continue
-        mt0, mt1, ms = merged[-1]
-        if t0 - mt1 <= merge_gap_sec:
-            merged[-1] = (mt0, max(mt1, t1), max(ms, strength))
-        else:
-            merged.append((t0, t1, strength))
-
-    # Convert to Final Objects
-    out = []
-    for t0, t1, strength in merged:
-        conf = float(np.clip(0.35 + 0.65 * strength, 0.0, 1.0))
-        out.append(RallySegment(t_start=t0, t_end=t1, confidence=conf, flags=[]))
+    # 2. SIGNAL SMOOTHING (GPU Convolution)
+    # FIX: Added dtype=torch.float32 to prevent Double vs Float mismatch
+    signal_tensor = torch.tensor(energies, device=device, dtype=torch.float32).view(1, 1, -1)
     
-    return out
+    k_size, sigma = 11, 3.0
+    gx = torch.arange(k_size, device=device, dtype=torch.float32) - (k_size - 1) / 2
+    kernel = (torch.exp(-gx.pow(2) / (2 * sigma**2))).view(1, 1, -1)
+    kernel /= kernel.sum()
+    
+    # Apply 1D Gaussian Smoothing on GPU
+    smoothed_signal = F.conv1d(signal_tensor, kernel, padding=k_size//2).squeeze()
+    
+    # 3. NORMALIZATION (Robust Percentile Scaling)
+    e_np = smoothed_signal.cpu().numpy()
+    p10, p95 = np.percentile(e_np, 10), np.percentile(e_np, 95)
+    # Prevent division by zero with 1e-6
+    e_norm = np.clip((e_np - p10) / (p95 - p10 + 1e-6), 0.0, 1.0)
+    
+    # 4. HYSTERESIS SEGMENTATION
+    rallies = []
+    active = False
+    s_time, l_time = 0.0, 0.0
+    
+    for i, val in enumerate(e_norm):
+        curr_t = timestamps[i]
+        if not active:
+            if val > high_thresh:
+                active = True
+                s_time = curr_t
+                l_time = curr_t
+        else:
+            if val > low_thresh:
+                l_time = curr_t
+            
+            # Closing trigger: silence duration exceeds max_gap_sec
+            if curr_t - l_time > max_gap_sec:
+                duration = l_time - s_time
+                if duration > min_dur_sec:
+                    rallies.append(RallySegment(
+                        t_start=s_time, 
+                        t_end=l_time, 
+                        confidence=float(np.clip(val, 0.5, 1.0)),
+                        flags=[]
+                    ))
+                active = False
+
+    # Handle final rally if active at the end of stream
+    if active:
+        duration = l_time - s_time
+        if duration > min_dur_sec:
+            rallies.append(RallySegment(
+                t_start=s_time, 
+                t_end=l_time, 
+                confidence=0.8, 
+                flags=[]
+            ))
+
+    return rallies

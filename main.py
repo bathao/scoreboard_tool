@@ -1,189 +1,133 @@
 # main.py
 import torch
+import torch.nn.functional as F
+import cv2
+import numpy as np
 import sys
 import os
+import argparse
 from pathlib import Path
-from datetime import datetime
 
-# Core Backend Imports
+# Ensure backend visibility
+sys.path.append(str(Path(__file__).parent.parent))
+
 from backend.video_gpu_io import probe_video_ffprobe, nvdec_bgr24_stream
 from backend.ai_table_roi_dl import detect_table_roi_dl, DLConfig
-from backend.ai_rally_segmentation import detect_rally_segments_gpu
-from backend.ai_contract import (
-    DraftMatch, DraftPointEvent, save_draft_match, 
-    to_core_rally_events
-)
-from backend.ai_ollama_client import OllamaVisionClient
-from backend.timeline import build_match_timeline
+from backend.ai_rally_segmentation import detect_rally_segments_advanced_gpu
 
-# UI & Rendering Imports
-import cv2
-import subprocess
+def format_time(seconds: float) -> str:
+    """Converts seconds to MM:SS format for video cross-referencing."""
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes:02d}:{secs:02d}"
 
-def main():
-    # --- CONFIGURATION ---
-    VIDEO_INPUT = "Vinh_set1.mp4"
-    YOLO_WEIGHTS = "weights/yolov8x_table.pt"
-    OLLAMA_MODEL = "llama3.2-vision"
+def run_production_pipeline(video_path_str: str, table_weights_str: str):
+    """
+    Main Production Pipeline with Visual ROI Verification.
+    Optimized for RTX 5060 Ti.
+    """
+    v_path = Path(video_path_str).absolute()
+    w_path = Path(table_weights_str).absolute()
 
-    print(f"====================================================")
-    print(f"   AUTO PIPELINE [UNIFIED PLAY ZONE MODE]: {VIDEO_INPUT}")
-    print(f"====================================================")
+    print(f"\n" + "="*80)
+    print(f" TARGET VIDEO: {v_path.name}")
+    print(f" STATUS: STARTING PRODUCTION PIPELINE")
+    print("="*80)
 
-    # --- PHASE 0: PRE-FLIGHT CHECKS ---
-    video_path = Path(VIDEO_INPUT)
-    weights_path = Path(YOLO_WEIGHTS)
-
-    if not video_path.exists() or not weights_path.exists():
-        raise FileNotFoundError("CRITICAL: Video or Weights missing.")
+    # 1. STRICT HARDWARE VALIDATION
     if not torch.cuda.is_available():
-        raise RuntimeError("CRITICAL: CUDA GPU not found.")
+        print("CRITICAL ERROR: CUDA GPU is required. Analysis disabled on CPU.")
+        sys.exit(1)
 
-    DEVICE = "cuda"
-    print(f"Verified Hardware: {torch.cuda.get_device_name(0)}")
+    if not v_path.exists():
+        print(f"CRITICAL ERROR: Video file not found: {v_path}")
+        sys.exit(1)
 
-    start_time = datetime.now()
+    device = "cuda"
+    print(f"Hardware Verified: {torch.cuda.get_device_name(0)}")
 
-    # --- STEP 1: ROI DETECTION ---
-    print(f"\n[1/4] Detecting Table ROI...")
-    info = probe_video_ffprobe(VIDEO_INPUT)
-    table_roi = detect_table_roi_dl(VIDEO_INPUT, cfg=DLConfig(weights_path=str(weights_path), device=DEVICE))
+    # 2. ANCHORING: Precise Table Surface
+    info = probe_video_ffprobe(str(v_path))
+    print(f"Step 1: Locating Table Anchor...")
+    table_roi = detect_table_roi_dl(str(v_path), cfg=DLConfig(weights_path=str(w_path), device=device))
+    tx, ty, tw, th = table_roi.as_tuple()
+    print(f"      Table Anchor: {tw}x{th} at ({tx}, {ty})")
+
+    # --- NEW: ROI VERIFICATION IMAGE GENERATION ---
+    debug_dir = Path("debug_report")
+    debug_dir.mkdir(exist_ok=True)
     
-    if table_roi.w <= 0 or table_roi.h <= 0:
-        raise RuntimeError("CRITICAL: Table ROI detection failed.")
-    
-    # NEW: Calculate Unified Play Zone for stable motion analysis
-    upz_roi = table_roi.get_unified_play_zone(info.width, info.height)
-    print(f"      TABLE ROI: {table_roi.as_tuple()}")
-    print(f"      UNIFIED PLAY ZONE: {upz_roi}")
+    cap_verify = cv2.VideoCapture(str(v_path))
+    ret, frame = cap_verify.read()
+    if ret:
+        # Draw the ROI box in RED
+        cv2.rectangle(frame, (tx, ty), (tx + tw, ty + th), (0, 0, 255), 4)
+        # Label the coordinates
+        cv2.putText(frame, f"TABLE ROI: {tx},{ty} {tw}x{th}", (tx, ty - 15), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+        
+        roi_img_path = debug_dir / f"01_roi_verification_{v_path.stem}.jpg"
+        cv2.imwrite(str(roi_img_path), frame)
+        print(f"  [SUCCESS] ROI verification image saved to: {roi_img_path}")
+    cap_verify.release()
 
-    # --- STEP 2: RALLY SEGMENTATION (UPZ MODE) ---
-    print(f"\n[2/4] Analyzing motion in UPZ on GPU...")
-    energies, timestamps = [], []
+    # 3. GPU SIGNAL EXTRACTION (Table Only)
+    print("\nStep 2: GPU Motion Energy Extraction...")
+    energies = []
+    timestamps = []
     prev_frame_gpu = None
-    STRIDE = 2 # Process every 2nd frame for speed
+    stride = 2 
     
-    # Use the expanded UPZ ROI here
-    frame_gen = nvdec_bgr24_stream(VIDEO_INPUT, info.width, info.height, crop_roi=upz_roi)
+    # Stream frames through NVDEC
+    frame_gen = nvdec_bgr24_stream(str(v_path), info.width, info.height, crop_roi=(tx, ty, tw, th))
     
     for idx, frame_np in enumerate(frame_gen):
-        if idx % STRIDE != 0: continue
+        if idx % stride != 0: continue
+            
+        curr_gpu = torch.from_numpy(frame_np).to(device).float()
         
-        # Transfer to GPU and calculate mean difference
-        curr_gpu = torch.from_numpy(frame_np).to(DEVICE).float()
         if prev_frame_gpu is not None:
-            # Captures both ball movement and player swings
-            diff = torch.abs(curr_gpu - prev_frame_gpu).mean().item()
-            energies.append(diff)
+            # Temporal Difference
+            diff = torch.abs(curr_gpu - prev_frame_gpu)
+            
+            # Morphological Dilation on GPU (MaxPool)
+            diff_max = F.max_pool2d(
+                diff.permute(2, 0, 1).unsqueeze(0), kernel_size=3, stride=1, padding=1
+            )
+            
+            energies.append(diff_max.mean().item())
             timestamps.append(idx / info.fps)
             
         prev_frame_gpu = curr_gpu
-        if idx % 500 == 0:
-            print(f"    > Progress: Frame {idx} processed...", end="\r")
+        if idx % 1000 == 0:
+            sys.stdout.write(f"\r    > GPU Processing: {idx} frames analyzed...")
+            sys.stdout.flush()
 
-    # Algorithm to group energy spikes into rally segments
-    segments = detect_rally_segments_gpu(
-        energies, 
-        timestamps, 
-        effective_fps=info.fps/STRIDE,
-        active_threshold=0.35 # Higher threshold due to human presence in UPZ
+    if not energies:
+        sys.exit("\nERROR: No signal captured.")
+
+    # 4. SEGMENTATION (Using sync logic with backend)
+    print("\n\nStep 3: Signal Refinement & Segmentation...")
+    segments = detect_rally_segments_advanced_gpu(
+        energies, timestamps, effective_fps=info.fps/stride
     )
-    
-    if not segments:
-        sys.exit("Pipeline stopped: Zero rallies found. Check motion thresholds.")
-    
-    # Initialize Draft JSON with detected segments
-    draft_match = DraftMatch(
-        video_path=str(video_path.absolute()),
-        video_fps=info.fps,
-        roi=table_roi.to_dict(), # Keep the precise table ROI for rendering
-        points=[DraftPointEvent(id=f"r_{i+1:03d}", t_start=s.t_start, t_end=s.t_end) for i, s in enumerate(segments)]
-    )
-    save_draft_match(Path(f"matches/{video_path.stem}_draft.json"), draft_match)
-    print(f"\n      SUCCESS: {len(segments)} rallies identified.")
 
-    # --- STEP 3: WINNER PREDICTION (OLLAMA) ---
-    print(f"\n[3/4] Running Ollama Vision ({OLLAMA_MODEL}) to predict winners...")
-    ollama_client = OllamaVisionClient(model_name=OLLAMA_MODEL)
-    for p in draft_match.points:
-        # Extract the 'moment of death' frame
-        img_path = extract_last_frame(VIDEO_INPUT, p.t_end)
-        if img_path:
-            p.winner = ollama_client.predict_winner(img_path)
-            print(f"    > {p.id}: Winner -> {p.winner}")
-    
-    save_draft_match(Path(f"matches/{video_path.stem}_refined.json"), draft_match)
-
-    # --- STEP 4: SCOREBOARD RENDERING ---
-    print(f"\n[4/4] Rendering 1080p video with Scoreboard...")
-    final_video = f"{video_path.stem}_final_1080p.mp4"
-    temp_render = "temp_render.mp4"
-    
-    core_events = to_core_rally_events(draft_match)
-    timeline = build_match_timeline(best_of=draft_match.best_of, events=core_events)
-    
-    # Custom render function to handle 1080p resize and scoreboard overlay
-    render_and_resize_1080p(VIDEO_INPUT, temp_render, timeline)
-    
-    # Final step: Merge original audio with rendered video
-    print(f"\n[FINAL] Muxing audio...")
-    mux_audio(temp_render, VIDEO_INPUT, final_video)
-
-    # Cleanup temp files
-    for tmp in [temp_render, "temp_last_frame.jpg"]:
-        if os.path.exists(tmp): os.remove(tmp)
-
-    total_time = (datetime.now() - start_time).total_seconds()
-    print(f"====================================================")
-    print(f"DONE! Final Video: {final_video}")
-    print(f"Total time: {total_time:.2f}s")
-    print(f"====================================================")
-
-# --- HELPER FUNCTIONS ---
-
-def extract_last_frame(video_path, t_end):
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_MSEC, t_end * 1000)
-    ret, frame = cap.read()
-    cap.release()
-    if ret:
-        cv2.imwrite("temp_last_frame.jpg", frame)
-        return "temp_last_frame.jpg"
-    return None
-
-def render_and_resize_1080p(input_v, output_v, timeline):
-    from render.renderer import ScoreboardRenderer
-    renderer = ScoreboardRenderer(input_path=input_v, output_path=output_v, timeline=timeline)
-    cap = cv2.VideoCapture(input_v)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    target_w, target_h = 1920, 1080
-    out = cv2.VideoWriter(output_v, cv2.VideoWriter_fourcc(*"mp4v"), fps, (target_w, target_h))
-
-    f_count, s_idx = 0, 0
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-        
-        # Resize to standard 1080p
-        frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-        cur_t = f_count / fps
-        
-        # Sync timeline state
-        while (s_idx + 1 < len(timeline) and cur_t >= timeline[s_idx + 1].timestamp):
-            s_idx += 1
-            
-        renderer._draw_scoreboard(frame, timeline[s_idx], target_w, target_h)
-        out.write(frame)
-        f_count += 1
-        if f_count % 100 == 0:
-            print(f"    > Rendering: {f_count}/{total_f} frames...", end="\r")
-    cap.release(); out.release()
-
-def mux_audio(v_no_a, a_src, final_out):
-    cmd = ['ffmpeg', '-y', '-i', v_no_a, '-i', a_src, '-map', '0:v:0', '-map', '1:a:0', 
-           '-c:v', 'copy', '-c:a', 'aac', '-shortest', final_out]
-    subprocess.run(cmd, check=True, capture_output=True)
+    # 5. RESULTS REPORT
+    print("\n" + "═"*80)
+    print(f" PIPELINE RESULTS FOR: {v_path.name}")
+    print(f" TOTAL RALLIES FOUND: {len(segments)}")
+    print("═"*80)
+    print(f"{'No.':<4} │ {'Start (MM:SS)':<15} │ {'End (MM:SS)':<15} │ {'Dur':<6}")
+    print("─"*70)
+    for i, s in enumerate(segments):
+        print(f" #{i+1:02d} │ {format_time(s.t_start)} ({s.t_start:6.2f}s)   │ {format_time(s.t_end)} ({s.t_end:6.2f}s)   │ {s.t_end-s.t_start:4.1f}s")
+    print("═"*80)
+    print(f" Done: {v_path.name}\n")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Table Tennis Rally Detection Pipeline")
+    parser.add_argument("input", help="Path to video file")
+    parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="YOLO weights path")
+    
+    args = parser.parse_args()
+    run_production_pipeline(args.input, args.weights)
