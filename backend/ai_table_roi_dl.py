@@ -1,4 +1,4 @@
-# ai_table_roi_dl.py
+﻿# ai_table_roi_dl.py
 from __future__ import annotations
 
 import os
@@ -199,15 +199,15 @@ def _shrink_top_using_horizontal_edge(
     peak = int(np.argmax(segment))
 
     # If peak is too close to top, likely noise
-    if peak < int(bh * 0.10):
+    if peak < int(bh * 0.08):
         return bx, by, bw, bh
 
     margin = int(max(2, bh * 0.02))
     new_by = by + peak + margin
     new_bh = (by + bh) - new_by
 
-    # Prevent over-shrinking: keep at least ~65% height
-    if new_bh < int(bh * 0.65):
+    # Prevent over-shrinking: keep at least ~50% height
+    if new_bh < int(bh * 0.50):
         return bx, by, bw, bh
 
     return bx, new_by, bw, new_bh

@@ -1,0 +1,14 @@
+{
+  "pairs": [
+    {
+      "name": "Vinh_set1",
+      "pred": "matches/Vinh_set1_phase1_refined.json",
+      "gt": "matches/ground_truth/Vinh_set1_gt.json"
+    },
+    {
+      "name": "Vinh_set2",
+      "pred": "matches/Vinh_set2_phase1_refined.json",
+      "gt": "matches/ground_truth/Vinh_set2_gt.json"
+    }
+  ]
+}

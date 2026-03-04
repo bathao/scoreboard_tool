@@ -1,0 +1,225 @@
+{
+  "meta": {
+    "draft_path": "C:\\Users\\MSI\\scoreboard_tool\\matches\\Vinh_set1_segdebug_v4_draft.json",
+    "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
+    "pose_weights": "yolov8x-pose.pt",
+    "device": "cuda",
+    "player_a_side": "left",
+    "window_sec": 1.2,
+    "samples": 6,
+    "min_gap": 0.08,
+    "num_points": 14
+  },
+  "rows": [
+    {
+      "id": "pt_0001",
+      "t_start": 5.4054,
+      "t_end": 7.7744333333333335,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.3134635738801928
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 1216.0273836289318,
+        "right_motion": 2326.4718560937254,
+        "gap": 0.3134635738801928
+      }
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 11.644966666666667,
+      "t_end": 13.646966666666668,
+      "winner_guess": {
+        "label": "player_b",
+        "confidence": 0.3982821952222826
+      },
+      "features": {
+        "used_frames": 3,
+        "left_motion": 98.39214456894345,
+        "right_motion": 42.34074140499419,
+        "gap": 0.3982821952222826
+      }
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 19.686333333333334,
+      "t_end": 30.997633333333333,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.40960289490541685
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 372.72688315493593,
+        "right_motion": 889.9042515286446,
+        "gap": 0.40960289490541685
+      }
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 33.533500000000004,
+      "t_end": 38.104733333333336,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.6401331205958829
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 781.1305266796421,
+        "right_motion": 3560.0888058309674,
+        "gap": 0.6401331205958829
+      }
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 55.922533333333334,
+      "t_end": 57.057,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.16435188331713058
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 2153.829409925571,
+        "right_motion": 3001.0422807028676,
+        "gap": 0.16435188331713058
+      }
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 65.1651,
+      "t_end": 73.90716666666667,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.5891791383242517
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 1090.7653679744521,
+        "right_motion": 4219.40979606071,
+        "gap": 0.5891791383242517
+      }
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 83.51676666666667,
+      "t_end": 85.7857,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.6075564276772581
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 505.92611975359966,
+        "right_motion": 2072.412045210963,
+        "gap": 0.6075564276772581
+      }
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 88.62186666666666,
+      "t_end": 90.75733333333334,
+      "winner_guess": {
+        "label": "player_b",
+        "confidence": 0.2923506388341077
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 1583.5689248019398,
+        "right_motion": 867.1110641589182,
+        "gap": 0.2923506388341077
+      }
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 93.66023333333334,
+      "t_end": 95.96253333333334,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.579710131717
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 206.6581583395529,
+        "right_motion": 776.7496000899497,
+        "gap": 0.579710131717
+      }
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 98.66523333333333,
+      "t_end": 100.73396666666667,
+      "winner_guess": {
+        "label": "player_b",
+        "confidence": 0.3233576107713669
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 119.34803677526398,
+        "right_motion": 61.02352060599271,
+        "gap": 0.3233576107713669
+      }
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 103.63686666666666,
+      "t_end": 108.87543333333333,
+      "winner_guess": {
+        "label": "player_b",
+        "confidence": 0.9121211644957775
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 3809.050025053188,
+        "right_motion": 175.05945014480915,
+        "gap": 0.9121211644957775
+      }
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 114.84806666666667,
+      "t_end": 116.116,
+      "winner_guess": {
+        "label": "unknown",
+        "confidence": 0.05119911671719787
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 4459.381818931426,
+        "right_motion": 4024.9895013795776,
+        "gap": 0.05119911671719787
+      }
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 120.88743333333333,
+      "t_end": 126.19273333333334,
+      "winner_guess": {
+        "label": "player_b",
+        "confidence": 0.6045024340943047
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 1739.0682260389492,
+        "right_motion": 428.66700300525196,
+        "gap": 0.6045024340943047
+      }
+    },
+    {
+      "id": "pt_0014",
+      "t_start": 137.0369,
+      "t_end": 143.61013333333332,
+      "winner_guess": {
+        "label": "player_a",
+        "confidence": 0.18820611652615998
+      },
+      "features": {
+        "used_frames": 6,
+        "left_motion": 2018.4924551377835,
+        "right_motion": 2954.426154680573,
+        "gap": 0.18820611652615998
+      }
+    }
+  ]
+}

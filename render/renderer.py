@@ -12,6 +12,28 @@ class ScoreboardRenderer:
 
         if not self.timeline:
             raise ValueError("Timeline cannot be empty")
+        self._initial_state = MatchSnapshot(
+            timestamp=0.0,
+            set_number=1,
+            score_a=0,
+            score_b=0,
+            sets_a=0,
+            sets_b=0,
+            is_finished=False,
+            winner=None,
+        )
+
+    def state_for_time(self, current_time: float, state_index: int) -> tuple[MatchSnapshot, int]:
+        while (
+            state_index + 1 < len(self.timeline)
+            and current_time >= self.timeline[state_index + 1].timestamp
+        ):
+            state_index += 1
+
+        if current_time < self.timeline[0].timestamp:
+            return self._initial_state, state_index
+
+        return self.timeline[state_index], state_index
 
     def render(self):
 
@@ -37,14 +59,7 @@ class ScoreboardRenderer:
 
             current_time = frame_count / fps
 
-            # advance timeline by timestamp
-            while (
-                state_index + 1 < len(self.timeline)
-                and current_time >= self.timeline[state_index + 1].timestamp
-            ):
-                state_index += 1
-
-            current_state = self.timeline[state_index]
+            current_state, state_index = self.state_for_time(current_time, state_index)
 
             self._draw_scoreboard(frame, current_state, width, height)
 

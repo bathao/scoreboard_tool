@@ -1,11 +1,13 @@
 import ollama
-import cv2
-import base64
-from pathlib import Path
 
 class OllamaVisionClient:
-    def __init__(self, model_name="llama3.2-vision"):
+    def __init__(
+        self,
+        model_name="llama3.2-vision",
+        temperature: float = 0.0,
+    ):
         self.model_name = model_name
+        self.temperature = float(temperature)
 
     def predict_winner(self, image_path: str) -> str:
         """
@@ -27,7 +29,10 @@ class OllamaVisionClient:
                 'role': 'user',
                 'content': prompt,
                 'images': [image_data]
-            }]
+            }],
+            options={
+                "temperature": self.temperature
+            }
         )
 
         result = response['message']['content'].lower().strip()

@@ -1,0 +1,318 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set2.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-04T14:42:20.636506+00:00",
+  "roi": {
+    "x": 955,
+    "y": 626,
+    "w": 607,
+    "h": 347
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 1.1344666666666667,
+      "t_end": 16.8168,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 16.8168,
+      "t_end": 25.4254,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 25.4254,
+      "t_end": 29.696333333333335,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 33.600233333333335,
+      "t_end": 38.80543333333333,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 38.80543333333333,
+      "t_end": 47.61423333333333,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 50.31693333333333,
+      "t_end": 61.4614,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 61.4614,
+      "t_end": 64.73133333333334,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 64.73133333333334,
+      "t_end": 77.27720000000001,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 80.94753333333334,
+      "t_end": 86.31956666666667,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 86.31956666666667,
+      "t_end": 97.69760000000001,
+      "winner": "player_a",
+      "confidence": 0.6178878545761108,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 109.04226666666666,
+      "t_end": 112.54576666666667,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 116.98353333333334,
+      "t_end": 122.3222,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 122.3222,
+      "t_end": 126.29283333333333,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0014",
+      "t_start": 126.29283333333333,
+      "t_end": 131.73160000000001,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0015",
+      "t_start": 134.7346,
+      "t_end": 138.50503333333333,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0016",
+      "t_start": 145.11163333333334,
+      "t_end": 152.68586666666667,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0017",
+      "t_start": 154.88806666666667,
+      "t_end": 156.2561,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0018",
+      "t_start": 156.2561,
+      "t_end": 169.70286666666667,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0019",
+      "t_start": 169.70286666666667,
+      "t_end": 171.10426666666666,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0020",
+      "t_start": 181.54803333333334,
+      "t_end": 193.2931,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0021",
+      "t_start": 193.2931,
+      "t_end": 197.93106666666668,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0022",
+      "t_start": 197.93106666666668,
+      "t_end": 200.33346666666668,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0023",
+      "t_start": 200.33346666666668,
+      "t_end": 204.73786666666666,
+      "winner": "player_a",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "score_validation": {
+    "status": "pass",
+    "expected_scope": "set",
+    "best_of": 5,
+    "event_count": 23,
+    "known_winner_count": 23,
+    "unknown_winner_count": 0,
+    "is_match_finished": false,
+    "match_winner": null,
+    "completed_sets": [
+      {
+        "player_a": 11,
+        "player_b": 0,
+        "winner": "player_a"
+      },
+      {
+        "player_a": 11,
+        "player_b": 0,
+        "winner": "player_a"
+      }
+    ],
+    "open_set": {
+      "player_a": 1,
+      "player_b": 0,
+      "winner": null
+    },
+    "inferred_scoreline": "11-0",
+    "expected_final_set_score": "11-8",
+    "issues": [
+      "Final set score mismatch: expected 11-8, got 11-0."
+    ]
+  }
+}

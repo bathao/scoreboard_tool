@@ -1,0 +1,249 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set3.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-04T19:19:31.573572+00:00",
+  "roi": {
+    "x": 801,
+    "y": 745,
+    "w": 803,
+    "h": 239
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 3.6703333333333332,
+      "t_end": 5.038366666666667,
+      "winner": "unknown",
+      "confidence": 0.6760474443435669,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 11.244566666666667,
+      "t_end": 15.048366666666666,
+      "winner": "unknown",
+      "confidence": 0.9728496670722961,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 17.951266666666665,
+      "t_end": 22.188833333333335,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 27.961266666666667,
+      "t_end": 31.1311,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 35.30193333333333,
+      "t_end": 43.143100000000004,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 51.1511,
+      "t_end": 64.5645,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "split_long",
+        "merged_short_split"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 70.1701,
+      "t_end": 73.90716666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 77.1771,
+      "t_end": 85.55213333333333,
+      "winner": "unknown",
+      "confidence": 0.517448902130127,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 89.02226666666667,
+      "t_end": 94.82806666666667,
+      "winner": "unknown",
+      "confidence": 0.776961624622345,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 102.13536666666667,
+      "t_end": 109.3092,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 116.24946666666666,
+      "t_end": 126.62650000000001,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 131.56476666666666,
+      "t_end": 137.57076666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 140.80733333333333,
+      "t_end": 147.98116666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0014",
+      "t_start": 151.18436666666668,
+      "t_end": 153.08626666666666,
+      "winner": "unknown",
+      "confidence": 0.693809986114502,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0015",
+      "t_start": 158.52503333333334,
+      "t_end": 170.90406666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "long_unsplit"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0016",
+      "t_start": 176.3762,
+      "t_end": 180.91406666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0017",
+      "t_start": 183.61676666666668,
+      "t_end": 187.12026666666668,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0018",
+      "t_start": 187.12026666666668,
+      "t_end": 194.7946,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "split_long",
+        "merged_short_split"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0019",
+      "t_start": 194.7946,
+      "t_end": 200.20000000000002,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0020",
+      "t_start": 204.3041,
+      "t_end": 207.74086666666668,
+      "winner": "unknown",
+      "confidence": 1.0,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0021",
+      "t_start": 225.85896666666667,
+      "t_end": 227.5273,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0022",
+      "t_start": 237.27036666666666,
+      "t_end": 239.17226666666667,
+      "winner": "unknown",
+      "confidence": 0.5623379349708557,
+      "flags": [],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "score_validation": {}
+}

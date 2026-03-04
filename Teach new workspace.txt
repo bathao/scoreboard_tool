@@ -1,9 +1,9 @@
 hệ thống đang làm: Phân tích clip raw đánh bóng bàn để add scoreboard 
 Clip raw Bóng bàn, Không có Scoreboard, môi trường nhà thi đấu, nhiều noise
-✔ Upload video 20–30 phút (Định dạng 1K/2K 60fps, tripod cố định)
+✔ Upload video 20–30 phút (Định dạng 1K/2K 60fps, tripod cố định, mỗi trận 1 góc quay khác nhau, nhưng cố định trong 1 clip)
 ✔ Backend detect set
-✔ AI phân tích rally → JSON
-✔ Bạn chỉnh sửa nếu sai
+✔ AI phân tích rally → JSON (Yêu cầu chính xác tới 90-95%. nếu 100% càng tốt)
+✔ Bạn chỉnh sửa nếu sai (hạn chế manual ở mức tối thiểu)
 ✔ Render 1080p có scoreboard
 
 Đã làm được:
@@ -182,3 +182,5 @@ Rule chung:
 - Ghi chú (comments) và chuỗi (strings) trong code 100% bằng tiếng Anh, giải thích bên ngoài bằng tiếng Việt.
 - Ưu tiên generate full file hoàn chỉnh để dễ copy/paste
 - Luôn luôn ưu tiên dùng những thuật toán nâng cao mà có thể chạy được với card 5060Ti cho project này
+- Luôn giữ flow consistency, các biến, class liền mạch giữa các file trước và file sau. Nếu không nắm vững code file khác thì có thể hỏi.
+

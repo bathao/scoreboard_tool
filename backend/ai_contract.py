@@ -76,6 +76,7 @@ class DraftMatch:
     created_at: str = ""
     roi: Dict[str, int] = field(default_factory=dict) # Strict ROI storage
     points: List[DraftPointEvent] = field(default_factory=list)
+    score_validation: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -87,6 +88,7 @@ class DraftMatch:
             "created_at": self.created_at,
             "roi": self.roi,
             "points": [p.to_dict() for p in self.points],
+            "score_validation": self.score_validation,
         }
 
     @staticmethod
@@ -114,6 +116,7 @@ class DraftMatch:
             created_at=str(d.get("created_at", "")),
             roi=dict(roi),
             points=points,
+            score_validation=dict(d.get("score_validation", {})),
         )
 
 # --- SEMANTIC VALIDATORS ---

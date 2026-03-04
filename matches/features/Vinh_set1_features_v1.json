@@ -1,0 +1,576 @@
+{
+  "meta": {
+    "draft_path": "C:\\Users\\MSI\\scoreboard_tool\\matches\\Vinh_set1_segdebug_v4_draft.json",
+    "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
+    "player_a_side": "right",
+    "stride": 2,
+    "pre_sec": 0.35,
+    "post_sec": 1.2,
+    "recovery_sec": 2.0,
+    "margin_sec": 0.15,
+    "min_gap": 0.12,
+    "num_points": 14
+  },
+  "rows": [
+    {
+      "id": "pt_0001",
+      "t_start": 5.4054,
+      "t_end": 7.7744333333333335,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 34.77975591023763,
+          "right": 34.08101590474447,
+          "gap": 0.010147141499131398,
+          "strength": 68.8607728149821
+        },
+        "post": {
+          "left": 35.66023020590505,
+          "right": 35.817246344781694,
+          "gap": -0.0021967218801936255,
+          "strength": 71.47747755068674
+        },
+        "recovery": {
+          "left": 35.47787371548739,
+          "right": 35.556911052357066,
+          "gap": -0.0011126567922367541,
+          "strength": 71.03478576784445
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0021967218801936255
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0011126567922367541
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 11.644966666666667,
+      "t_end": 13.646966666666668,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 38.272247950236,
+          "right": 37.663357416788735,
+          "gap": 0.0080185115070297,
+          "strength": 75.93560636702473
+        },
+        "post": {
+          "left": 35.44158221829322,
+          "right": 35.49992512118432,
+          "gap": -0.0008224085483481577,
+          "strength": 70.94150833947754
+        },
+        "recovery": {
+          "left": 35.13466339111328,
+          "right": 35.14637749411843,
+          "gap": -0.00016667514725070824,
+          "strength": 70.2810418852317
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0008224085483481577
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.00016667514725070824
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 19.686333333333334,
+      "t_end": 30.997633333333333,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 37.28903738657633,
+          "right": 36.460378646850586,
+          "gap": 0.011236139525688141,
+          "strength": 73.74941703342691
+        },
+        "post": {
+          "left": 34.84668836285991,
+          "right": 35.10052791718514,
+          "gap": -0.003629015766402032,
+          "strength": 69.94721728004504
+        },
+        "recovery": {
+          "left": 35.04700192538175,
+          "right": 35.15274935635654,
+          "gap": -0.0015063789762445716,
+          "strength": 70.19975228173828
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.003629015766402032
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0015063789762445716
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 33.533500000000004,
+      "t_end": 38.104733333333336,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 31.84480889638265,
+          "right": 31.54856077829997,
+          "gap": 0.004673171893681817,
+          "strength": 63.393370674682615
+        },
+        "post": {
+          "left": 34.966799274567634,
+          "right": 35.12397236977854,
+          "gap": -0.0022424220661460504,
+          "strength": 70.09077264434617
+        },
+        "recovery": {
+          "left": 34.920489120483396,
+          "right": 34.9516077561812,
+          "gap": -0.00044536569880484524,
+          "strength": 69.87209787666458
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0022424220661460504
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.00044536569880484524
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 55.922533333333334,
+      "t_end": 57.057,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 35.199474016825356,
+          "right": 34.984527905782066,
+          "gap": 0.003062608316603325,
+          "strength": 70.18400292260742
+        },
+        "post": {
+          "left": 35.07797388876638,
+          "right": 35.207722325478834,
+          "gap": -0.0018460147918424163,
+          "strength": 70.2856972142452
+        },
+        "recovery": {
+          "left": 35.29380031932484,
+          "right": 35.33346467451616,
+          "gap": -0.0005616011696499615,
+          "strength": 70.627265993841
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0018460147918424163
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0005616011696499615
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 65.1651,
+      "t_end": 73.90716666666667,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 36.3758602142334,
+          "right": 36.65529123942057,
+          "gap": -0.003826189452021873,
+          "strength": 73.03115245365396
+        },
+        "post": {
+          "left": 35.624369959677416,
+          "right": 35.51845378260459,
+          "gap": 0.001488782283477133,
+          "strength": 71.142824742282
+        },
+        "recovery": {
+          "left": 35.75249834927646,
+          "right": 35.749399081143466,
+          "gap": 4.3345256573963016e-05,
+          "strength": 71.50189843041991
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.001488782283477133
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 4.3345256573963016e-05
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 83.51676666666667,
+      "t_end": 85.7857,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 39.76418876647949,
+          "right": 40.293626149495445,
+          "gap": -0.006613187943718404,
+          "strength": 80.05781591597494
+        },
+        "post": {
+          "left": 35.4896618012459,
+          "right": 35.395044511364354,
+          "gap": 0.0013348053969423016,
+          "strength": 70.88470731261026
+        },
+        "recovery": {
+          "left": 35.27074557217685,
+          "right": 35.268970316106625,
+          "gap": 2.5166759217880437e-05,
+          "strength": 70.53971688828346
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0013348053969423016
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 2.5166759217880437e-05
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 88.62186666666666,
+      "t_end": 90.75733333333334,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 34.2705332438151,
+          "right": 33.87684027353922,
+          "gap": 0.0057770819941951185,
+          "strength": 68.14737451735432
+        },
+        "post": {
+          "left": 35.142154447494015,
+          "right": 35.338829040527344,
+          "gap": -0.002790463193185885,
+          "strength": 70.48098448802136
+        },
+        "recovery": {
+          "left": 35.3343752080744,
+          "right": 35.413656650890005,
+          "gap": -0.001120616921938356,
+          "strength": 70.7480328589644
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.002790463193185885
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.001120616921938356
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 93.66023333333334,
+      "t_end": 95.96253333333334,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 33.91070747375488,
+          "right": 33.07563622792562,
+          "gap": 0.01246629069772652,
+          "strength": 66.98634470168051
+        },
+        "post": {
+          "left": 35.45371923139018,
+          "right": 35.66045748802923,
+          "gap": -0.0029071313663322357,
+          "strength": 71.11417771941942
+        },
+        "recovery": {
+          "left": 34.969083681973544,
+          "right": 35.00836726101962,
+          "gap": -0.0005613748136768417,
+          "strength": 69.97745194299316
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0029071313663322357
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0005613748136768417
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 98.66523333333333,
+      "t_end": 100.73396666666667,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 35.596059799194336,
+          "right": 35.710387547810875,
+          "gap": -0.001603329730576049,
+          "strength": 71.30644834700522
+        },
+        "post": {
+          "left": 34.14019843070738,
+          "right": 34.26191120762979,
+          "gap": -0.0017793716566136444,
+          "strength": 68.40211063833716
+        },
+        "recovery": {
+          "left": 34.52768634449352,
+          "right": 34.544393851540306,
+          "gap": -0.00024188509680736484,
+          "strength": 69.07208119603382
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0017793716566136444
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.00024188509680736484
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 103.63686666666666,
+      "t_end": 108.87543333333333,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 39.74609502156576,
+          "right": 40.42351786295573,
+          "gap": -0.008449870325753941,
+          "strength": 80.16961388452148
+        },
+        "post": {
+          "left": 35.95094680786133,
+          "right": 35.80899146295363,
+          "gap": 0.0019781976733839546,
+          "strength": 71.75993927081495
+        },
+        "recovery": {
+          "left": 35.71794516823508,
+          "right": 35.67038796164773,
+          "gap": 0.0006661761640330698,
+          "strength": 71.38833412988281
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0019781976733839546
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0006661761640330698
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 114.84806666666667,
+      "t_end": 116.116,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 39.98289235432943,
+          "right": 41.065085093180336,
+          "gap": -0.013352495146461701,
+          "strength": 81.04797844750976
+        },
+        "post": {
+          "left": 36.29516896893901,
+          "right": 36.062569895098285,
+          "gap": 0.003214570746374693,
+          "strength": 72.35773986403728
+        },
+        "recovery": {
+          "left": 35.914794540405275,
+          "right": 35.844776673750445,
+          "gap": 0.0009757285961219475,
+          "strength": 71.75957221415572
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.003214570746374693
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0009757285961219475
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 120.88743333333333,
+      "t_end": 126.19273333333334,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 34.009466807047524,
+          "right": 34.06067148844401,
+          "gap": -0.0007522341209587593,
+          "strength": 68.07013929549153
+        },
+        "post": {
+          "left": 34.800964970742505,
+          "right": 34.96581526725523,
+          "gap": -0.002362876623910249,
+          "strength": 69.76678123799773
+        },
+        "recovery": {
+          "left": 34.9348805514249,
+          "right": 34.97902225147594,
+          "gap": -0.0006313722686046202,
+          "strength": 69.91390380290083
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.002362876623910249
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 0.0006313722686046202
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    },
+    {
+      "id": "pt_0014",
+      "t_start": 137.0369,
+      "t_end": 143.61013333333332,
+      "gt_or_current_winner": "unknown",
+      "features": {
+        "pre": {
+          "left": 33.878108978271484,
+          "right": 35.47620519002279,
+          "gap": -0.023042491413452573,
+          "strength": 69.35431516829428
+        },
+        "post": {
+          "left": 35.50430162491337,
+          "right": 35.36299237897319,
+          "gap": 0.0019939980202775954,
+          "strength": 70.86729500388655
+        },
+        "recovery": {
+          "left": 35.48721278797496,
+          "right": 35.48842280994762,
+          "gap": -1.70484130986425e-05,
+          "strength": 70.97563659792257
+        }
+      },
+      "winner_guess": {
+        "post": {
+          "label": "unknown",
+          "confidence": 0.0019939980202775954
+        },
+        "recovery": {
+          "label": "unknown",
+          "confidence": 1.70484130986425e-05
+        },
+        "final": {
+          "label": "unknown",
+          "confidence": 0.0
+        }
+      }
+    }
+  ]
+}
