@@ -10,7 +10,7 @@ Dung cung schema voi `backend/ai_contract.py` (`draft_match_v1`).
 Ban co the copy tu file refined du doan, sau do chinh sua `points` cho dung.
 
 ## Quy tac gan nhan toi thieu
-1. Moi point bat buoc co:
+1. Moi point bat buoc co: 
    - `id`
    - `t_start`
    - `t_end`
