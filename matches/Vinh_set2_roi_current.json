@@ -1,0 +1,9 @@
+{
+  "x": 864,
+  "y": 756,
+  "w": 698,
+  "h": 217,
+  "confidence": 0.18243521451950073,
+  "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+  "notes": "score=0.682; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+}

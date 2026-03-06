@@ -1,0 +1,66 @@
+[
+  {
+    "name": "Vinh_set1",
+    "roi": {
+      "x": 843,
+      "y": 741,
+      "w": 713,
+      "h": 231,
+      "confidence": 0.1317455917596817,
+      "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+      "notes": "score=0.690; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+    },
+    "rally_count": 14,
+    "roi_json": "matches\\Vinh_set1_roi_current.json",
+    "annotated_image": "outputs\\roi_exports\\Vinh_set1_roi_annotated.jpg",
+    "crop_image": "outputs\\roi_exports\\Vinh_set1_roi_crop.jpg"
+  },
+  {
+    "name": "Vinh_set2",
+    "roi": {
+      "x": 864,
+      "y": 756,
+      "w": 698,
+      "h": 217,
+      "confidence": 0.18243521451950073,
+      "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+      "notes": "score=0.682; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+    },
+    "rally_count": 20,
+    "roi_json": "matches\\Vinh_set2_roi_current.json",
+    "annotated_image": "outputs\\roi_exports\\Vinh_set2_roi_annotated.jpg",
+    "crop_image": "outputs\\roi_exports\\Vinh_set2_roi_crop.jpg"
+  },
+  {
+    "name": "Vinh_set3",
+    "roi": {
+      "x": 842,
+      "y": 749,
+      "w": 718,
+      "h": 223,
+      "confidence": 0.12692846357822418,
+      "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+      "notes": "score=0.688; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+    },
+    "rally_count": 18,
+    "roi_json": "matches\\Vinh_set3_roi_current.json",
+    "annotated_image": "outputs\\roi_exports\\Vinh_set3_roi_annotated.jpg",
+    "crop_image": "outputs\\roi_exports\\Vinh_set3_roi_crop.jpg"
+  },
+  {
+    "name": "Vinh_set4",
+    "roi": {
+      "x": 874,
+      "y": 753,
+      "w": 700,
+      "h": 219,
+      "confidence": 0.16472840309143066,
+      "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+      "notes": "score=0.699; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+    },
+    "rally_count": 18,
+    "roi_json": "matches\\Vinh_set4_roi_current.json",
+    "annotated_image": "outputs\\roi_exports\\Vinh_set4_roi_annotated.jpg",
+    "crop_image": "outputs\\roi_exports\\Vinh_set4_roi_crop.jpg"
+  }
+]

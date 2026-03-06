@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Tuple, List
 
 import cv2
@@ -47,7 +47,10 @@ class DLConfig:
     y_band_min_ratio: float = 0.18
     y_band_max_ratio: float = 0.92
 
-    # Expand search region around YOLO box (relative to YOLO box height)
+    # Expand search region around YOLO box so refinement can recover edges
+    # when YOLO only covers part of the tabletop.
+    search_expand_left: float = 0.0
+    search_expand_right: float = 0.0
     search_expand_up: float = 0.65
     search_expand_down: float = 0.65
 
@@ -76,6 +79,13 @@ class DLConfig:
     # For diagonal tripod, main table often sits slightly right and lower-middle.
     target_cx: float = 0.52
     target_cy: float = 0.62
+
+    # Limit aggressive top shrink so the far edge of the table is preserved.
+    top_shrink_margin_ratio: float = 0.02
+    top_shrink_max_ratio: float = 1.0
+
+    # Final output expansion to recover a little more space above the table.
+    final_expand_top_ratio: float = 0.02
 
 
 # ----------------------------
@@ -128,6 +138,65 @@ def _normalize01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+def _side_continuation_score(
+    frame: np.ndarray,
+    bbox: Tuple[int, int, int, int],
+    *,
+    cfg: DLConfig,
+    side: str,
+) -> float:
+    x, y, w, h = bbox
+    H, W = frame.shape[:2]
+    band_w = max(8, int(w * 0.15))
+    y1 = max(0, y + int(h * 0.15))
+    y2 = min(H, y + int(h * 0.75))
+    if y2 <= y1:
+        return 0.0
+
+    if side == "left":
+        x1 = max(0, x - band_w)
+        x2 = x
+    elif side == "right":
+        x1 = x + w
+        x2 = min(W, x + w + band_w)
+    else:
+        raise ValueError(f"Invalid side: {side}")
+
+    if x2 <= x1:
+        return 0.0
+
+    roi = frame[y1:y2, x1:x2]
+    if roi.size == 0:
+        return 0.0
+
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    lower = np.array(cfg.hsv_lower, dtype=np.uint8)
+    upper = np.array(cfg.hsv_upper, dtype=np.uint8)
+    mask = cv2.inRange(hsv, lower, upper)
+    blue_density = float(np.count_nonzero(mask)) / float(mask.size)
+
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 60, 160)
+    edge_density = float(np.count_nonzero(edges)) / float(edges.size)
+
+    return blue_density * 0.8 + edge_density * 0.2
+
+
+def _aspect_shape_prior_score(bbox: Tuple[int, int, int, int]) -> float:
+    """
+    Soft prior for axis-aligned tabletop bbox shape.
+
+    Truncated table boxes tend to become too narrow after refinement. We keep
+    this prior broad so it still generalizes across clips and small camera shifts.
+    """
+    _x, _y, w, h = bbox
+    aspect = float(w) / max(1.0, float(h))
+    target = 3.2
+    tolerance = 0.85
+    z = (aspect - target) / tolerance
+    return float(np.exp(-(z * z)))
+
+
 def _center_table_prior_score(
     bbox: Tuple[int, int, int, int],
     *,
@@ -165,6 +234,9 @@ def _center_table_prior_score(
 def _shrink_top_using_horizontal_edge(
     roi_gray: np.ndarray,
     bbox_local: Tuple[int, int, int, int],
+    *,
+    top_shrink_margin_ratio: float,
+    top_shrink_max_ratio: float,
 ) -> Tuple[int, int, int, int]:
     """
     Reduce bbox top if it includes background (blue barriers).
@@ -202,12 +274,14 @@ def _shrink_top_using_horizontal_edge(
     if peak < int(bh * 0.08):
         return bx, by, bw, bh
 
-    margin = int(max(2, bh * 0.02))
+    margin = int(max(2, bh * float(top_shrink_margin_ratio)))
     new_by = by + peak + margin
     new_bh = (by + bh) - new_by
 
     # Prevent over-shrinking: keep at least ~50% height
     if new_bh < int(bh * 0.50):
+        return bx, by, bw, bh
+    if (new_by - by) > int(bh * float(top_shrink_max_ratio)):
         return bx, by, bw, bh
 
     return bx, new_by, bw, new_bh
@@ -244,12 +318,14 @@ def _refine_tabletop_in_search(
     y_band_min = int(H * cfg.y_band_min_ratio)
     y_band_max = int(H * cfg.y_band_max_ratio)
 
+    search_x1 = max(0, x - int(w * cfg.search_expand_left))
+    search_x2 = min(W, x + w + int(w * cfg.search_expand_right))
     search_y1 = max(y_band_min, y - int(h * cfg.search_expand_up))
     search_y2 = min(y_band_max, y + int(h * cfg.search_expand_down))
-    if search_y2 <= search_y1:
+    if search_x2 <= search_x1 or search_y2 <= search_y1:
         return None
 
-    roi_zone = frame[search_y1:search_y2, x : x + w]
+    roi_zone = frame[search_y1:search_y2, search_x1:search_x2]
     if roi_zone.size == 0:
         return None
 
@@ -344,10 +420,15 @@ def _refine_tabletop_in_search(
 
     # --- EXTRA: shrink top to remove blue barrier region ---
     bx, by, bw, bh = best_bbox_local
-    bx, by, bw, bh = _shrink_top_using_horizontal_edge(gray, (bx, by, bw, bh))
+    bx, by, bw, bh = _shrink_top_using_horizontal_edge(
+        gray,
+        (bx, by, bw, bh),
+        top_shrink_margin_ratio=cfg.top_shrink_margin_ratio,
+        top_shrink_max_ratio=cfg.top_shrink_max_ratio,
+    )
     best_bbox_local = (bx, by, bw, bh)
 
-    out_x = x + bx
+    out_x = search_x1 + bx
     out_y = search_y1 + by
     out_w = bw
     out_h = bh
@@ -417,6 +498,85 @@ def detect_table_roi_dl(
 
     candidates: List[_Candidate] = []
 
+    def maybe_recover_truncated_bbox(
+        frame: np.ndarray,
+        yolo_bbox: Tuple[int, int, int, int],
+        bbox: Tuple[int, int, int, int],
+        refine_score: float,
+    ) -> Tuple[Tuple[int, int, int, int], float]:
+        yx, yy, yw, yh = yolo_bbox
+        bx, by, bw, bh = bbox
+        aspect = bw / max(1.0, float(bh))
+        left_touch = abs(bx - yx) <= max(6, int(yw * 0.02))
+        right_touch = abs((bx + bw) - (yx + yw)) <= max(6, int(yw * 0.02))
+        orig_shape = _aspect_shape_prior_score(bbox)
+
+        def recovery_rank(candidate_bbox: Tuple[int, int, int, int], candidate_score: float) -> float:
+            shape = _aspect_shape_prior_score(candidate_bbox)
+            center = _center_table_prior_score(
+                candidate_bbox,
+                frame_w=W,
+                frame_h=H,
+                target_cx=cfg.target_cx,
+                target_cy=cfg.target_cy,
+            )
+            return shape * 0.55 + candidate_score * 0.20 + center * 0.25
+
+        # If refinement stays glued to a YOLO edge and the tabletop aspect is
+        # unnaturally narrow, YOLO likely clipped that side of the table.
+        repair_left = aspect < 2.95 and left_touch and not right_touch
+        repair_right = aspect < 2.95 and right_touch and not left_touch
+        if aspect < 2.95 and left_touch and right_touch:
+            left_score = _side_continuation_score(frame, yolo_bbox, cfg=cfg, side="left")
+            right_score = _side_continuation_score(frame, yolo_bbox, cfg=cfg, side="right")
+            if left_score > right_score * 1.10:
+                repair_left = True
+            elif right_score > left_score * 1.10:
+                repair_right = True
+            else:
+                repair_left = True
+                repair_right = True
+        if not repair_left and not repair_right:
+            return bbox, refine_score
+
+        candidates: List[Tuple[Tuple[int, int, int, int], float]] = [(bbox, refine_score)]
+        if repair_left:
+            repaired = _refine_tabletop_in_search(
+                frame,
+                yolo_bbox,
+                cfg=replace(cfg, search_expand_left=max(cfg.search_expand_left, 0.15)),
+                debug=False,
+                debug_tag="repair_left",
+            )
+            if repaired is not None:
+                candidates.append(repaired)
+        if repair_right:
+            repaired = _refine_tabletop_in_search(
+                frame,
+                yolo_bbox,
+                cfg=replace(cfg, search_expand_right=max(cfg.search_expand_right, 0.15)),
+                debug=False,
+                debug_tag="repair_right",
+            )
+            if repaired is not None:
+                candidates.append(repaired)
+
+        best_bbox, best_score = bbox, refine_score
+        best_rank = recovery_rank(bbox, refine_score)
+        for candidate_bbox, candidate_score in candidates[1:]:
+            candidate_aspect = candidate_bbox[2] / max(1.0, float(candidate_bbox[3]))
+            candidate_shape = _aspect_shape_prior_score(candidate_bbox)
+            improved_shape = candidate_aspect > max(2.95, aspect + 0.20)
+            strong_shape_gain = candidate_shape >= (orig_shape + 0.08)
+            not_much_worse = candidate_score >= (refine_score - 0.04)
+            rank = recovery_rank(candidate_bbox, candidate_score)
+            if improved_shape and strong_shape_gain and not_much_worse and rank > best_rank:
+                best_bbox, best_score, best_rank = candidate_bbox, candidate_score, rank
+
+        if best_bbox != bbox:
+            return best_bbox, best_score
+        return bbox, refine_score
+
     for ts in check_times:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(ts * fps))
         ret, frame = cap.read()
@@ -466,6 +626,12 @@ def detect_table_roi_dl(
                 continue
 
             bbox, refine_score = refined
+            bbox, refine_score = maybe_recover_truncated_bbox(
+                frame,
+                (x1i, y1i, bw_ai, bh_ai),
+                bbox,
+                refine_score,
+            )
             bx, by, bw, bh = bbox
 
             # Evidence score from refinement (soft-normalized)
@@ -537,14 +703,26 @@ def detect_table_roi_dl(
         center_prior = _center_table_prior_score(
             c.bbox, frame_w=W, frame_h=H, target_cx=cfg.target_cx, target_cy=cfg.target_cy
         )
-        # Final decision: stability + center + combined evidence
-        rank = iou_to_med * 0.35 + center_prior * 0.35 + c.score * 0.30
+        shape_prior = _aspect_shape_prior_score(c.bbox)
+        # Final decision: stability + center + evidence + shape.
+        # Shape prior helps reject candidates that look horizontally truncated.
+        rank = (
+            iou_to_med * 0.25 +
+            center_prior * 0.25 +
+            c.score * 0.25 +
+            shape_prior * 0.25
+        )
         if rank > best_rank:
             best_rank = rank
             best = c
 
     assert best is not None
     bx, by, bw, bh = _clip_box(best.bbox[0], best.bbox[1], best.bbox[2], best.bbox[3], W, H)
+    expand_top = int(round(bh * cfg.final_expand_top_ratio))
+    if expand_top > 0:
+        new_y = max(0, by - expand_top)
+        bh = min(H - new_y, bh + (by - new_y))
+        by = new_y
 
     return TableROI(
         x=bx,
@@ -556,6 +734,7 @@ def detect_table_roi_dl(
         notes=(
             f"score={best.score:.3f}; "
             f"target_center=({cfg.target_cx:.2f},{cfg.target_cy:.2f}); "
-            f"hsv={cfg.hsv_lower}-{cfg.hsv_upper}"
+            f"hsv={cfg.hsv_lower}-{cfg.hsv_upper}; "
+            f"final_expand_top={cfg.final_expand_top_ratio:.2f}"
         ),
     )
