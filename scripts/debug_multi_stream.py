@@ -30,6 +30,7 @@ def run_multi_stream_debug(
     *,
     person_weights: str,
     out_path_str: str,
+    start_seconds: float = 0.0,
     max_seconds: float = 60.0,
     imgsz: int = 1600,
 ):
@@ -48,7 +49,9 @@ def run_multi_stream_debug(
 
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
-    max_frames = int(max(1.0, max_seconds) * fps)
+    start_frame = int(max(0.0, start_seconds) * fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    max_frames = start_frame + int(max(1.0, max_seconds) * fps)
 
     output_path = Path(out_path_str)
     output_path.parent.mkdir(exist_ok=True, parents=True)
@@ -60,7 +63,7 @@ def run_multi_stream_debug(
     print("Analyzing full clip offline for tracklets and global A/B assignment...")
 
     offline_tracker = OfflinePlayerTracker(table_roi, frame_w=info.width, frame_h=info.height)
-    frame_idx = 0
+    frame_idx = start_frame
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret or frame_idx >= max_frames:
@@ -87,7 +90,8 @@ def run_multi_stream_debug(
 
     cap.release()
     cap = cv2.VideoCapture(str(video_path))
-    frame_idx = 0
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    frame_idx = start_frame
     role_states = {
         "A": type("RoleState", (), {"confidence": 1.0, "visible": False, "missing_frames": 0})(),
         "B": type("RoleState", (), {"confidence": 1.0, "visible": False, "missing_frames": 0})(),
@@ -151,6 +155,7 @@ def main() -> int:
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Table YOLO weights path")
     parser.add_argument("--person-weights", default="weights/yolov8s.pt", help="Person YOLO weights path")
     parser.add_argument("--out", default="debug_report/multi_stream_tracking_v2.mp4", help="Output video path")
+    parser.add_argument("--start-seconds", type=float, default=0.0, help="Start analysis/render from this second")
     parser.add_argument("--max-seconds", type=float, default=60.0, help="Maximum output duration in seconds")
     parser.add_argument("--imgsz", type=int, default=1600, help="YOLO inference image size")
     args = parser.parse_args()
@@ -160,6 +165,7 @@ def main() -> int:
         args.weights,
         person_weights=args.person_weights,
         out_path_str=args.out,
+        start_seconds=args.start_seconds,
         max_seconds=args.max_seconds,
         imgsz=args.imgsz,
     )

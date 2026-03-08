@@ -258,6 +258,10 @@ class PlayerTracklet:
         return float(np.mean([obs.center[0] for obs in self.observations]))
 
     @property
+    def mean_center_y(self) -> float:
+        return float(np.mean([obs.center[1] for obs in self.observations]))
+
+    @property
     def first_box(self) -> Tuple[int, int, int, int]:
         return self.observations[0].box
 
@@ -398,16 +402,89 @@ class OfflinePlayerTracker:
         tracklets: Sequence[PlayerTracklet],
     ) -> Dict[int, Dict[str, TrackletObservation]]:
         role_frames: Dict[int, Dict[str, TrackletObservation]] = {}
+        role_tracklets: Dict[str, List[PlayerTracklet]] = {"A": [], "B": []}
         for tracklet in tracklets:
-            if tracklet.assigned_role is None:
-                continue
-            dense_obs = self._densify_tracklet_observations(tracklet)
-            for obs in dense_obs:
-                role_frames.setdefault(obs.frame_idx, {})
-                existing = role_frames[obs.frame_idx].get(tracklet.assigned_role)
-                if existing is None or existing.confidence < obs.confidence:
-                    role_frames[obs.frame_idx][tracklet.assigned_role] = obs
+            if tracklet.assigned_role in role_tracklets:
+                role_tracklets[tracklet.assigned_role].append(tracklet)
+
+        for role, assigned_tracklets in role_tracklets.items():
+            for tracklet in sorted(assigned_tracklets, key=lambda t: (t.start_frame, t.tracklet_id)):
+                dense_obs = self._filter_role_observations(tracklet, self._densify_tracklet_observations(tracklet))
+                for obs in dense_obs:
+                    role_frames.setdefault(obs.frame_idx, {})
+                    existing = role_frames[obs.frame_idx].get(role)
+                    if existing is None or existing.confidence < obs.confidence:
+                        role_frames[obs.frame_idx][role] = obs
+        self._resolve_role_conflicts(role_frames, role_tracklets)
         return role_frames
+
+    def _resolve_role_conflicts(
+        self,
+        role_frames: Dict[int, Dict[str, TrackletObservation]],
+        role_tracklets: Dict[str, List[PlayerTracklet]],
+    ) -> None:
+        role_center_x = {
+            role: float(np.mean([t.mean_center_x for t in tracklets])) if tracklets else None
+            for role, tracklets in role_tracklets.items()
+        }
+        role_center_y = {
+            role: float(np.mean([t.mean_center_y for t in tracklets])) if tracklets else None
+            for role, tracklets in role_tracklets.items()
+        }
+        for _, roles in role_frames.items():
+            if "A" not in roles or "B" not in roles:
+                continue
+            obs_a = roles["A"]
+            obs_b = roles["B"]
+            if _box_iou(obs_a.box, obs_b.box) < 0.85 and np.hypot(obs_a.center[0] - obs_b.center[0], obs_a.center[1] - obs_b.center[1]) > 25.0:
+                continue
+            score_a_for_a = self._role_observation_consistency(obs_a, role_center_x["A"], role_center_y["A"])
+            score_a_for_b = self._role_observation_consistency(obs_a, role_center_x["B"], role_center_y["B"])
+            score_b_for_a = self._role_observation_consistency(obs_b, role_center_x["A"], role_center_y["A"])
+            score_b_for_b = self._role_observation_consistency(obs_b, role_center_x["B"], role_center_y["B"])
+            if (score_a_for_a + score_b_for_b) <= (score_a_for_b + score_b_for_a):
+                continue
+            if score_a_for_a <= score_b_for_a:
+                del roles["B"]
+            else:
+                del roles["A"]
+
+    def _role_observation_consistency(
+        self,
+        obs: TrackletObservation,
+        center_x: Optional[float],
+        center_y: Optional[float],
+    ) -> float:
+        if center_x is None or center_y is None:
+            return 999.0
+        dx = abs(obs.center[0] - center_x) / max(1.0, float(self.frame_w))
+        dy = abs(obs.center[1] - center_y) / max(1.0, float(self.frame_h))
+        return (1.4 * dx) + (1.2 * dy) - (0.1 * obs.confidence)
+
+    def _filter_role_observations(
+        self,
+        tracklet: PlayerTracklet,
+        observations: Sequence[TrackletObservation],
+    ) -> List[TrackletObservation]:
+        if not observations:
+            return []
+        core_window = observations[: min(len(observations), 120)]
+        core_center_x = float(np.median([obs.center[0] for obs in core_window]))
+        core_center_y = float(np.median([obs.center[1] for obs in core_window]))
+        core_area = float(np.median([_box_area(obs.box) for obs in core_window]))
+        max_shift_x_px = max(220.0, self.frame_w * 0.13)
+        max_shift_y_px = max(220.0, self.frame_h * 0.18)
+        filtered: List[TrackletObservation] = []
+        for obs in observations:
+            if abs(obs.center[0] - core_center_x) > max_shift_x_px:
+                continue
+            if abs(obs.center[1] - core_center_y) > max_shift_y_px:
+                continue
+            area_ratio = _box_area(obs.box) / max(1.0, core_area)
+            if area_ratio < 0.40 or area_ratio > 2.20:
+                continue
+            filtered.append(obs)
+        return filtered
 
     def _densify_tracklet_observations(
         self,
@@ -640,9 +717,18 @@ class OfflinePlayerTracker:
             best_role = "A" if sim_a <= sim_b else "B"
             best_sim = min(sim_a, sim_b)
             sim_margin = abs(sim_a - sim_b)
+            role_center_mean = float(np.mean([other.mean_center_x for other in role_prototypes[best_role]]))
+            role_center_y_mean = float(np.mean([other.mean_center_y for other in role_prototypes[best_role]]))
+            diag = float(np.hypot(self.frame_w, self.frame_h))
+            center_shift_norm = abs(tracklet.mean_center_x - role_center_mean) / max(1.0, diag)
+            center_shift_y_norm = abs(tracklet.mean_center_y - role_center_y_mean) / max(1.0, float(self.frame_h))
             if self._tracklet_priority_score(tracklet) < 0.55:
                 continue
             if best_sim > 0.85 or sim_margin < 0.18:
+                continue
+            if center_shift_norm > 0.16:
+                continue
+            if center_shift_y_norm > 0.14:
                 continue
             tracklet.assigned_role = best_role
             role_prototypes[best_role].append(tracklet)
@@ -703,11 +789,26 @@ class OfflinePlayerTracker:
         side_cost = 0.0
         seed = role_tracklets[0]
         table_x = float(self.table_center[0])
+        role_center_mean = float(np.mean([other.mean_center_x for other in role_tracklets]))
+        role_center_y_mean = float(np.mean([other.mean_center_y for other in role_tracklets]))
+        diag = float(np.hypot(self.frame_w, self.frame_h))
+        center_shift_norm = abs(tracklet.mean_center_x - role_center_mean) / max(1.0, diag)
+        center_shift_y_norm = abs(tracklet.mean_center_y - role_center_y_mean) / max(1.0, float(self.frame_h))
         if seed.mean_center_x <= table_x and role == "A":
             side_cost = 0.0 if tracklet.mean_center_x <= table_x else 0.10
         if seed.mean_center_x > table_x and role == "B":
             side_cost = 0.0 if tracklet.mean_center_x > table_x else 0.10
-        return appearance + overlap_penalty + side_cost - (0.20 * self._tracklet_priority_score(tracklet))
+        center_shift_penalty = 0.0
+        if center_shift_norm > 0.18:
+            center_shift_penalty = 0.65
+        elif center_shift_norm > 0.12:
+            center_shift_penalty = 0.25
+        center_shift_y_penalty = 0.0
+        if center_shift_y_norm > 0.16:
+            center_shift_y_penalty = 0.75
+        elif center_shift_y_norm > 0.10:
+            center_shift_y_penalty = 0.30
+        return appearance + overlap_penalty + side_cost + center_shift_penalty + center_shift_y_penalty - (0.20 * self._tracklet_priority_score(tracklet))
 
     def _tracklet_similarity_cost(self, a: PlayerTracklet, b: PlayerTracklet) -> float:
         return (
@@ -726,14 +827,14 @@ class OfflinePlayerTracker:
 
     def _build_player_zones(self) -> Dict[str, Tuple[int, int, int, int]]:
         x, y, w, h = self.table_roi.as_tuple()
-        left = max(0, x - int(w * 0.65))
-        right = min(self.frame_w, x + w + int(w * 0.65))
+        left = max(0, x - int(w * 0.45))
+        right = min(self.frame_w, x + w + int(w * 0.45))
         top_far = max(0, y - int(h * 1.75))
         bottom_far = min(self.frame_h, y + int(h * 0.28))
         top_near = max(0, y + int(h * 0.08))
         bottom_near = min(self.frame_h, y + int(h * 2.80))
-        side_pad_far = int(w * 0.10)
-        side_pad_near = int(w * 0.28)
+        side_pad_far = int(w * 0.06)
+        side_pad_near = int(w * 0.18)
         return {
             "far": (
                 max(0, x - side_pad_far),
