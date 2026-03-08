@@ -1,126 +1,139 @@
-# scripts/debug_multi_stream.py
-import torch
+import argparse
+import sys
+from pathlib import Path
+
 import cv2
 import numpy as np
-import sys
-import os
-from pathlib import Path
+import torch
 from ultralytics import YOLO
 
-# Ensure we can import from the backend folder in the root
 sys.path.append(str(Path(__file__).parent.parent))
 
+from backend.ai_table_roi_dl import DLConfig, detect_table_roi_dl
+from backend.offline_player_tracker import OfflinePlayerTracker
 from backend.video_gpu_io import probe_video_ffprobe
-from backend.ai_table_roi_dl import detect_table_roi_dl, DLConfig
 
-def run_multi_stream_debug(video_path_str: str, table_weights: str):
-    """
-    Advanced Debug Tool for 3-Stream Architecture:
-    1. Table Anchor (Fixed)
-    2. Player A & B Tracking (Dynamic via YOLOv8x-Pose)
-    3. Global Context (Spectator Filtering)
-    """
+
+def _run_person_detection(
+    person_model: YOLO,
+    frame: np.ndarray,
+    *,
+    device: str,
+    imgsz: int,
+):
+    return person_model.predict(frame, classes=[0], device=device, verbose=False, imgsz=imgsz)[0]
+
+
+def run_multi_stream_debug(
+    video_path_str: str,
+    table_weights: str,
+    *,
+    person_weights: str,
+    out_path_str: str,
+    max_seconds: float = 60.0,
+    imgsz: int = 1600,
+):
     video_path = Path(video_path_str)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    print(f"--- STARTING PRODUCTION-GRADE MULTI-STREAM DEBUG ---")
+
+    print("--- STARTING PRODUCTION-GRADE MULTI-STREAM DEBUG ---")
     print(f"Hardware: {torch.cuda.get_device_name(0) if device == 'cuda' else 'CPU'}")
+    print("Loading YOLO person detector...")
+    person_model = YOLO(str(Path(person_weights).resolve()))
 
-    # 1. Load the most accurate Pose Model (X-Large)
-    # This model provides high-precision keypoints for swing detection
-    print("Loading YOLOv8x-Pose model...")
-    person_model = YOLO('yolov8x-pose.pt') 
-
-    # 2. Identify Table ROI (The Fixed Anchor)
     info = probe_video_ffprobe(video_path)
     table_roi = detect_table_roi_dl(str(video_path), cfg=DLConfig(weights_path=table_weights, device=device))
     tx, ty, tw, th = table_roi.as_tuple()
     table_center = (tx + tw // 2, ty + th // 2)
 
-    # 3. Setup Video Capture and Output
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
-    
-    output_dir = Path("debug_report")
-    output_dir.mkdir(exist_ok=True)
-    output_path = output_dir / "multi_stream_tracking_v2.mp4"
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    max_frames = int(max(1.0, max_seconds) * fps)
+
+    output_path = Path(out_path_str)
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(str(output_path), fourcc, fps, (info.width, info.height))
 
     print(f"Tracking players based on proximity to table center: {table_center}")
+    print(f"Output: {output_path}")
+    print("Analyzing full clip offline for tracklets and global A/B assignment...")
 
+    offline_tracker = OfflinePlayerTracker(table_roi, frame_w=info.width, frame_h=info.height)
     frame_idx = 0
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret or frame_idx > 900: # Debug first 15 seconds for rapid testing
+        if not ret or frame_idx >= max_frames:
+            break
+        det_res = _run_person_detection(person_model, frame, device=device, imgsz=imgsz)
+        if det_res.boxes is not None and len(det_res.boxes) > 0:
+            boxes = det_res.boxes.xyxy.cpu().numpy()
+            confs = det_res.boxes.conf.cpu().numpy() if det_res.boxes.conf is not None else None
+            detections = offline_tracker.build_detections(
+                frame,
+                frame_idx=frame_idx,
+                boxes_xyxy=boxes,
+                keypoints_xy=None,
+                confidences=confs,
+            )
+            offline_tracker.add_frame_detections(detections)
+        frame_idx += 1
+        if frame_idx % 100 == 0:
+            print(f"  Analysis frame {frame_idx}...")
+
+    offline_result = offline_tracker.finish()
+    offline_role_frames = offline_result.role_frames
+    print(f"Offline analysis complete. Tracklets: {len(offline_result.tracklets)}")
+
+    cap.release()
+    cap = cv2.VideoCapture(str(video_path))
+    frame_idx = 0
+    role_states = {
+        "A": type("RoleState", (), {"confidence": 1.0, "visible": False, "missing_frames": 0})(),
+        "B": type("RoleState", (), {"confidence": 1.0, "visible": False, "missing_frames": 0})(),
+    }
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret or frame_idx >= max_frames:
             break
 
-        # A. Detect and Track people with Persistence (ID tracking)
-        # Using track() instead of predict() to maintain Player A/B consistency
-        results = person_model.track(frame, persist=True, classes=[0], device=device, verbose=False)
-        
-        candidates = []
-        if results[0].boxes.id is not None:
-            boxes = results[0].boxes.xyxy.cpu().numpy()
-            ids = results[0].boxes.id.cpu().numpy().astype(int)
-            keypoints = results[0].keypoints.xy.cpu().numpy() # [N, 17, 2]
+        active_players = offline_role_frames.get(frame_idx, {})
+        for role in ("A", "B"):
+            state = role_states[role]
+            if role in active_players:
+                state.visible = True
+                state.missing_frames = 0
+            else:
+                state.visible = False
+                state.missing_frames += 1
 
-            for i, box in enumerate(boxes):
-                x1, y1, x2, y2 = box
-                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                
-                # Calculate distance to table center to filter out spectators
-                dist_to_table = np.sqrt((cx - table_center[0])**2 + (cy - table_center[1])**2)
-                
-                candidates.append({
-                    'id': ids[i],
-                    'box': [int(x1), int(y1), int(x2), int(y2)],
-                    'dist': dist_to_table,
-                    'kpts': keypoints[i]
-                })
-
-        # B. Selection Logic: Pick the 2 closest people to the table surface
-        candidates.sort(key=lambda x: x['dist'])
-        active_players = candidates[:2]
-
-        # C. Visualization - Drawing the 3 Streams
-        
-        # Stream 1: Table (Blue)
         cv2.rectangle(frame, (tx, ty), (tx + tw, ty + th), (255, 0, 0), 4)
-        cv2.putText(frame, "STREAM 1: TABLE ANCHOR", (tx, ty - 15), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 0), 3)
+        cv2.putText(frame, "STREAM 1: TABLE ANCHOR", (tx, ty - 15), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 0), 3)
 
-        # Stream 2: Dynamic Player Tracking
-        for i, player in enumerate(active_players):
-            b = player['box']
-            p_id = player['id']
-            # Color: P1 = Red, P2 = Yellow
-            color = (0, 0, 255) if i == 0 else (0, 255, 255)
-            label = f"STREAM 2: PLAYER {chr(65+i)} (ID:{p_id})"
-            
-            # Draw Bounding Box
+        role_colors = {"A": (0, 0, 255), "B": (0, 255, 255)}
+        for role in ("A", "B"):
+            if role not in active_players:
+                continue
+            player = active_players[role]
+            b = player.box
+            color = role_colors[role]
+            stream_name = "STREAM 2" if role == "A" else "STREAM 3"
+            label = f"{stream_name}: PLAYER {role} (conf={player.confidence:.2f})"
             cv2.rectangle(frame, (b[0], b[1]), (b[2], b[3]), color, 4)
-            cv2.putText(frame, label, (b[0], b[1] - 15), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
-            
-            # Draw Keypoints (Pose)
-            for kp in player['kpts']:
+            cv2.putText(frame, label, (b[0], b[1] - 15), cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+
+            for kp in player.keypoints:
                 kx, ky = int(kp[0]), int(kp[1])
                 if kx > 0 and ky > 0:
                     cv2.circle(frame, (kx, ky), 5, (0, 255, 0), -1)
-            
-            # Highlight Wrists (Index 9 and 10 in COCO pose)
-            for wrist_idx in [9, 10]:
-                wx, wy = int(player['kpts'][wrist_idx][0]), int(player['kpts'][wrist_idx][1])
-                if wx > 0 and wy > 0:
-                    cv2.circle(frame, (wx, wy), 10, color, -1) # Highlighting potential swing source
 
-        # Stream 3: Global Info
-        cv2.putText(frame, f"GLOBAL: {len(candidates)} people in view", (50, 60), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
-        cv2.putText(frame, f"STATUS: Tracking 2 Active Players", (50, 120), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
+        cv2.putText(frame, f"GLOBAL: {len(active_players)} people in view", (50, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
+        tracked_roles = ", ".join(
+            f"{role} {'visible' if role_states[role].visible else f'missing({role_states[role].missing_frames})'}"
+            for role in ("A", "B")
+        )
+        cv2.putText(frame, f"STATUS: {tracked_roles}", (50, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
 
         out.write(frame)
         frame_idx += 1
@@ -130,11 +143,28 @@ def run_multi_stream_debug(video_path_str: str, table_weights: str):
     cap.release()
     out.release()
     print(f"\n[DONE] High-precision tracking saved to: {output_path}")
-    print(f"Check if IDs are stable and spectators are ignored.")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Export a debug video with table ROI and offline player tracking.")
+    parser.add_argument("--video", default="Vinh_set1.mp4", help="Input video path")
+    parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Table YOLO weights path")
+    parser.add_argument("--person-weights", default="weights/yolov8s.pt", help="Person YOLO weights path")
+    parser.add_argument("--out", default="debug_report/multi_stream_tracking_v2.mp4", help="Output video path")
+    parser.add_argument("--max-seconds", type=float, default=60.0, help="Maximum output duration in seconds")
+    parser.add_argument("--imgsz", type=int, default=1600, help="YOLO inference image size")
+    args = parser.parse_args()
+
+    run_multi_stream_debug(
+        args.video,
+        args.weights,
+        person_weights=args.person_weights,
+        out_path_str=args.out,
+        max_seconds=args.max_seconds,
+        imgsz=args.imgsz,
+    )
+    return 0
+
 
 if __name__ == "__main__":
-    # Update these paths to match your local setup
-    VIDEO_FILE = "Vinh_set1.mp4"
-    YOLO_TABLE_WEIGHTS = "weights/yolov8x_table.pt"
-    
-    run_multi_stream_debug(VIDEO_FILE, YOLO_TABLE_WEIGHTS)
+    raise SystemExit(main())
