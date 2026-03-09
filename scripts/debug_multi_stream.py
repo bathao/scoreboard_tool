@@ -86,6 +86,7 @@ def run_multi_stream_debug(
 
     offline_result = offline_tracker.finish()
     offline_role_frames = offline_result.role_frames
+    offline_role_state_frames = offline_result.role_state_frames
     print(f"Offline analysis complete. Tracklets: {len(offline_result.tracklets)}")
 
     cap.release()
@@ -103,10 +104,14 @@ def run_multi_stream_debug(
             break
 
         active_players = offline_role_frames.get(frame_idx, {})
+        active_states = offline_role_state_frames.get(frame_idx, {})
         for role in ("A", "B"):
             state = role_states[role]
             if role in active_players:
                 state.visible = True
+                state.missing_frames = 0
+            elif active_states.get(role) == "occluded":
+                state.visible = False
                 state.missing_frames = 0
             else:
                 state.visible = False
@@ -134,7 +139,11 @@ def run_multi_stream_debug(
 
         cv2.putText(frame, f"GLOBAL: {len(active_players)} people in view", (50, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 4)
         tracked_roles = ", ".join(
-            f"{role} {'visible' if role_states[role].visible else f'missing({role_states[role].missing_frames})'}"
+            (
+                f"{role} visible"
+                if role_states[role].visible
+                else (f"{role} occluded" if active_states.get(role) == "occluded" else f"{role} missing({role_states[role].missing_frames})")
+            )
             for role in ("A", "B")
         )
         cv2.putText(frame, f"STATUS: {tracked_roles}", (50, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)

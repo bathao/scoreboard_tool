@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import cv2
+from scipy.optimize import linear_sum_assignment
 
 from backend.ai_table_roi import TableROI
 
@@ -291,6 +292,21 @@ class PlayerTracklet:
 class OfflineTrackingResult:
     tracklets: List[PlayerTracklet]
     role_frames: Dict[int, Dict[str, TrackletObservation]]
+    role_state_frames: Dict[int, Dict[str, str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RoleProfile:
+    role: str
+    preferred_zone: str
+    seed_center_x: float
+    seed_center_y: float
+    seed_anchor_x: float
+    seed_anchor_y: float
+    min_tracklet_zone_ratio: float
+    max_center_depth_shift_norm: float
+    max_anchor_depth_shift_norm: float
+    min_observation_ownership_score: float
 
 
 class OfflinePlayerTracker:
@@ -303,6 +319,7 @@ class OfflinePlayerTracker:
         max_link_gap_frames: int = 10,
         max_center_jump_norm: float = 0.12,
         max_interpolate_gap_frames: int = 12,
+        max_role_occlusion_gap_frames: int = 90,
     ) -> None:
         self.table_roi = table_roi
         self.frame_w = int(frame_w)
@@ -310,6 +327,7 @@ class OfflinePlayerTracker:
         self.max_link_gap_frames = int(max_link_gap_frames)
         self.max_center_jump_norm = float(max_center_jump_norm)
         self.max_interpolate_gap_frames = int(max_interpolate_gap_frames)
+        self.max_role_occlusion_gap_frames = int(max_role_occlusion_gap_frames)
         self.play_zone_xyxy = _xywh_to_xyxy(self.table_roi.get_unified_play_zone(self.frame_w, self.frame_h))
         self.player_zones = self._build_player_zones()
         self.table_center = np.array(
@@ -319,6 +337,7 @@ class OfflinePlayerTracker:
         self._next_tracklet_id = 1
         self._active_tracklets: List[PlayerTracklet] = []
         self._finalized_tracklets: List[PlayerTracklet] = []
+        self._role_profiles: Dict[str, RoleProfile] = {}
 
     def build_detections(
         self,
@@ -394,29 +413,45 @@ class OfflinePlayerTracker:
         self._active_tracklets = []
         merged = self._merge_tracklets(self._finalized_tracklets)
         assigned = self._assign_roles(merged)
-        role_frames = self._build_role_frames(assigned)
-        return OfflineTrackingResult(tracklets=assigned, role_frames=role_frames)
+        role_frames, role_state_frames = self._build_role_frames(assigned)
+        return OfflineTrackingResult(
+            tracklets=assigned,
+            role_frames=role_frames,
+            role_state_frames=role_state_frames,
+        )
 
     def _build_role_frames(
         self,
         tracklets: Sequence[PlayerTracklet],
-    ) -> Dict[int, Dict[str, TrackletObservation]]:
+    ) -> Tuple[Dict[int, Dict[str, TrackletObservation]], Dict[int, Dict[str, str]]]:
         role_frames: Dict[int, Dict[str, TrackletObservation]] = {}
+        role_state_frames: Dict[int, Dict[str, str]] = {}
         role_tracklets: Dict[str, List[PlayerTracklet]] = {"A": [], "B": []}
         for tracklet in tracklets:
             if tracklet.assigned_role in role_tracklets:
                 role_tracklets[tracklet.assigned_role].append(tracklet)
 
         for role, assigned_tracklets in role_tracklets.items():
-            for tracklet in sorted(assigned_tracklets, key=lambda t: (t.start_frame, t.tracklet_id)):
-                dense_obs = self._filter_role_observations(tracklet, self._densify_tracklet_observations(tracklet))
-                for obs in dense_obs:
-                    role_frames.setdefault(obs.frame_idx, {})
-                    existing = role_frames[obs.frame_idx].get(role)
-                    if existing is None or existing.confidence < obs.confidence:
-                        role_frames[obs.frame_idx][role] = obs
+            selected_frames = self._select_role_observations(
+                role,
+                sorted(assigned_tracklets, key=lambda t: (t.start_frame, t.tracklet_id)),
+                self._role_profiles.get(role),
+            )
+            for frame_idx, obs in selected_frames.items():
+                role_frames.setdefault(frame_idx, {})
+                role_frames[frame_idx][role] = obs
+            self._mark_role_occlusions(
+                role,
+                sorted(assigned_tracklets, key=lambda t: (t.start_frame, t.tracklet_id)),
+                role_frames,
+                role_state_frames,
+            )
         self._resolve_role_conflicts(role_frames, role_tracklets)
-        return role_frames
+        for frame_idx, roles in role_frames.items():
+            for role in roles:
+                role_state_frames.setdefault(frame_idx, {})
+                role_state_frames[frame_idx][role] = "visible"
+        return role_frames, role_state_frames
 
     def _resolve_role_conflicts(
         self,
@@ -449,6 +484,96 @@ class OfflinePlayerTracker:
             else:
                 del roles["A"]
 
+    def _mark_role_occlusions(
+        self,
+        role: str,
+        assigned_tracklets: Sequence[PlayerTracklet],
+        role_frames: Dict[int, Dict[str, TrackletObservation]],
+        role_state_frames: Dict[int, Dict[str, str]],
+    ) -> None:
+        ordered = [t for t in assigned_tracklets if t.assigned_role == role]
+        for left, right in zip(ordered, ordered[1:]):
+            gap = right.start_frame - left.end_frame - 1
+            if gap <= 0 or gap > self.max_role_occlusion_gap_frames:
+                continue
+            if self._role_gap_bridge_cost(role, left, right) is None:
+                continue
+            for frame_idx in range(left.end_frame + 1, right.start_frame):
+                if role in role_frames.get(frame_idx, {}):
+                    continue
+                role_state_frames.setdefault(frame_idx, {})
+                role_state_frames[frame_idx][role] = "occluded"
+
+    def _tracklet_exits_frame_edge(
+        self,
+        role: str,
+        tracklet: PlayerTracklet,
+    ) -> bool:
+        if len(tracklet.observations) < 2:
+            return False
+        prev_obs = tracklet.observations[-2]
+        last_obs = tracklet.observations[-1]
+        prev_bottom_x = (prev_obs.box[0] + prev_obs.box[2]) / 2.0
+        last_bottom_x = (last_obs.box[0] + last_obs.box[2]) / 2.0
+        if role == "A":
+            border_distance = float(last_obs.box[0])
+            outward_motion = prev_bottom_x - last_bottom_x
+        else:
+            border_distance = float(self.frame_w - last_obs.box[2])
+            outward_motion = last_bottom_x - prev_bottom_x
+        outside_main_zone = not self._is_in_main_player_zone(last_obs.box, last_obs.center)
+        return (border_distance <= (self.frame_w * 0.10) or outside_main_zone) and outward_motion >= (self.frame_w * 0.012)
+
+    def _tracklet_enters_from_frame_edge(
+        self,
+        role: str,
+        tracklet: PlayerTracklet,
+    ) -> bool:
+        if len(tracklet.observations) < 2:
+            return False
+        first_obs = tracklet.observations[0]
+        next_obs = tracklet.observations[1]
+        first_bottom_x = (first_obs.box[0] + first_obs.box[2]) / 2.0
+        next_bottom_x = (next_obs.box[0] + next_obs.box[2]) / 2.0
+        if role == "A":
+            border_distance = float(first_obs.box[0])
+            inward_motion = next_bottom_x - first_bottom_x
+        else:
+            border_distance = float(self.frame_w - first_obs.box[2])
+            inward_motion = first_bottom_x - next_bottom_x
+        outside_main_zone = not self._is_in_main_player_zone(first_obs.box, first_obs.center)
+        return (border_distance <= (self.frame_w * 0.10) or outside_main_zone) and inward_motion >= (self.frame_w * 0.012)
+
+    def _role_gap_bridge_cost(
+        self,
+        role: str,
+        left: PlayerTracklet,
+        right: PlayerTracklet,
+    ) -> Optional[float]:
+        gap = right.start_frame - left.end_frame - 1
+        if gap < 0 or gap > self.max_role_occlusion_gap_frames:
+            return None
+        if self._tracklet_exits_frame_edge(role, left) or self._tracklet_enters_from_frame_edge(role, right):
+            return None
+        diag = float(np.hypot(self.frame_w, self.frame_h))
+        dx = abs(right.first_center[0] - left.last_center[0]) / max(1.0, float(self.frame_w))
+        dy = abs(right.first_center[1] - left.last_center[1]) / max(1.0, float(self.frame_h))
+        center_norm = float(
+            np.linalg.norm(np.array(right.first_center, dtype=np.float32) - np.array(left.last_center, dtype=np.float32))
+            / max(1.0, diag)
+        )
+        area_ratio = _box_area(right.first_box) / max(1.0, _box_area(left.last_box))
+        if dx > 0.14 or dy > 0.18 or center_norm > 0.18:
+            return None
+        if area_ratio < 0.45 or area_ratio > 2.40:
+            return None
+        appearance = self._tracklet_similarity_cost(left, right)
+        gap_cost = gap / max(1.0, float(self.max_role_occlusion_gap_frames))
+        cost = (0.46 * appearance) + (0.22 * center_norm) + (0.18 * dy) + (0.14 * gap_cost)
+        if cost > 0.72:
+            return None
+        return cost
+
     def _role_observation_consistency(
         self,
         obs: TrackletObservation,
@@ -460,6 +585,352 @@ class OfflinePlayerTracker:
         dx = abs(obs.center[0] - center_x) / max(1.0, float(self.frame_w))
         dy = abs(obs.center[1] - center_y) / max(1.0, float(self.frame_h))
         return (1.4 * dx) + (1.2 * dy) - (0.1 * obs.confidence)
+
+    def _tracklet_anchor_stats(
+        self,
+        tracklet: PlayerTracklet,
+    ) -> Tuple[float, float, float]:
+        bottoms_x = [((obs.box[0] + obs.box[2]) / 2.0) for obs in tracklet.observations]
+        bottoms_y = [float(obs.box[3]) for obs in tracklet.observations]
+        areas = [_box_area(obs.box) for obs in tracklet.observations]
+        return float(np.median(bottoms_x)), float(np.median(bottoms_y)), float(np.median(areas))
+
+    def _tracklet_center_stats(
+        self,
+        tracklet: PlayerTracklet,
+    ) -> Tuple[float, float]:
+        centers_x = [obs.center[0] for obs in tracklet.observations]
+        centers_y = [obs.center[1] for obs in tracklet.observations]
+        return float(np.median(centers_x)), float(np.median(centers_y))
+
+    def _zone_membership_ratio(
+        self,
+        observations: Sequence[TrackletObservation],
+        zone_name: str,
+    ) -> float:
+        if not observations:
+            return 0.0
+        hits = sum(1 for obs in observations if self._point_in_depth_band(obs.center, zone_name))
+        return hits / max(1, len(observations))
+
+    def _point_in_depth_band(
+        self,
+        point: Tuple[float, float],
+        zone_name: str,
+    ) -> bool:
+        _x1, y1, _x2, y2 = self.player_zones[zone_name]
+        return y1 <= point[1] <= y2
+
+    def _preferred_zone_for_tracklet(self, tracklet: PlayerTracklet) -> str:
+        near_ratio = self._zone_membership_ratio(tracklet.observations, "near")
+        far_ratio = self._zone_membership_ratio(tracklet.observations, "far")
+        if near_ratio > far_ratio:
+            return "near"
+        if far_ratio > near_ratio:
+            return "far"
+        center_x, center_y = self._tracklet_center_stats(tracklet)
+        table_y_mid = float(self.table_roi.y + (self.table_roi.h * 0.55))
+        if center_y >= table_y_mid:
+            return "near"
+        return "far"
+
+    def _build_role_profile(
+        self,
+        role: str,
+        seed: PlayerTracklet,
+    ) -> RoleProfile:
+        preferred_zone = self._preferred_zone_for_tracklet(seed)
+        seed_anchor_x, seed_anchor_y, _seed_anchor_area = self._tracklet_anchor_stats(seed)
+        seed_center_x, seed_center_y = self._tracklet_center_stats(seed)
+        if preferred_zone == "near":
+            return RoleProfile(
+                role=role,
+                preferred_zone=preferred_zone,
+                seed_center_x=seed_center_x,
+                seed_center_y=seed_center_y,
+                seed_anchor_x=seed_anchor_x,
+                seed_anchor_y=seed_anchor_y,
+                min_tracklet_zone_ratio=0.34,
+                max_center_depth_shift_norm=0.16,
+                max_anchor_depth_shift_norm=0.24,
+                min_observation_ownership_score=-0.06,
+            )
+        return RoleProfile(
+            role=role,
+            preferred_zone=preferred_zone,
+            seed_center_x=seed_center_x,
+            seed_center_y=seed_center_y,
+            seed_anchor_x=seed_anchor_x,
+            seed_anchor_y=seed_anchor_y,
+            min_tracklet_zone_ratio=0.26,
+            max_center_depth_shift_norm=0.20,
+            max_anchor_depth_shift_norm=0.18,
+            min_observation_ownership_score=-0.12,
+        )
+
+    def _role_side_ok(
+        self,
+        role: str,
+        bottom_x: float,
+    ) -> bool:
+        table_x = float(self.table_center[0])
+        if role == "A":
+            return bottom_x <= table_x + (self.frame_w * 0.08)
+        return bottom_x >= table_x - (self.frame_w * 0.08)
+
+    def _depth_shift_norm(
+        self,
+        profile: RoleProfile,
+        *,
+        center_y: float,
+        anchor_y: float,
+    ) -> Tuple[float, float]:
+        if profile.preferred_zone == "near":
+            center_shift = max(0.0, profile.seed_center_y - center_y) / max(1.0, float(self.frame_h))
+            anchor_shift = max(0.0, profile.seed_anchor_y - anchor_y) / max(1.0, float(self.frame_h))
+        else:
+            center_shift = max(0.0, center_y - profile.seed_center_y) / max(1.0, float(self.frame_h))
+            anchor_shift = max(0.0, anchor_y - profile.seed_anchor_y) / max(1.0, float(self.frame_h))
+        return float(center_shift), float(anchor_shift)
+
+    def _tracklet_ownership_score(
+        self,
+        tracklet: PlayerTracklet,
+        profile: RoleProfile,
+    ) -> float:
+        center_x, center_y = self._tracklet_center_stats(tracklet)
+        anchor_x, anchor_y, _anchor_area = self._tracklet_anchor_stats(tracklet)
+        if not self._role_side_ok(profile.role, anchor_x):
+            return -999.0
+        zone_ratio = self._zone_membership_ratio(tracklet.observations, profile.preferred_zone)
+        center_shift, anchor_shift = self._depth_shift_norm(profile, center_y=center_y, anchor_y=anchor_y)
+        return (
+            (2.10 * zone_ratio)
+            - (2.60 * center_shift)
+            - (2.10 * anchor_shift)
+            - (0.40 * abs(anchor_x - profile.seed_anchor_x) / max(1.0, float(self.frame_w)))
+        )
+
+    def _tracklet_matches_role_profile(
+        self,
+        tracklet: PlayerTracklet,
+        profile: RoleProfile,
+    ) -> bool:
+        zone_ratio = self._zone_membership_ratio(tracklet.observations, profile.preferred_zone)
+        if zone_ratio < profile.min_tracklet_zone_ratio:
+            return False
+        center_x, center_y = self._tracklet_center_stats(tracklet)
+        anchor_x, anchor_y, _anchor_area = self._tracklet_anchor_stats(tracklet)
+        if not self._role_side_ok(profile.role, anchor_x):
+            return False
+        center_shift, anchor_shift = self._depth_shift_norm(profile, center_y=center_y, anchor_y=anchor_y)
+        if center_shift > profile.max_center_depth_shift_norm:
+            return False
+        if anchor_shift > profile.max_anchor_depth_shift_norm:
+            return False
+        return True
+
+    def _observation_ownership_score(
+        self,
+        obs: TrackletObservation,
+        profile: RoleProfile,
+    ) -> float:
+        in_zone = self._point_in_depth_band(obs.center, profile.preferred_zone)
+        bottom_x = (obs.box[0] + obs.box[2]) / 2.0
+        if not self._role_side_ok(profile.role, bottom_x):
+            return -999.0
+        center_shift, anchor_shift = self._depth_shift_norm(profile, center_y=float(obs.center[1]), anchor_y=float(obs.box[3]))
+        return (
+            (0.55 if in_zone else -0.22)
+            - (1.75 * center_shift)
+            - (1.50 * anchor_shift)
+            - (0.25 * abs(bottom_x - profile.seed_anchor_x) / max(1.0, float(self.frame_w)))
+        )
+
+    def _tracklet_mode_signature(self, tracklet: PlayerTracklet) -> np.ndarray:
+        anchor_x, anchor_y, anchor_area = self._tracklet_anchor_stats(tracklet)
+        return np.array(
+            [
+                anchor_x / max(1.0, float(self.frame_w)),
+                anchor_y / max(1.0, float(self.frame_h)),
+                np.sqrt(anchor_area / max(1.0, float(self.frame_w * self.frame_h))),
+                float(tracklet.mean_center_x) / max(1.0, float(self.frame_w)),
+                float(tracklet.mean_center_y) / max(1.0, float(self.frame_h)),
+            ],
+            dtype=np.float32,
+        )
+
+    def _role_mode_cost(
+        self,
+        tracklet: PlayerTracklet,
+        prototype: PlayerTracklet,
+        *,
+        role: str,
+    ) -> float:
+        mode_cost = _norm_distance(self._tracklet_mode_signature(tracklet), self._tracklet_mode_signature(prototype))
+        lower_cost = _norm_distance(tracklet.lower_body_signature, prototype.lower_body_signature)
+        shoe_cost = _norm_distance(tracklet.shoe_signature, prototype.shoe_signature)
+        body_cost = _norm_distance(tracklet.body_signature, prototype.body_signature)
+        side_cost = 0.0
+        table_x = float(self.table_center[0])
+        anchor_x, _anchor_y, _anchor_area = self._tracklet_anchor_stats(tracklet)
+        if role == "A" and anchor_x > table_x + (self.frame_w * 0.14):
+            side_cost = 0.22
+        if role == "B" and anchor_x < table_x - (self.frame_w * 0.14):
+            side_cost = 0.22
+        return (0.44 * mode_cost) + (0.34 * lower_cost) + (0.18 * shoe_cost) + (0.12 * body_cost) + side_cost
+
+    def _same_role_overlap_compatibility(
+        self,
+        tracklet: PlayerTracklet,
+        other: PlayerTracklet,
+        *,
+        role: str,
+    ) -> bool:
+        if not tracklet.overlaps_with(other):
+            return False
+        overlap_start = max(tracklet.start_frame, other.start_frame)
+        overlap_end = min(tracklet.end_frame, other.end_frame)
+        if overlap_end < overlap_start:
+            return False
+        tracklet_obs = tracklet.get_observation(overlap_start)
+        other_obs = other.get_observation(overlap_start)
+        if tracklet_obs is None or other_obs is None:
+            return False
+
+        bottom_dx = abs(((tracklet_obs.box[0] + tracklet_obs.box[2]) / 2.0) - ((other_obs.box[0] + other_obs.box[2]) / 2.0)) / max(1.0, float(self.frame_w))
+        bottom_dy = abs(tracklet_obs.box[3] - other_obs.box[3]) / max(1.0, float(self.frame_h))
+        lower_cost = _norm_distance(tracklet.lower_body_signature, other.lower_body_signature)
+        shoe_cost = _norm_distance(tracklet.shoe_signature, other.shoe_signature)
+        table_x = float(self.table_center[0])
+        anchor_x, _anchor_y, _anchor_area = self._tracklet_anchor_stats(tracklet)
+        if role == "A" and anchor_x > table_x + (self.frame_w * 0.14):
+            return False
+        if role == "B" and anchor_x < table_x - (self.frame_w * 0.14):
+            return False
+        return bottom_dx <= 0.12 and bottom_dy <= 0.18 and lower_cost <= 1.15 and shoe_cost <= 1.05
+
+    def _observation_unary_score(
+        self,
+        role: str,
+        tracklet: PlayerTracklet,
+        obs: TrackletObservation,
+    ) -> float:
+        score = 1.30 * float(obs.confidence)
+        if _intersects(obs.box, self.play_zone_xyxy):
+            score += 0.06
+        if self._is_in_main_player_zone(obs.box, obs.center):
+            score += 0.08
+        table_x = float(self.table_center[0])
+        bottom_x = (obs.box[0] + obs.box[2]) / 2.0
+        if role == "A":
+            if bottom_x <= table_x + (self.frame_w * 0.08):
+                score += 0.10
+            else:
+                score -= 0.22
+        else:
+            if bottom_x >= table_x - (self.frame_w * 0.08):
+                score += 0.10
+            else:
+                score -= 0.22
+        score += 0.08 * self._tracklet_priority_score(tracklet)
+        return score
+
+    def _observation_transition_score(
+        self,
+        prev_tracklet_id: int,
+        prev_obs: TrackletObservation,
+        next_tracklet_id: int,
+        next_obs: TrackletObservation,
+    ) -> float:
+        dx = abs(next_obs.center[0] - prev_obs.center[0]) / max(1.0, float(self.frame_w))
+        dy = abs(next_obs.center[1] - prev_obs.center[1]) / max(1.0, float(self.frame_h))
+        prev_bottom_x = (prev_obs.box[0] + prev_obs.box[2]) / 2.0
+        next_bottom_x = (next_obs.box[0] + next_obs.box[2]) / 2.0
+        bottom_dx = abs(next_bottom_x - prev_bottom_x) / max(1.0, float(self.frame_w))
+        prev_area = _box_area(prev_obs.box)
+        next_area = _box_area(next_obs.box)
+        area_delta = abs(np.log(max(1e-6, next_area / max(1.0, prev_area))))
+        switch_penalty = 0.14 if prev_tracklet_id != next_tracklet_id else 0.0
+        return -((1.45 * dx) + (0.85 * dy) + (0.95 * bottom_dx) + (0.18 * area_delta) + switch_penalty)
+
+    def _select_role_observations(
+        self,
+        role: str,
+        assigned_tracklets: Sequence[PlayerTracklet],
+        profile: Optional[RoleProfile],
+    ) -> Dict[int, TrackletObservation]:
+        frame_candidates: Dict[int, List[Tuple[int, PlayerTracklet, TrackletObservation, float]]] = {}
+        for tracklet in assigned_tracklets:
+            for obs in self._densify_tracklet_observations(tracklet):
+                ownership_score = 0.0 if profile is None else self._observation_ownership_score(obs, profile)
+                if profile is not None and ownership_score < profile.min_observation_ownership_score:
+                    continue
+                frame_candidates.setdefault(obs.frame_idx, []).append((tracklet.tracklet_id, tracklet, obs, ownership_score))
+
+        if not frame_candidates:
+            return {}
+
+        selected: Dict[int, TrackletObservation] = {}
+        frame_groups: List[List[int]] = []
+        for frame_idx in sorted(frame_candidates):
+            if not frame_groups or frame_idx > (frame_groups[-1][-1] + 1):
+                frame_groups.append([frame_idx])
+            else:
+                frame_groups[-1].append(frame_idx)
+
+        for frames in frame_groups:
+            if not frames:
+                continue
+            scores_by_frame: List[List[float]] = []
+            backptr_by_frame: List[List[int]] = []
+            first_candidates = frame_candidates[frames[0]]
+            scores_by_frame.append([
+                self._observation_unary_score(role, tracklet, obs) + ownership_score
+                for _tracklet_id, tracklet, obs, ownership_score in first_candidates
+            ])
+            backptr_by_frame.append([-1] * len(first_candidates))
+
+            for frame_idx in frames[1:]:
+                candidates = frame_candidates[frame_idx]
+                prev_candidates = frame_candidates[frames[len(scores_by_frame) - 1]]
+                prev_scores = scores_by_frame[-1]
+                curr_scores: List[float] = []
+                curr_backptr: List[int] = []
+                for curr_idx, (curr_tracklet_id, curr_tracklet, curr_obs, curr_ownership) in enumerate(candidates):
+                    unary = self._observation_unary_score(role, curr_tracklet, curr_obs) + curr_ownership
+                    best_score = None
+                    best_prev = -1
+                    for prev_idx, (prev_tracklet_id, _prev_tracklet, prev_obs, _prev_ownership) in enumerate(prev_candidates):
+                        transition = self._observation_transition_score(prev_tracklet_id, prev_obs, curr_tracklet_id, curr_obs)
+                        candidate_score = prev_scores[prev_idx] + unary + transition
+                        if best_score is None or candidate_score > best_score:
+                            best_score = candidate_score
+                            best_prev = prev_idx
+                    curr_scores.append(float(best_score if best_score is not None else unary))
+                    curr_backptr.append(best_prev)
+                scores_by_frame.append(curr_scores)
+                backptr_by_frame.append(curr_backptr)
+
+            last_scores = scores_by_frame[-1]
+            best_idx = max(range(len(last_scores)), key=lambda idx: last_scores[idx])
+            for rev_idx in range(len(frames) - 1, -1, -1):
+                frame_idx = frames[rev_idx]
+                tracklet_id, tracklet, obs, ownership_score = frame_candidates[frame_idx][best_idx]
+                if profile is not None:
+                    unary = self._observation_unary_score(role, tracklet, obs) + ownership_score
+                    if unary < 0.72:
+                        prev_idx = backptr_by_frame[rev_idx][best_idx]
+                        if prev_idx < 0:
+                            break
+                        best_idx = prev_idx
+                        continue
+                selected[frame_idx] = obs
+                prev_idx = backptr_by_frame[rev_idx][best_idx]
+                if prev_idx < 0:
+                    break
+                best_idx = prev_idx
+        return selected
 
     def _filter_role_observations(
         self,
@@ -571,32 +1042,86 @@ class OfflinePlayerTracker:
         tracklet.lower_body_signature = self._ema(tracklet.lower_body_signature, det.lower_body_signature, alpha=0.20)
         tracklet.shoe_signature = self._ema(tracklet.shoe_signature, det.shoe_signature, alpha=0.18)
 
+    def _recent_observations(
+        self,
+        tracklet: PlayerTracklet,
+        *,
+        window: int = 10,
+    ) -> List[TrackletObservation]:
+        if len(tracklet.observations) <= window:
+            return list(tracklet.observations)
+        return list(tracklet.observations[-window:])
+
+    def _tracklet_history_center(
+        self,
+        tracklet: PlayerTracklet,
+        *,
+        window: int = 10,
+    ) -> np.ndarray:
+        obs = self._recent_observations(tracklet, window=window)
+        if not obs:
+            return np.array(tracklet.last_center, dtype=np.float32)
+        xs = [item.center[0] for item in obs]
+        ys = [item.center[1] for item in obs]
+        return np.array([float(np.median(xs)), float(np.median(ys))], dtype=np.float32)
+
+    def _tracklet_history_area(
+        self,
+        tracklet: PlayerTracklet,
+        *,
+        window: int = 10,
+    ) -> float:
+        obs = self._recent_observations(tracklet, window=window)
+        if not obs:
+            return _box_area(tracklet.last_box)
+        return float(np.median([_box_area(item.box) for item in obs]))
+
     def _match_frame(
         self,
         detections: Sequence[OfflinePlayerDetection],
     ) -> Tuple[List[Tuple[PlayerTracklet, OfflinePlayerDetection]], List[PlayerTracklet], List[OfflinePlayerDetection]]:
-        candidates: List[Tuple[float, PlayerTracklet, OfflinePlayerDetection]] = []
-        for tracklet in self._active_tracklets:
-            for det in detections:
+        if not self._active_tracklets or not detections:
+            return [], list(self._active_tracklets), list(detections)
+
+        tracklets = list(self._active_tracklets)
+        dets = list(detections)
+        n_tracklets = len(tracklets)
+        n_dets = len(dets)
+        size = n_tracklets + n_dets
+        huge = 1e6
+        keep_unmatched_cost = 0.58
+        start_new_cost = 0.62
+        cost_matrix = np.full((size, size), huge, dtype=np.float32)
+
+        for i, tracklet in enumerate(tracklets):
+            for j, det in enumerate(dets):
                 cost = self._link_cost(tracklet, det)
-                if cost is None:
-                    continue
-                candidates.append((cost, tracklet, det))
-        candidates.sort(key=lambda item: item[0])
+                if cost is not None:
+                    cost_matrix[i, j] = cost
+            cost_matrix[i, n_dets + i] = keep_unmatched_cost
+
+        for j in range(n_dets):
+            cost_matrix[n_tracklets + j, j] = start_new_cost
+
+        cost_matrix[n_tracklets:, n_dets:] = 0.0
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
         matched_tracklet_ids: set[int] = set()
         matched_detection_ids: set[int] = set()
         matches: List[Tuple[PlayerTracklet, OfflinePlayerDetection]] = []
-        for cost, tracklet, det in candidates:
-            det_id = id(det)
-            if tracklet.tracklet_id in matched_tracklet_ids or det_id in matched_detection_ids:
+        for row, col in zip(row_ind.tolist(), col_ind.tolist()):
+            if row >= n_tracklets or col >= n_dets:
                 continue
+            if cost_matrix[row, col] >= keep_unmatched_cost:
+                continue
+            tracklet = tracklets[row]
+            det = dets[col]
             matched_tracklet_ids.add(tracklet.tracklet_id)
-            matched_detection_ids.add(det_id)
+            matched_detection_ids.add(id(det))
             matches.append((tracklet, det))
 
-        unmatched_tracklets = [t for t in self._active_tracklets if t.tracklet_id not in matched_tracklet_ids]
-        unmatched_detections = [d for d in detections if id(d) not in matched_detection_ids]
+        unmatched_tracklets = [t for t in tracklets if t.tracklet_id not in matched_tracklet_ids]
+        unmatched_detections = [d for d in dets if id(d) not in matched_detection_ids]
         return matches, unmatched_tracklets, unmatched_detections
 
     def _link_cost(self, tracklet: PlayerTracklet, det: OfflinePlayerDetection) -> Optional[float]:
@@ -605,20 +1130,44 @@ class OfflinePlayerTracker:
             return None
         diag = float(np.hypot(self.frame_w, self.frame_h))
         predicted_center = np.array(tracklet.last_center, dtype=np.float32)
+        history_center = self._tracklet_history_center(tracklet)
+        history_area = self._tracklet_history_area(tracklet)
         if len(tracklet.observations) >= 2:
             prev = np.array(tracklet.observations[-2].center, dtype=np.float32)
             velocity = predicted_center - prev
             predicted_center = predicted_center + velocity * min(2.0, float(gap))
-        center_norm = float(np.linalg.norm(np.array(det.center, dtype=np.float32) - predicted_center) / max(1.0, diag))
+        det_center = np.array(det.center, dtype=np.float32)
+        center_norm = float(np.linalg.norm(det_center - predicted_center) / max(1.0, diag))
+        history_center_norm = float(np.linalg.norm(det_center - history_center) / max(1.0, diag))
         max_jump = self.max_center_jump_norm + (0.018 * max(0, gap - 1))
         if center_norm > max_jump:
+            return None
+        if len(tracklet.observations) >= 6 and history_center_norm > (max_jump + 0.055):
+            return None
+
+        vertical_shift_norm = abs(det.center[1] - float(history_center[1])) / max(1.0, float(self.frame_h))
+        if len(tracklet.observations) >= 6 and vertical_shift_norm > (0.18 + (0.01 * max(0, gap - 1))):
+            return None
+
+        det_area = _box_area(det.box)
+        area_ratio = det_area / max(1.0, history_area)
+        if len(tracklet.observations) >= 6 and (area_ratio < 0.38 or area_ratio > 2.75):
             return None
 
         iou = _box_iou(tracklet.last_box, det.box)
         appearance = self._appearance_cost(tracklet, det)
+        shape_cost = min(1.0, abs(np.log(max(1e-6, area_ratio))))
         zone_penalty = 0.0 if det.in_player_zone else 0.55
         near_table_bonus = -0.08 if det.near_table and tracklet.near_table_ratio >= 0.45 else 0.0
-        return (0.60 * center_norm) + (0.20 * (1.0 - iou)) + (0.22 * appearance) + near_table_bonus + zone_penalty
+        return (
+            (0.42 * center_norm)
+            + (0.18 * history_center_norm)
+            + (0.14 * (1.0 - iou))
+            + (0.17 * appearance)
+            + (0.09 * shape_cost)
+            + near_table_bonus
+            + zone_penalty
+        )
 
     def _appearance_cost(self, tracklet: PlayerTracklet, det: OfflinePlayerDetection) -> float:
         return (
@@ -686,6 +1235,7 @@ class OfflinePlayerTracker:
 
     def _assign_roles(self, tracklets: Sequence[PlayerTracklet]) -> List[PlayerTracklet]:
         solved = [self._clone_tracklet(t) for t in tracklets]
+        self._role_profiles = {}
         primary = [t for t in solved if self._tracklet_priority_score(t) >= 0.18]
         seed_pair = self._pick_seed_pair(primary)
         if seed_pair is None:
@@ -694,13 +1244,23 @@ class OfflinePlayerTracker:
         left_seed, right_seed = seed_pair
         left_seed.assigned_role = "A"
         right_seed.assigned_role = "B"
+        self._role_profiles = {
+            "A": self._build_role_profile("A", left_seed),
+            "B": self._build_role_profile("B", right_seed),
+        }
         role_prototypes: Dict[str, List[PlayerTracklet]] = {"A": [left_seed], "B": [right_seed]}
 
         remaining = [t for t in primary if t.tracklet_id not in {left_seed.tracklet_id, right_seed.tracklet_id}]
         remaining.sort(key=lambda t: (t.start_frame, -self._tracklet_priority_score(t)))
         for tracklet in remaining:
-            cost_a = self._role_cost(tracklet, role_prototypes["A"], role="A", other_role_tracklets=role_prototypes["B"])
-            cost_b = self._role_cost(tracklet, role_prototypes["B"], role="B", other_role_tracklets=role_prototypes["A"])
+            if "A" in self._role_profiles and not self._tracklet_matches_role_profile(tracklet, self._role_profiles["A"]):
+                cost_a = 999.0
+            else:
+                cost_a = self._role_cost(tracklet, role_prototypes["A"], role="A", other_role_tracklets=role_prototypes["B"])
+            if "B" in self._role_profiles and not self._tracklet_matches_role_profile(tracklet, self._role_profiles["B"]):
+                cost_b = 999.0
+            else:
+                cost_b = self._role_cost(tracklet, role_prototypes["B"], role="B", other_role_tracklets=role_prototypes["A"])
             best_role = "A" if cost_a <= cost_b else "B"
             best_cost = min(cost_a, cost_b)
             margin = abs(cost_a - cost_b)
@@ -712,23 +1272,35 @@ class OfflinePlayerTracker:
         for tracklet in remaining:
             if tracklet.assigned_role is not None:
                 continue
-            sim_a = min(self._tracklet_similarity_cost(tracklet, other) for other in role_prototypes["A"])
-            sim_b = min(self._tracklet_similarity_cost(tracklet, other) for other in role_prototypes["B"])
+            if "A" in self._role_profiles and not self._tracklet_matches_role_profile(tracklet, self._role_profiles["A"]):
+                sim_a = 999.0
+            else:
+                sim_a = min(self._role_mode_cost(tracklet, other, role="A") for other in role_prototypes["A"])
+            if "B" in self._role_profiles and not self._tracklet_matches_role_profile(tracklet, self._role_profiles["B"]):
+                sim_b = 999.0
+            else:
+                sim_b = min(self._role_mode_cost(tracklet, other, role="B") for other in role_prototypes["B"])
             best_role = "A" if sim_a <= sim_b else "B"
             best_sim = min(sim_a, sim_b)
             sim_margin = abs(sim_a - sim_b)
-            role_center_mean = float(np.mean([other.mean_center_x for other in role_prototypes[best_role]]))
-            role_center_y_mean = float(np.mean([other.mean_center_y for other in role_prototypes[best_role]]))
+            if best_sim >= 999.0:
+                continue
+            best_proto = min(
+                role_prototypes[best_role],
+                key=lambda other: self._role_mode_cost(tracklet, other, role=best_role),
+            )
+            role_center_mean = float(best_proto.mean_center_x)
+            role_center_y_mean = float(best_proto.mean_center_y)
             diag = float(np.hypot(self.frame_w, self.frame_h))
             center_shift_norm = abs(tracklet.mean_center_x - role_center_mean) / max(1.0, diag)
             center_shift_y_norm = abs(tracklet.mean_center_y - role_center_y_mean) / max(1.0, float(self.frame_h))
             if self._tracklet_priority_score(tracklet) < 0.55:
                 continue
-            if best_sim > 0.85 or sim_margin < 0.18:
+            if best_sim > 0.88 or sim_margin < 0.10:
                 continue
             if center_shift_norm > 0.16:
                 continue
-            if center_shift_y_norm > 0.14:
+            if center_shift_y_norm > 0.22:
                 continue
             tracklet.assigned_role = best_role
             role_prototypes[best_role].append(tracklet)
@@ -777,11 +1349,18 @@ class OfflinePlayerTracker:
     ) -> float:
         if not role_tracklets:
             return 999.0
-        appearance = min(self._tracklet_similarity_cost(tracklet, other) for other in role_tracklets)
+        profile = self._role_profiles.get(role)
+        if profile is not None and not self._tracklet_matches_role_profile(tracklet, profile):
+            return 999.0
+        prototype_costs = [self._role_mode_cost(tracklet, other, role=role) for other in role_tracklets]
+        appearance = min(prototype_costs)
         overlap_penalty = 0.0
         for other in role_tracklets:
             if other.overlaps_with(tracklet):
-                overlap_penalty += 0.55
+                if self._same_role_overlap_compatibility(tracklet, other, role=role):
+                    overlap_penalty += 0.06
+                else:
+                    overlap_penalty += 0.55
         for other in other_role_tracklets:
             if other.overlaps_with(tracklet):
                 overlap_penalty -= 0.08
@@ -789,8 +1368,10 @@ class OfflinePlayerTracker:
         side_cost = 0.0
         seed = role_tracklets[0]
         table_x = float(self.table_center[0])
-        role_center_mean = float(np.mean([other.mean_center_x for other in role_tracklets]))
-        role_center_y_mean = float(np.mean([other.mean_center_y for other in role_tracklets]))
+        best_idx = int(np.argmin(np.asarray(prototype_costs, dtype=np.float32)))
+        best_proto = role_tracklets[best_idx]
+        role_center_mean = float(best_proto.mean_center_x)
+        role_center_y_mean = float(best_proto.mean_center_y)
         diag = float(np.hypot(self.frame_w, self.frame_h))
         center_shift_norm = abs(tracklet.mean_center_x - role_center_mean) / max(1.0, diag)
         center_shift_y_norm = abs(tracklet.mean_center_y - role_center_y_mean) / max(1.0, float(self.frame_h))
@@ -804,11 +1385,23 @@ class OfflinePlayerTracker:
         elif center_shift_norm > 0.12:
             center_shift_penalty = 0.25
         center_shift_y_penalty = 0.0
-        if center_shift_y_norm > 0.16:
+        if center_shift_y_norm > 0.24:
             center_shift_y_penalty = 0.75
-        elif center_shift_y_norm > 0.10:
+        elif center_shift_y_norm > 0.16:
             center_shift_y_penalty = 0.30
-        return appearance + overlap_penalty + side_cost + center_shift_penalty + center_shift_y_penalty - (0.20 * self._tracklet_priority_score(tracklet))
+        ownership_penalty = 0.0
+        if profile is not None:
+            ownership_score = self._tracklet_ownership_score(tracklet, profile)
+            ownership_penalty = max(0.0, 0.55 - ownership_score)
+        return (
+            appearance
+            + overlap_penalty
+            + side_cost
+            + center_shift_penalty
+            + center_shift_y_penalty
+            + ownership_penalty
+            - (0.20 * self._tracklet_priority_score(tracklet))
+        )
 
     def _tracklet_similarity_cost(self, a: PlayerTracklet, b: PlayerTracklet) -> float:
         return (
