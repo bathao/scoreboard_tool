@@ -1,94 +1,218 @@
 # Scoreboard Tool - Production Roadmap
 
+## Purpose
+This file defines the long-term production target for the project.
+
+Use this file for:
+- final goal
+- guiding architecture
+- non-negotiable design rules
+- production promotion criteria
+
+Do not use this file as a daily work log.
+
 ## Final Goal
-- Input: raw table-tennis video 20-30 minutes, 1K/2K 60fps, fixed tripod per clip.
-- Output: 1080p rendered video with accurate scoreboard (points/sets/match).
-- Accuracy target: rally + winner pipeline >= 90%, target 95%+.
-- Manual correction target: minimal, only low-confidence points.
+- Input:
+  - one raw full-match table-tennis clip, usually `20-30` minutes
+  - fixed-tripod camera per clip
+  - typical input quality: `1K/2K`, `60fps`
+- Output:
+  - one rendered `1080p` video with the correct scoreboard
+  - correct points, sets, and match result
+- Quality target:
+  - rally + winner pipeline with target `95%+`
+  - manual correction should be limited to low-confidence cases
 
-## Phase 1 - Unified Production Pipeline
-### Objective
-Create one consistent flow from raw video to valid draft JSON and final render.
+## Operational Scope
+- This is an internal project, not a public multi-user product.
+- The default operating model is local processing on one machine.
+- The system is designed to process one video at a time.
+- Production v1 is scoped to one full match clip at a time.
+- Mid-match fragments or partial clips are debug-only inputs, not part of the production critical path.
+- Do not optimize the architecture around:
+  - multi-tenant server usage
+  - distributed processing
+  - concurrent batch handling as a primary requirement
 
-### Deliverables
-1. Single production draft generator:
-   - `scripts/generate_draft_production.py`
-   - Uses:
-     - table ROI detection (`ai_table_roi_dl`)
-     - GPU motion extraction (`video_gpu_io + torch`)
-     - segmentation (`ai_rally_segmentation`)
-     - strict draft contract (`ai_contract`)
-2. Stable execution sequence:
-   - Draft generation
-   - AI refinement
-   - Optional manual review for flagged points
-   - Final render + audio
-3. Remove ambiguity between experimental/debug scripts and production scripts.
+## Product Definition
+The system is not just a rally detector.
 
-### Success Criteria
-- A full 20-30 minute clip runs end-to-end without schema errors.
-- Draft JSON is fully compatible with `backend/ai_contract.py`.
-- Renderer consumes refined events and produces 1080p output.
+The production system should:
+- detect the main table correctly
+- understand when rallies start and end
+- infer the point winner with bounded risk
+- validate score/state before applying a result
+- render a usable final video with minimal manual cleanup
 
-## Phase 2 - Accuracy Upgrade to 90-95%
-### Objective
-Improve rally boundary quality and winner prediction quality.
+## Operator Workflow
+- The system should provide a local Web UI for the internal user.
+- The Web UI should allow the user to:
+  - select the input video
+  - run the processing pipeline
+  - review only low-confidence rally outcomes
+- The default review asset should be a short rally clip.
+- Human input should be exception-driven, not full manual annotation.
+- If AI confidence for a rally winner is too low, the system should ask only:
+  - who won this rally?
+- Target manual-review rate:
+  - less than `5%` of rallies
+- The user should only provide the winner for that rally.
+- After a user correction, the code must automatically recompute all downstream score changes:
+  - next points
+  - set progression
+  - match progression
+  - final rendered scoreboard state
+- The product should support two output modes:
+  - `preview render`
+  - `final export`
+- `preview render` may be allowed while review-needed rallies still exist, but must surface warnings clearly.
+- `final export` must require all review-needed rallies to be resolved.
 
-### Deliverables
-1. Benchmark set:
-   - Build a small labeled dataset (5-10 clips).
-   - Ground truth: rally start/end + winner.
-2. Metrics:
-   - Rally segment precision/recall/F1 (IoU-based match).
-   - Winner accuracy.
-   - Review-rate (% points requiring human review).
-   - Tool: `scripts/evaluate_phase2.py`
-3. Model/rule improvements:
-   - Threshold auto-calibration per clip.
-   - Multi-signal fusion (table energy + player cue confidence).
-   - Confidence calibration and stricter flagging.
+## Guiding Architecture
+- `Table ROI` is the primary scene anchor.
+- Winner inference is constrained inference, not a single-model guess.
+- Production logic should combine:
+  - table timing
+  - player behavior
+  - optional ball/audio signals
+  - score/state validation
+- Ball detection is optional strong evidence, not a hard dependency.
+- Offline reasoning is preferred when it improves identity stability and sequence consistency.
 
-### Success Criteria
-- Rally F1 reaches operational target.
-- Winner accuracy reaches >= 90% on validation set.
-- Review-rate significantly reduced while preserving correctness.
+## Non-Negotiable Design Rules
+- Prefer architecture-first solutions over local patches.
+- Fix bugs at the owning layer:
+  - detector / tracker bugs -> detector / tracker design
+  - state / score bugs -> state / score logic
+  - rendering must not hide upstream failures
+- Always verify important claims and requests against the code in this repository before treating them as true.
+- A statement from the operator should be accepted as true only when:
+  - it matches the current code
+  - or the code does not contain enough information to confirm or reject it
+- Do not blindly mirror assumptions, status, or architecture claims into project documents without checking the code first.
+- The agent must retain the right to challenge or correct a request when:
+  - it conflicts with the code
+  - it conflicts with the current architecture
+  - it moves the project away from the final goal
+- Reject workaround directions that only mask symptoms:
+  - display hold
+  - frozen boxes
+  - render-only trackers
+  - fake continuity bridges without identity evidence
+  - narrow hacks that overfit one clip and weaken the system
+- When evidence is weak, prefer `missing`, `unknown`, or `review` over a forced wrong answer.
 
-### Benchmark Run Commands
-1. Single clip:
-   - `python scripts/evaluate_phase2.py --pred matches/<name>_phase1_refined.json --gt matches/ground_truth/<name>_gt.json --name <name> --iou-threshold 0.5`
-2. Multi-clip:
-   - `python scripts/evaluate_phase2.py --manifest benchmarks/phase2_manifest.example.json --iou-threshold 0.5 --out debug_report/phase2_eval_report.json`
+## Signal Stack
+### 1. Table Stream
+- Mandatory.
+- Used for:
+  - rally timing
+  - dead-time detection
+  - bounce and motion context
 
-## Phase 3 - Production Hardening
-### Objective
-Make the system reliable for repeated real-world usage.
+### 2. Player Streams
+- Mandatory for high-quality winner inference.
+- `Stream 2` tracks `Player A`.
+- `Stream 3` tracks `Player B`.
+- Used for:
+  - serve preparation
+  - swing / motion cues
+  - reset behavior
+  - point-end behavior
 
-### Deliverables
-1. Job profiles/config:
-   - Config per venue/camera style.
-2. Observability:
-   - Runtime logs
-   - Error categories
-   - QC summary per processed clip
-3. Regression safety:
-   - Add tests for draft contract and pipeline compatibility.
-   - Keep old clips as regression fixtures.
+### 3. Global Context
+- Lightweight full-frame context is useful for:
+  - idle periods
+  - ball retrieval
+  - scene sanity checks
+  - neighboring-table disambiguation
 
-### Success Criteria
-- Stable processing on new unseen clips with predictable quality.
-- Fast troubleshooting when quality drops due to scene changes.
-- Consistent output quality across multiple tournaments/venues.
+### 4. Optional Strong Signals
+- ball trajectory / bounce
+- audio cues
 
-## Current Recommended Run Flow
-1. Generate draft:
-   - `python scripts/generate_draft_production.py --video <input.mp4> --weights weights/yolov8x_table.pt --out matches/<name>_draft.json --best-of 5 --stride 2`
-2. Refine winners:
-   - `python scripts/ai_refine_draft.py --draft matches/<name>_draft.json --out matches/<name>_refined.json --model llama3.2-vision`
-3. Render final:
-   - `python scripts/final_render.py --video <input.mp4> --json matches/<name>_refined.json --out outputs/<name>_1080p_final.mp4 --unknown-winner-policy player_a`
-4. One-command run:
-   - `python scripts/run_production_pipeline.py --video <input.mp4> --weights weights/yolov8x_table.pt --draft-out matches/<name>_draft.json --final-out outputs/<name>_1080p_final.mp4 --best-of 5 --stride 2`
+### 5. Validation Layer
+- Production output must pass through score/state validation.
+- This layer must be able to:
+  - accept safe evidence
+  - flag weak evidence
+  - block contradictory updates
+  - gate `final export` when required reviews are unresolved
 
-## Notes
-- Existing debug scripts remain useful for diagnostics but should not be the default production path.
-- Keep draft schema strict; do not bypass `save_draft_match` validation.
+## Player Tracking Doctrine
+- Player tracking is role tracking, not just left/right detection.
+- `Player A` and `Player B` must be modeled relative to the tracked table.
+- Tracker state must distinguish:
+  - `visible`
+  - `occluded`
+  - `missing`
+- Initial role seeding must be evidence-driven:
+  - do not trust frame `0` by default
+  - allow deferred seeding from a bootstrap window
+  - backfill early frames only when identity linkage is real
+  - ambiguous early frames may stay `missing`
+- `true leave` and `short occlusion` are different events and must not share the same fallback.
+- A wrong neighboring-table capture is worse than `missing`.
+- Near-side and far-side roles may need different cues and thresholds.
+
+## Winner Inference Doctrine
+- Winner inference should use multiple signals, not one brittle cue.
+- The system should support three decision outcomes:
+  - safe auto-apply
+  - human review
+  - blocked / unknown
+- Score/state validation must be part of the decision path, not only post-hoc reporting.
+- Human review should request the minimum possible input:
+  - ask only for the winner of the uncertain rally
+  - never ask the user to manually recalculate later points or sets
+- A user correction must be treated as authoritative input for that rally, and the pipeline must propagate the resulting scoreboard changes automatically.
+- Review-needed rallies may still be visible in a `preview render`, but they must block `final export` until resolved.
+
+## Production Baseline Promotion Rule
+Do not promote a new algorithm direction unless it does all of the following:
+- fixes the target bug at root cause
+- preserves the current regression guardrails
+- does not reintroduce neighboring-table capture
+- does not rely on render-layer masking
+- is validated on more than one clip or regression window
+
+## Project Phases
+### Phase 1. Stable Table + Player Baseline
+Goal:
+- build a trustworthy table-first pipeline with stable `Player A / Player B` tracking
+
+Exit condition:
+- the main regression clips can run end-to-end without obvious tracker-role corruption
+
+### Phase 2. Winner Inference Upgrade
+Goal:
+- raise rally boundary and winner quality using multi-signal fusion
+
+Exit condition:
+- winner accuracy and rally quality reach operational target on labeled benchmarks
+
+### Phase 3. Production Hardening
+Goal:
+- make the system repeatable across new venues and clips
+
+Exit condition:
+- stable batch usage, better observability, low-risk auto decisions
+
+## Current Production Stance
+- The default production direction remains table-first.
+- `backend/ai_multistream_rally.py` and `scripts/generate_draft_multistream.py` are still experimental.
+- Experimental paths should not replace the production path until they beat it on benchmarks and regression clips.
+
+## Document Map
+- `ROADMAP_PRODUCTION.md`
+  - why the project exists
+  - what the final production system must look like
+  - what rules must not be violated
+- `PROJECT_ACTION_PLAN.md`
+  - the current execution plan
+  - big goals broken into small shippable tasks
+- `PROJECT_PROGRESS.md`
+  - daily progress
+  - pass / fail experiments
+  - artifacts
+  - resume point for the next session

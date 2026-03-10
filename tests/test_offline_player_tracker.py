@@ -602,6 +602,116 @@ def test_compact_overlap_representation_can_continue_same_role():
     assert result.role_frames[8]["A"].center[0] < 240.0
 
 
+def test_seed_pair_prefers_near_player_over_far_spectator_from_start():
+    roi = TableROI(220, 110, 200, 120, 1.0)
+    tracker = OfflinePlayerTracker(roi, frame_w=640, frame_h=360, max_link_gap_frames=2)
+    frame = _frame()
+
+    for frame_idx in range(8):
+        boxes = np.asarray(
+            [
+                (100, 126, 200, 326),
+                (128, 40, 188, 188),
+                (392, 58, 458, 208),
+            ],
+            dtype=np.float32,
+        )
+        kpts = np.asarray(
+            [
+                _kpts(150, 226),
+                _kpts(158, 114),
+                _kpts(425, 133),
+            ],
+            dtype=np.float32,
+        )
+        tracker.add_frame_detections(
+            tracker.build_detections(
+                frame,
+                frame_idx=frame_idx,
+                boxes_xyxy=boxes,
+                keypoints_xy=kpts,
+                confidences=np.asarray([0.84, 0.96, 0.95], dtype=np.float32),
+            )
+        )
+
+    result = tracker.finish()
+    assert tracker._role_profiles["A"].preferred_zone == "near"
+    assert tracker._role_profiles["B"].preferred_zone == "far"
+    assert "A" in result.role_frames[0]
+    assert "B" in result.role_frames[0]
+    assert result.role_frames[0]["A"].center[1] > 180.0
+    assert result.role_frames[0]["B"].center[1] < 180.0
+
+
+def test_deferred_seeding_waits_for_near_player_and_keeps_early_a_missing():
+    roi = TableROI(220, 110, 200, 120, 1.0)
+    tracker = OfflinePlayerTracker(roi, frame_w=640, frame_h=360, max_link_gap_frames=2)
+    frame = _frame()
+
+    for frame_idx in range(4):
+        boxes = np.asarray(
+            [
+                (128, 40, 188, 188),
+                (392, 58, 458, 208),
+            ],
+            dtype=np.float32,
+        )
+        kpts = np.asarray(
+            [
+                _kpts(158, 114),
+                _kpts(425, 133),
+            ],
+            dtype=np.float32,
+        )
+        tracker.add_frame_detections(
+            tracker.build_detections(
+                frame,
+                frame_idx=frame_idx,
+                boxes_xyxy=boxes,
+                keypoints_xy=kpts,
+                confidences=np.asarray([0.96, 0.95], dtype=np.float32),
+            )
+        )
+
+    for frame_idx in range(4, 10):
+        boxes = np.asarray(
+            [
+                (100, 126, 200, 326),
+                (128, 40, 188, 188),
+                (392, 58, 458, 208),
+            ],
+            dtype=np.float32,
+        )
+        kpts = np.asarray(
+            [
+                _kpts(150, 226),
+                _kpts(158, 114),
+                _kpts(425, 133),
+            ],
+            dtype=np.float32,
+        )
+        tracker.add_frame_detections(
+            tracker.build_detections(
+                frame,
+                frame_idx=frame_idx,
+                boxes_xyxy=boxes,
+                keypoints_xy=kpts,
+                confidences=np.asarray([0.84, 0.96, 0.95], dtype=np.float32),
+            )
+        )
+
+    result = tracker.finish()
+    assert tracker._role_profiles["A"].preferred_zone == "near"
+    assert tracker._role_profiles["B"].preferred_zone == "far"
+    for frame_idx in range(4):
+        assert "A" not in result.role_frames.get(frame_idx, {})
+        assert "B" in result.role_frames.get(frame_idx, {})
+    for frame_idx in range(4, 10):
+        assert "A" in result.role_frames.get(frame_idx, {})
+        assert result.role_frames[frame_idx]["A"].center[1] > 180.0
+        assert "B" in result.role_frames.get(frame_idx, {})
+
+
 def test_true_leave_prefers_missing_over_neighboring_far_tracklet_and_reacquires_on_return():
     roi = TableROI(220, 110, 200, 120, 1.0)
     tracker = OfflinePlayerTracker(roi, frame_w=640, frame_h=360, max_link_gap_frames=2, max_role_occlusion_gap_frames=8)

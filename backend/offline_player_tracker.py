@@ -1309,35 +1309,110 @@ class OfflinePlayerTracker:
     def _pick_seed_pair(self, tracklets: Sequence[PlayerTracklet]) -> Optional[Tuple[PlayerTracklet, PlayerTracklet]]:
         best_pair: Optional[Tuple[PlayerTracklet, PlayerTracklet]] = None
         best_score = -1.0
-        ordered = sorted(tracklets, key=lambda t: (t.start_frame, -self._tracklet_priority_score(t)))
-        for idx, left in enumerate(ordered):
-            if self._tracklet_priority_score(left) < 0.22:
-                continue
-            for right in ordered[idx + 1 :]:
-                if self._tracklet_priority_score(right) < 0.22:
+        ordered = sorted(tracklets, key=lambda t: (-self._tracklet_priority_score(t), t.start_frame, t.tracklet_id))
+        for idx, first in enumerate(ordered):
+            for second in ordered[idx + 1 :]:
+                left, right = self._order_seed_pair(first, second)
+                score = self._seed_pair_score(left, right)
+                if score is None:
                     continue
-                overlap_start = max(left.start_frame, right.start_frame)
-                overlap_end = min(left.end_frame, right.end_frame)
-                if overlap_end < overlap_start:
-                    continue
-                left_obs = left.get_observation(overlap_start)
-                right_obs = right.get_observation(overlap_start)
-                if left_obs is None or right_obs is None:
-                    continue
-                if abs(left_obs.center[0] - right_obs.center[0]) < (self.frame_w * 0.06):
-                    continue
-                score = (
-                    self._tracklet_priority_score(left)
-                    + self._tracklet_priority_score(right)
-                    - (overlap_start / max(1.0, left.end_frame + 1))
-                )
                 if score > best_score:
                     best_score = score
-                    best_pair = (
-                        left if left_obs.center[0] <= right_obs.center[0] else right,
-                        right if left_obs.center[0] <= right_obs.center[0] else left,
-                    )
+                    best_pair = (left, right)
         return best_pair
+
+    def _order_seed_pair(
+        self,
+        first: PlayerTracklet,
+        second: PlayerTracklet,
+    ) -> Tuple[PlayerTracklet, PlayerTracklet]:
+        return (
+            (first, second)
+            if first.mean_center_x <= second.mean_center_x
+            else (second, first)
+        )
+
+    def _seed_tracklet_ok(
+        self,
+        tracklet: PlayerTracklet,
+        *,
+        role: str,
+    ) -> bool:
+        if self._tracklet_priority_score(tracklet) < 0.22:
+            return False
+
+        anchor_x, anchor_y, _anchor_area = self._tracklet_anchor_stats(tracklet)
+        if not self._role_side_ok(role, anchor_x):
+            return False
+
+        table_bottom = float(self.table_roi.y + self.table_roi.h)
+        if role == "A":
+            return anchor_y >= (table_bottom + (self.table_roi.h * 0.04))
+        return anchor_y <= (table_bottom + (self.table_roi.h * 0.30))
+
+    def _seed_pair_score(
+        self,
+        left: PlayerTracklet,
+        right: PlayerTracklet,
+    ) -> Optional[float]:
+        if not self._seed_tracklet_ok(left, role="A"):
+            return None
+        if not self._seed_tracklet_ok(right, role="B"):
+            return None
+
+        overlap_start = max(left.start_frame, right.start_frame)
+        overlap_end = min(left.end_frame, right.end_frame)
+        if overlap_end < overlap_start:
+            return None
+        overlap_frames = overlap_end - overlap_start + 1
+        if overlap_frames < 2:
+            return None
+
+        left_obs = left.get_observation(overlap_start)
+        right_obs = right.get_observation(overlap_start)
+        if left_obs is None or right_obs is None:
+            return None
+
+        center_gap_norm = abs(left_obs.center[0] - right_obs.center[0]) / max(1.0, float(self.frame_w))
+        if center_gap_norm < 0.06:
+            return None
+
+        left_anchor_x, left_anchor_y, _left_area = self._tracklet_anchor_stats(left)
+        right_anchor_x, right_anchor_y, _right_area = self._tracklet_anchor_stats(right)
+        depth_gap_norm = (left_anchor_y - right_anchor_y) / max(1.0, float(self.frame_h))
+        left_zone = self._preferred_zone_for_tracklet(left)
+        right_zone = self._preferred_zone_for_tracklet(right)
+        if depth_gap_norm < -0.04:
+            return None
+        if left_zone != "near" and depth_gap_norm < 0.08:
+            return None
+
+        left_priority = self._tracklet_priority_score(left)
+        right_priority = self._tracklet_priority_score(right)
+        overlap_score = min(1.0, overlap_frames / 45.0)
+        start_penalty = min(0.10, overlap_start / 600.0)
+        table_x = float(self.table_center[0])
+        side_balance = (
+            abs(left_anchor_x - table_x) + abs(right_anchor_x - table_x)
+        ) / max(1.0, float(self.frame_w))
+        zone_bonus = 0.0
+        if left_zone == "near":
+            zone_bonus += 0.55
+        else:
+            zone_bonus -= 0.35
+        if right_zone == "far":
+            zone_bonus += 0.18
+
+        return (
+            (1.15 * left_priority)
+            + (1.10 * right_priority)
+            + (0.65 * overlap_score)
+            + (0.90 * max(0.0, depth_gap_norm))
+            + (0.30 * center_gap_norm)
+            + zone_bonus
+            - (0.18 * side_balance)
+            - start_penalty
+        )
 
     def _role_cost(
         self,
