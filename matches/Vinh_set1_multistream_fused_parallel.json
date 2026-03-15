@@ -1,0 +1,181 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-08T07:39:04.098748+00:00",
+  "roi": {
+    "x": 843,
+    "y": 741,
+    "w": 713,
+    "h": 231,
+    "confidence": 0.1317455917596817,
+    "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+    "notes": "score=0.690; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 1.0010000000000001,
+      "t_end": 9.376033333333334,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_short_split",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 9.376033333333334,
+      "t_end": 18.551866666666665,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 18.551866666666665,
+      "t_end": 32.032000000000004,
+      "winner": "unknown",
+      "confidence": 0.5205424427986145,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 32.032000000000004,
+      "t_end": 40.47376666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_short_split",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 43.443400000000004,
+      "t_end": 57.3573,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_contiguous_artifact",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 61.227833333333336,
+      "t_end": 76.67660000000001,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_short_split",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 76.67660000000001,
+      "t_end": 112.67923333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_contiguous_tail_artifact",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 114.88143333333333,
+      "t_end": 130.7306,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 130.7306,
+      "t_end": 133.5334,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 135.8357,
+      "t_end": 144.2441,
+      "winner": "unknown",
+      "confidence": 0.627729594707489,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 144.2441,
+      "t_end": 149.38256666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 149.38256666666666,
+      "t_end": 154.88806666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "score_validation": {}
+}

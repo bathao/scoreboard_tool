@@ -1,0 +1,127 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set2.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-08T07:17:30.450244+00:00",
+  "roi": {
+    "x": 864,
+    "y": 756,
+    "w": 698,
+    "h": 217,
+    "confidence": 0.18243521451950073,
+    "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+    "notes": "score=0.682; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 0.46713333333333334,
+      "t_end": 16.883533333333332,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 16.883533333333332,
+      "t_end": 33.80043333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_short_split",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 33.80043333333333,
+      "t_end": 38.938900000000004,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 38.938900000000004,
+      "t_end": 78.9789,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 81.9819,
+      "t_end": 105.37193333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_contiguous_artifact",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 109.0089,
+      "t_end": 144.2441,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 144.2441,
+      "t_end": 195.9958,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "merged_contiguous_tail_artifact",
+        "merged_short_split",
+        "multistream_fused",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 198.36483333333334,
+      "t_end": 205.83896666666666,
+      "winner": "unknown",
+      "confidence": 0.5207136869430542,
+      "flags": [
+        "multistream_fused"
+      ],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "score_validation": {}
+}
