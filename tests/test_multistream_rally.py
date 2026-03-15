@@ -1,6 +1,10 @@
 import numpy as np
 
-from backend.ai_multistream_rally import _build_role_energy_series, _refine_table_segments_with_role_support
+from backend.ai_multistream_rally import (
+    _build_role_energy_series,
+    _merge_segments_with_ball_support,
+    _refine_table_segments_with_role_support,
+)
 from backend.ai_rally_segmentation import RallySegment
 from backend.offline_player_tracker import TrackletObservation
 
@@ -106,3 +110,44 @@ def test_role_refine_does_not_split_when_players_stay_active():
     )
 
     assert len(refined) == 1
+
+
+def test_ball_refine_merges_contiguous_split_when_ball_stays_active():
+    timestamps = [float(i) for i in range(12)]
+    segments = [
+        RallySegment(t_start=0.0, t_end=4.0, confidence=0.6, flags=["split_long"]),
+        RallySegment(t_start=4.0, t_end=8.0, confidence=0.6, flags=["split_long"]),
+    ]
+    ball = [0.0, 0.2, 0.45, 0.6, 0.7, 0.62, 0.5, 0.18, 0.05, 0.0, 0.0, 0.0]
+
+    merged = _merge_segments_with_ball_support(
+        segments,
+        timestamps=timestamps,
+        ball_energies=ball,
+        active_peak_thresh=0.12,
+        active_mean_thresh=0.08,
+    )
+
+    assert len(merged) == 1
+    assert merged[0].t_start == 0.0
+    assert merged[0].t_end == 8.0
+    assert "ball_gap_merge" in merged[0].flags
+
+
+def test_ball_refine_keeps_split_when_ball_is_quiet():
+    timestamps = [float(i) for i in range(12)]
+    segments = [
+        RallySegment(t_start=0.0, t_end=4.0, confidence=0.6, flags=["split_long"]),
+        RallySegment(t_start=4.0, t_end=8.0, confidence=0.6, flags=["split_long"]),
+    ]
+    ball = [0.0 for _ in range(12)]
+
+    merged = _merge_segments_with_ball_support(
+        segments,
+        timestamps=timestamps,
+        ball_energies=ball,
+        active_peak_thresh=0.12,
+        active_mean_thresh=0.08,
+    )
+
+    assert len(merged) == 2

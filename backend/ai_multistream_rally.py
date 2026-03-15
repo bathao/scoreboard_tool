@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from ultralytics import YOLO
 
+from backend.ai_ball_tracking import extract_ball_motion_energies
 from backend.offline_player_tracker import OfflinePlayerTracker, TrackletObservation
 from backend.ai_rally_segmentation import RallySegment, detect_rally_segments_advanced_gpu
 from backend.ai_table_roi import TableROI
@@ -22,12 +23,14 @@ class MultiStreamSignals:
     roi: TableROI
     timestamps: List[float]
     table_energies: List[float]
+    ball_energies: List[float]
     player_a_energies: List[float]
     player_b_energies: List[float]
     player_energies: List[float]
     fused_energies: List[float]
     effective_fps: float
     player_signal_source: str
+    ball_signal_source: str
 
 
 def _calc_wrist_velocity(
@@ -473,6 +476,63 @@ def _refine_table_segments_with_role_support(
     return refined
 
 
+def _merge_segments_with_ball_support(
+    segments: List[RallySegment],
+    *,
+    timestamps: List[float],
+    ball_energies: List[float],
+    merge_max_gap_sec: float = 1.2,
+    max_merged_duration_sec: float = 8.5,
+    boundary_window_sec: float = 0.65,
+    active_peak_thresh: float = 0.34,
+    active_mean_thresh: float = 0.18,
+) -> List[RallySegment]:
+    if len(segments) <= 1 or not timestamps or not ball_energies:
+        return list(segments)
+
+    ts = np.asarray(timestamps, dtype=np.float32)
+    ball_norm = _smooth_and_normalize(ball_energies)
+    merged: List[RallySegment] = []
+    current = segments[0]
+
+    for nxt in segments[1:]:
+        gap = float(nxt.t_start - current.t_end)
+        should_merge = False
+        candidate_duration = float(nxt.t_end - current.t_start)
+        if gap <= merge_max_gap_sec and candidate_duration <= max_merged_duration_sec and (
+            gap <= 0.08 or "split_long" in current.flags or "split_long" in nxt.flags
+        ):
+            win_start = max(float(current.t_start), float(current.t_end - boundary_window_sec))
+            win_end = min(float(nxt.t_end), float(nxt.t_start + boundary_window_sec))
+            start_idx = int(np.searchsorted(ts, win_start, side="left"))
+            end_idx = int(np.searchsorted(ts, win_end, side="right")) - 1
+            start_idx = max(0, min(start_idx, len(ts) - 1))
+            end_idx = max(start_idx, min(end_idx, len(ts) - 1))
+            if end_idx >= start_idx:
+                window = ball_norm[start_idx : end_idx + 1]
+                peak = float(window.max())
+                mean = float(window.mean())
+                if peak >= active_peak_thresh and mean >= active_mean_thresh:
+                    should_merge = True
+
+        if should_merge:
+            merged_flags = sorted(set(list(current.flags) + list(nxt.flags) + ["ball_gap_merge"]))
+            merged_conf = float(np.clip(np.median([current.confidence, nxt.confidence]), 0.5, 1.0))
+            current = RallySegment(
+                t_start=float(current.t_start),
+                t_end=float(nxt.t_end),
+                confidence=merged_conf,
+                flags=merged_flags,
+            )
+            continue
+
+        merged.append(current)
+        current = nxt
+
+    merged.append(current)
+    return merged
+
+
 def extract_multistream_signals(
     video_path: str,
     table_weights_path: str,
@@ -482,6 +542,8 @@ def extract_multistream_signals(
     player_margin_px: int = 220,
     player_fuse_gain: float = 1.0,
     player_signal_source: str = "role_tracker",
+    ball_fuse_gain: float = 1.15,
+    ball_signal_source: str = "none",
     device: str = "cuda",
 ) -> MultiStreamSignals:
     if not torch.cuda.is_available() and device == "cuda":
@@ -498,6 +560,8 @@ def extract_multistream_signals(
         raise FileNotFoundError(f"Pose weights not found: {pose_w_path}")
     if player_signal_source not in {"role_tracker", "nearest_two"}:
         raise ValueError(f"Invalid player_signal_source: {player_signal_source}")
+    if ball_signal_source not in {"none", "classical"}:
+        raise ValueError(f"Invalid ball_signal_source: {ball_signal_source}")
 
     info = probe_video_ffprobe(str(v_path))
     roi = detect_table_roi_dl(
@@ -557,27 +621,51 @@ def extract_multistream_signals(
         player_a_energies = player_a_energies[1:]
         player_b_energies = player_b_energies[1:]
 
+    if ball_signal_source == "classical":
+        ball_signals = extract_ball_motion_energies(
+            str(v_path),
+            roi=roi,
+            frame_w=int(info.width),
+            frame_h=int(info.height),
+            fps=float(info.fps),
+            stride=max(1, int(stride)),
+        )
+        aligned_len = min(len(timestamps), len(ball_signals.timestamps), len(ball_signals.energies))
+        timestamps = timestamps[:aligned_len]
+        table_energies = table_energies[:aligned_len]
+        player_a_energies = player_a_energies[:aligned_len]
+        player_b_energies = player_b_energies[:aligned_len]
+        ball_energies = ball_signals.energies[:aligned_len]
+    else:
+        ball_energies = [0.0 for _ in timestamps]
+
     player_energies = [
         max(float(a), float(b))
         for a, b in zip(player_a_energies, player_b_energies)
     ]
 
     table_norm = _smooth_and_normalize(table_energies)
+    ball_norm = _smooth_and_normalize(ball_energies)
     player_a_norm = _smooth_and_normalize(player_a_energies)
     player_b_norm = _smooth_and_normalize(player_b_energies)
     player_norm = np.maximum(player_a_norm, player_b_norm)
-    fused_norm = np.maximum(table_norm, player_norm * float(player_fuse_gain))
+    fused_norm = np.maximum(
+        np.maximum(table_norm, player_norm * float(player_fuse_gain)),
+        ball_norm * float(ball_fuse_gain),
+    )
 
     return MultiStreamSignals(
         roi=roi,
         timestamps=timestamps,
         table_energies=table_energies,
+        ball_energies=ball_energies,
         player_a_energies=player_a_energies,
         player_b_energies=player_b_energies,
         player_energies=player_energies,
         fused_energies=fused_norm.tolist(),
         effective_fps=float(info.fps / max(1, stride)),
         player_signal_source=player_signal_source,
+        ball_signal_source=ball_signal_source,
     )
 
 
@@ -586,21 +674,29 @@ def detect_multistream_rallies(
     *,
     mode: str = "fused",
 ) -> List[RallySegment]:
-    if mode not in {"table", "fused", "table_refined"}:
+    if mode not in {"table", "fused", "table_refined", "table_ball_refined"}:
         raise ValueError(f"Invalid mode: {mode}")
 
-    energies = signals.table_energies if mode in {"table", "table_refined"} else signals.fused_energies
+    energies = signals.table_energies if mode in {"table", "table_refined", "table_ball_refined"} else signals.fused_energies
     segments = detect_rally_segments_advanced_gpu(
         list(energies),
         list(signals.timestamps),
         effective_fps=signals.effective_fps,
     )
-    if mode != "table_refined":
+    if mode == "table":
         return segments
-    return _refine_table_segments_with_role_support(
-        segments,
-        timestamps=signals.timestamps,
-        table_energies=signals.table_energies,
-        player_a_energies=signals.player_a_energies,
-        player_b_energies=signals.player_b_energies,
-    )
+    if mode == "table_refined":
+        return _refine_table_segments_with_role_support(
+            segments,
+            timestamps=signals.timestamps,
+            table_energies=signals.table_energies,
+            player_a_energies=signals.player_a_energies,
+            player_b_energies=signals.player_b_energies,
+        )
+    if mode == "table_ball_refined":
+        return _merge_segments_with_ball_support(
+            segments,
+            timestamps=signals.timestamps,
+            ball_energies=signals.ball_energies,
+        )
+    return segments

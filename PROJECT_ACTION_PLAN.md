@@ -119,12 +119,16 @@ This section answers a different question:
 - Current code paths:
   - `table / ROI-first` draft path exists and is the current production baseline
   - `multistream / YOLO player-signal` draft path exists but is still experimental
+  - `table_ball_refined` now exists as an experimental path:
+    - table-first segmentation
+    - optional `Player A / Player B` streams
+    - optional classical `ball tracking V0` merge support
 - Use this checklist:
   1. `[done]` keep the current `table / ROI-first` draft export as the working production baseline
   2. `[todo]` use `1 set -> rally draft` as the first quality gate for that baseline
   3. `[todo]` inspect the output JSON for rally boundary quality on that set
-  4. `[todo]` run `1 set -> rally draft` with the experimental `multistream / YOLO player-signal` path
-  5. `[todo]` compare the two set-level drafts against manual review or GT
+  4. `[doing]` run `1 set -> rally draft` with the experimental `multistream / YOLO player-signal` path
+  5. `[doing]` compare the set-level drafts against manual review or GT, including the conservative `ball tracking V0` path
   6. `[todo]` improve the weaker path or fuse both paths only if fusion clearly beats the table-first baseline
   7. `[todo]` fix root-cause failures at the owning layer
   8. `[todo]` add a focused regression test for each fixed failure
@@ -141,6 +145,11 @@ This section answers a different question:
     - `debug window -> one set -> regression sets -> full match`
   - do not treat `one successful full-match export` as sufficient proof of quality
   - `100%` may be used as a local engineering target on a small checked regression set, but it is not the global production promise
+- Current experimental read:
+  - role streams are useful as secondary evidence, but current `table_refined` logic is not yet a promotion candidate
+  - conservative `ball tracking V0` currently looks more promising as a draft-quality assist:
+    - `set2` improved from `20 -> 19`
+    - `set1 / set3 / set4` stayed neutral on rally count
 
 ### B. Engineering Path From `Draft Rally JSON` To Winner-Labeled JSON
 - Goal:
@@ -268,6 +277,7 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[todo]` keep one short debug-window export path for fast iteration
 - `[todo]` require one full-set check before accepting a local fix
 - `[doing]` isolate and fix the root cause of `set1 1:34 -> 1:47`
+- `[doing]` benchmark conservative `table_ball_refined` against `table` on `set1`, `set2`, `set3`, `set4`
 - `[todo]` add the focused regression test for that failure
 - `[todo]` rerun full `set1`, `set2`, `set3`, `set4`
 - Exit gate:
@@ -338,6 +348,9 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - rally segmentation
   - winner-related AI signals
   - player tracking / player streams
+- Current experimental sub-directions inside this layer now include:
+  - role-aware table refinement
+  - classical `ball tracking V0` inside expanded `Table ROI`
 - The codebase already has real implementations here, but the layer is still far from production target quality.
 - Current clean tracker baseline:
   - `v12 deferred seed bootstrap`
@@ -348,9 +361,12 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[done]` basic AI winner refinement exists through `scripts/ai_refine_draft.py`
 - `[done]` offline player tracking exists for `Player A / Player B` debugging
 - `[done]` deferred seeding fixed the obvious `set3` frame-0 seeding failure
+- `[done]` experimental `table_refined` path exists for role-aware table segmentation checks
+- `[done]` classical `ball tracking V0` exists as an optional secondary signal in the experimental draft path
 
 ### In Progress
 - `[doing]` isolate the real root cause of the `set1` bug around `1:34 -> 1:47`
+- `[doing]` benchmark whether `ball tracking V0` can safely repair false split rallies without harming the table-first baseline
 
 ### Remaining Work
 - `[todo]` keep the engineering loop fast:
@@ -362,6 +378,8 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[todo]` rerun full `set1`, `set2`, `set3`, `set4` after a real fix
 - `[todo]` keep `set2 / set3 / set4` full-match regression mandatory before promoting a new tracker baseline
 - `[todo]` benchmark rally segmentation quality on representative clips
+- `[todo]` verify boundary quality, not only rally count, for `ball tracking V0`
+- `[todo]` tune `ball_gap_merge` conservatively so it improves real table splits without masking bad parent segments
 - `[todo]` integrate `Player A / Player B` streams into winner inference if the current benchmark cannot meet v1 quality targets without them
 
 ## Layer 2 - Decision / Validation
@@ -534,7 +552,7 @@ These are mandatory, but they are not runtime layers.
 - `[deferred]` mid-match-start score engine context recovery
 - `[deferred]` any clip-scope handling needed only for debug fragments
 - `[deferred]` audio cues unless they become a direct blocker for rally/winner quality
-- `[deferred]` multistream rally logic unless it clearly beats the table-first production path
+- `[deferred]` promotion of experimental multistream role / ball rally logic unless it clearly beats the table-first production path
 
 ## Target Product Workflow
 This is the user-facing flow the full system must eventually support:
@@ -562,7 +580,7 @@ This is the user-facing flow the full system must eventually support:
 
 ## Best Next Small Tasks
 1. `[doing]` isolate the real root cause of `set1 1:34 -> 1:47`
-2. `[todo]` write the focused regression test for that tracker failure
-3. `[todo]` define the authoritative low-confidence correction payload
-4. `[todo]` specify how correction triggers deterministic replay and validation
-5. `[todo]` prepare the first operator review flow for the future local Web UI
+2. `[doing]` analyze why `ball tracking V0` helped `set2` but stayed neutral on `set1 / set3 / set4`
+3. `[todo]` write the focused regression test for that tracker failure
+4. `[todo]` define the authoritative low-confidence correction payload
+5. `[todo]` specify how correction triggers deterministic replay and validation

@@ -130,6 +130,28 @@ The production system should:
 ### 4. Optional Strong Signals
 - ball trajectory / bounce
 - audio cues
+- current `ball tracking V0` direction should stay:
+  - inside an expanded `Table ROI`
+  - motion-first
+  - secondary to the table stream, not a replacement for it
+
+## Ball Tracking Doctrine
+- Ball tracking should search only in an expanded `Table ROI` / playing lane, not across the full frame by default.
+- The current preferred `V0` direction is classical small-object motion tracking:
+  - frame differencing inside the expanded table crop
+  - small-blob candidate extraction
+  - short motion continuity / short tracklets across nearby frames
+- Do not treat appearance-heavy MOT methods as the main ball solution:
+  - the ball is too small
+  - motion is more reliable than appearance re-identification
+- Ball signals should be used as bounded evidence for:
+  - merging false split rallies
+  - bounce / dead-ball context
+  - future winner-inference support
+- Ball tracking must stay optional strong evidence:
+  - it may improve rally quality
+  - but the production path must still function when ball evidence is weak or missing
+- Do not promote a ball-tracking direction unless it improves checked regression clips without damaging the table-first baseline.
 
 ### 5. Validation Layer
 - Production output must pass through score/state validation.
@@ -201,6 +223,9 @@ Exit condition:
 ## Current Production Stance
 - The default production direction remains table-first.
 - `backend/ai_multistream_rally.py` and `scripts/generate_draft_multistream.py` are still experimental.
+- `ball tracking V0` is currently an experimental secondary signal:
+  - it may support conservative rally-boundary merge / validation
+  - it is not yet the promoted production baseline
 - Experimental paths should not replace the production path until they beat it on benchmarks and regression clips.
 
 ## Document Map

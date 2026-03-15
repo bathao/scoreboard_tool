@@ -25,6 +25,8 @@ def build_draft(
     player_margin_px: int = 220,
     player_fuse_gain: float = 1.0,
     player_signal_source: str = "role_tracker",
+    ball_fuse_gain: float = 1.15,
+    ball_signal_source: str = "none",
 ) -> DraftMatch:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required for multi-stream draft generation.")
@@ -40,6 +42,8 @@ def build_draft(
         player_margin_px=int(player_margin_px),
         player_fuse_gain=float(player_fuse_gain),
         player_signal_source=player_signal_source,
+        ball_fuse_gain=float(ball_fuse_gain),
+        ball_signal_source=ball_signal_source,
         device="cuda",
     )
     segments = detect_multistream_rallies(signals, mode=mode)
@@ -52,7 +56,10 @@ def build_draft(
             flags.append("multistream_fused")
         elif mode == "table_refined":
             flags.append("table_role_refined")
+        elif mode == "table_ball_refined":
+            flags.append("table_ball_refined")
         flags.append(f"player_signal_{signals.player_signal_source}")
+        flags.append(f"ball_signal_{signals.ball_signal_source}")
         points.append(
             DraftPointEvent(
                 id=f"pt_{i:04d}",
@@ -88,10 +95,12 @@ def main() -> int:
     parser.add_argument("--out", required=True, help="Output draft JSON path")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--mode", choices=["table", "fused", "table_refined"], default="fused")
+    parser.add_argument("--mode", choices=["table", "fused", "table_refined", "table_ball_refined"], default="fused")
     parser.add_argument("--player-margin-px", type=int, default=220)
     parser.add_argument("--player-fuse-gain", type=float, default=1.0)
     parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two"], default="role_tracker")
+    parser.add_argument("--ball-fuse-gain", type=float, default=1.15)
+    parser.add_argument("--ball-signal-source", choices=["none", "classical"], default="none")
     args = parser.parse_args()
 
     draft = build_draft(
@@ -104,6 +113,8 @@ def main() -> int:
         player_margin_px=args.player_margin_px,
         player_fuse_gain=args.player_fuse_gain,
         player_signal_source=args.player_signal_source,
+        ball_fuse_gain=args.ball_fuse_gain,
+        ball_signal_source=args.ball_signal_source,
     )
     out_path = Path(args.out)
     save_draft_match(out_path, draft)

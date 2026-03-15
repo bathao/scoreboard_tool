@@ -15,15 +15,82 @@ Do not use this file as the long-term architecture spec.
 
 ## Current Status
 - Date:
-  - `2026-03-10`
-- Current code baseline:
+  - `2026-03-16`
+- Current production draft baseline:
+  - `table / ROI-first`
+- Current tracker baseline:
   - `v12 deferred seed bootstrap`
 - Current code state:
-  - rolled back to the code that produced `v12 deferred_seed` outputs
-  - later ownership-tuning experiments were removed
-- Current tracker test result:
-  - `tests/test_offline_player_tracker.py`
-  - `15 passed, 1 warning`
+  - production draft path remains table-first
+  - experimental multistream code now includes:
+    - role-aware table refinement
+    - classical `ball tracking V0`
+  - role and ball paths remain experimental and are not promoted baselines yet
+- Current test result:
+  - full suite:
+    - `57 passed, 1 warning`
+  - multistream rally tests:
+    - `6 passed, 1 warning`
+  - tracker tests:
+    - `15 passed, 1 warning`
+
+## Work Log - `2026-03-16`
+### Experiments That Passed
+- `role-stream extraction for experimental multistream draft`
+  - wired `Player A / Player B` streams into the experimental draft path
+  - aligned the multistream compare path back to the production-style table energy extraction
+- `table_refined safety check on set1`
+  - restored `set1` count back to `14`
+  - stopped the earlier role-fused under-segmentation from becoming the default compare path
+- `classical ball tracking V0`
+  - added ROI-scoped ball motion extraction inside expanded `Table ROI`
+  - used frame differencing + small-blob candidates + short motion continuity
+  - exposed it through `table_ball_refined`
+- `set2 ball-assisted merge benchmark`
+  - baseline `table` count was `20`
+  - conservative `table_ball_refined` improved the result to `19`
+  - operator-confirmed target for `set2` is `19` rallies with score `11-8`
+- `set1 / set3 / set4 regression check for ball V0`
+  - `set1`: stayed `14`
+  - `set3`: stayed `18`
+  - `set4`: stayed `18`
+  - conservative ball support did not worsen rally count on those sets
+- `test coverage refresh`
+  - added / kept unit coverage for role-series behavior and ball-assisted merge behavior
+  - full test suite stayed green
+
+### Experiments That Failed Or Were Rejected
+- `raw role-fused activation as the main detector`
+  - on `set1`, the initial role-fused path dropped to `8` rallies
+  - rejected as a production-direction candidate
+- `role quiet-gap refine as a promotion candidate`
+  - did not improve `set2`
+  - on `set3`, it created an extra split in a window later identified by operator review as idle
+  - kept only as experimental debug logic, not a promoted path
+- `first ball-merge thresholds`
+  - the first `ball tracking V0` pass on `set2` over-merged down to `15`
+  - thresholds were tightened before keeping the current `19`-rally artifact
+- `stale set2 GT file`
+  - repo GT file with `10` rallies was wrong / incomplete
+  - it was removed instead of being treated as current truth
+
+### Main Findings From Today
+- `Player A / Player B` role streams are useful as secondary evidence, not as the main rally-activation signal
+- classical `ball tracking V0` is currently a better rally-segmentation assist than the current role-refine logic
+- the safe current use of ball evidence is:
+  - conservative split merge support
+  - not standalone rally detection
+- `set2` is the first confirmed case where ball support is better than the current table-only baseline on rally count
+- `set1 / set3 / set4` show that the current ball logic is at least neutral on count, but boundary quality still needs manual checking
+
+### Important Operator-Provided Clarifications
+- true `set2` target:
+  - `19` rallies
+  - score `11-8`
+- `set3` debug note:
+  - window `11s -> 22s` was reported as idle by operator review
+  - treat that as debug evidence for diagnosis only
+  - do not turn it into a clip-specific hard-coded rule
 
 ## Work Log - `2026-03-10`
 ### Experiments That Passed
@@ -81,11 +148,21 @@ Do not use this file as the long-term architecture spec.
 - `Stream 2 / Player A` and `Stream 3 / Player B` are now good enough to use as meaningful player streams for later winner inference work
 
 ## Current Outputs Kept
-Only keep the latest full-set debug outputs:
+Keep the latest full-set debug outputs and current rally-benchmark artifacts:
 - `debug_report/Vinh_set1_persondet_offline_fullset_v12_deferred_seed.mp4`
 - `debug_report/Vinh_set2_persondet_offline_fullset_v12_deferred_seed.mp4`
 - `debug_report/Vinh_set3_persondet_offline_fullset_v12_deferred_seed.mp4`
 - `debug_report/Vinh_set4_persondet_offline_fullset_v12_deferred_seed.mp4`
+- `matches/Vinh_set1_role_compare_table_draft.json`
+- `matches/Vinh_set1_table_ball_refined_v0.json`
+- `matches/Vinh_set2_role_compare_table_draft_v2.json`
+- `matches/Vinh_set2_table_ball_refined_v0b.json`
+- `matches/Vinh_set3_role_compare_table_draft_v2.json`
+- `matches/Vinh_set3_table_ball_refined_v0.json`
+- `matches/Vinh_set4_role_compare_table_draft_v0.json`
+- `matches/Vinh_set4_table_ball_refined_v0.json`
+- `matches/Vinh_set3_table_role_refined_debug_compare.json`
+- `matches/Vinh_set3_rally_timestamps_only.json`
 - Render times remembered:
   - `set3`
     - `2026-03-10 18:58`
@@ -98,17 +175,28 @@ Only keep the latest full-set debug outputs:
 
 ## Current Quality Read
 - `set2`
-  - relatively good
+  - operator-confirmed truth is `19` rallies with score `11-8`
+  - current `table` baseline is `20`
+  - current `ball tracking V0` result is `19`
+  - current read:
+    - ball-assisted merge is better than table-only on rally count
 - `set4`
-  - relatively good
+  - current `table` baseline is `18`
+  - current `ball tracking V0` result is also `18`
+  - no local GT yet
 - `set3`
-  - much better after deferred seeding
-  - full set is temporarily acceptable
+  - current `table` baseline is `18`
+  - current `table_ball_refined` result is also `18`
+  - the earlier `table_refined` role path produced `19`, which is not trusted as an improvement
+  - no local GT yet
 - `set1`
   - still has an important unresolved bug around `1:34 -> 1:47`
   - during rally, `Player B` can jump to a wrong person behind / outside the real playing lane
+  - current `table` baseline is `14`
+  - current `ball tracking V0` result is also `14`
+  - local GT count is `14`
 
-## Active Open Issue
+## Active Open Issues
 ### `set1` full match
 - Bug window:
   - about `1:34 -> 1:47`
@@ -121,7 +209,35 @@ Only keep the latest full-set debug outputs:
   - no workaround promoted
   - code was intentionally rolled back to clean `v12 deferred_seed` baseline before continuing
 
+### `set3` table-path debug concern
+- Debug window:
+  - about `11s -> 22s`
+- Current read:
+  - operator review reported this window as idle
+  - both baseline table output and role-refined debug output need caution in this area
+  - this should guide diagnosis only, not become a clip-specific rule
+
 ## Latest Successful Direction
+### `table-first + classical ball gap-merge V0`
+- Why it was added:
+  - role streams alone were not yet improving rally segmentation reliably
+  - `set2` looked like a likely split-repair candidate
+- What changed:
+  - added `backend/ai_ball_tracking.py`
+  - ball signal is extracted only in expanded `Table ROI`
+  - used:
+    - frame differencing
+    - small-blob candidate filtering
+    - short motion continuity
+  - current use is conservative:
+    - only to merge likely false splits in `table_ball_refined`
+- Validation remembered:
+  - `set1` stayed `14`
+  - `set2` improved `20 -> 19`
+  - `set3` stayed `18`
+  - `set4` stayed `18`
+  - full suite stayed `57 passed, 1 warning`
+
 ### `v12 deferred seed bootstrap`
 - Why it was added:
   - `set3` failed from frame `0`
@@ -183,19 +299,26 @@ Only keep the latest full-set debug outputs:
 - `Player A` and `Player B` need role-specific modeling
 
 ## Resume Point For The Next Session
-1. Start from the current `v12 deferred seed bootstrap` code, not the ownership-tuning experiment that was rolled back.
+1. Start from the current code where:
+   - production draft baseline is still `table / ROI-first`
+   - tracker baseline is still `v12 deferred seed bootstrap`
+   - `ball tracking V0` remains experimental
 2. Re-open the real failure window in `set1`:
    - `1:34 -> 1:47`
-3. Investigate in this order:
+3. Keep the experimental ball path conservative:
+   - use it for diagnosis and merge support
+   - do not promote it without boundary-quality checks beyond count
+4. Investigate in this order:
    - raw detections and true player presence
    - tracklet linkage
    - role ownership / role observation selection
-4. Do not fix it with:
+5. Analyze why `ball tracking V0` helped `set2` but stayed neutral on `set1 / set3 / set4`.
+6. Do not fix it with:
    - render smoothing
    - frozen boxes
    - continuity hacks
    - clip-specific thresholds without broader justification
-5. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
+7. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
 
 ## End-Of-Session Update Rule
 At the end of each work session:
