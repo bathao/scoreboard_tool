@@ -533,6 +533,49 @@ def _merge_segments_with_ball_support(
     return merged
 
 
+def _merge_ball_split_pair_artifacts(
+    segments: List[RallySegment],
+    *,
+    contiguous_eps_sec: float = 0.05,
+    short_piece_sec: float = 3.8,
+    max_pair_sec: float = 10.0,
+) -> List[RallySegment]:
+    if len(segments) <= 1:
+        return list(segments)
+
+    merged: List[RallySegment] = []
+    i = 0
+    while i < len(segments):
+        if i + 1 < len(segments):
+            current = segments[i]
+            nxt = segments[i + 1]
+            gap = float(nxt.t_start - current.t_end)
+            current_dur = float(current.t_end - current.t_start)
+            next_dur = float(nxt.t_end - nxt.t_start)
+            if (
+                gap <= contiguous_eps_sec
+                and "split_long" in current.flags
+                and "split_long" in nxt.flags
+                and min(current_dur, next_dur) < short_piece_sec
+                and (current_dur + next_dur) <= max_pair_sec
+            ):
+                merged.append(
+                    RallySegment(
+                        t_start=float(current.t_start),
+                        t_end=float(nxt.t_end),
+                        confidence=float(max(current.confidence, nxt.confidence)),
+                        flags=sorted(set(list(current.flags) + list(nxt.flags) + ["ball_pair_merge"])),
+                    )
+                )
+                i += 2
+                continue
+
+        merged.append(segments[i])
+        i += 1
+
+    return merged
+
+
 def extract_multistream_signals(
     video_path: str,
     table_weights_path: str,
@@ -544,6 +587,7 @@ def extract_multistream_signals(
     player_signal_source: str = "role_tracker",
     ball_fuse_gain: float = 1.15,
     ball_signal_source: str = "none",
+    ball_tracking_profile: str = "support",
     device: str = "cuda",
 ) -> MultiStreamSignals:
     if not torch.cuda.is_available() and device == "cuda":
@@ -556,70 +600,82 @@ def extract_multistream_signals(
         raise FileNotFoundError(f"Video not found: {v_path}")
     if not table_w_path.exists():
         raise FileNotFoundError(f"Table weights not found: {table_w_path}")
-    if not pose_w_path.exists():
-        raise FileNotFoundError(f"Pose weights not found: {pose_w_path}")
-    if player_signal_source not in {"role_tracker", "nearest_two"}:
+    if player_signal_source not in {"role_tracker", "nearest_two", "none"}:
         raise ValueError(f"Invalid player_signal_source: {player_signal_source}")
     if ball_signal_source not in {"none", "classical"}:
         raise ValueError(f"Invalid ball_signal_source: {ball_signal_source}")
+    if player_signal_source != "none" and not pose_w_path.exists():
+        raise FileNotFoundError(f"Pose weights not found: {pose_w_path}")
 
     info = probe_video_ffprobe(str(v_path))
     roi = detect_table_roi_dl(
         str(v_path),
         cfg=DLConfig(weights_path=str(table_w_path), device=device),
     )
-    tx, ty, tw, th = roi.as_tuple()
-
-    person_model = YOLO(str(pose_w_path))
-    cap = cv2.VideoCapture(str(v_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Failed to open video: {v_path}")
-
-    if player_signal_source == "role_tracker":
-        timestamps, table_energies, player_a_energies, player_b_energies = _collect_role_tracker_energies(
-            cap,
-            person_model,
+    if player_signal_source == "none":
+        timestamps, table_energies = _extract_production_table_energies(
+            str(v_path),
             roi=roi,
-            fps=info.fps,
+            width=int(info.width),
+            height=int(info.height),
+            fps=float(info.fps),
             stride=max(1, int(stride)),
             device=device,
-            player_margin_px=int(player_margin_px),
-            frame_w=int(info.width),
-            frame_h=int(info.height),
         )
+        player_a_energies = [0.0 for _ in timestamps]
+        player_b_energies = [0.0 for _ in timestamps]
     else:
-        timestamps, table_energies, player_a_energies, player_b_energies = _collect_nearest_two_energies(
-            cap,
-            person_model,
+        person_model = YOLO(str(pose_w_path))
+        cap = cv2.VideoCapture(str(v_path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Failed to open video: {v_path}")
+
+        if player_signal_source == "role_tracker":
+            timestamps, table_energies, player_a_energies, player_b_energies = _collect_role_tracker_energies(
+                cap,
+                person_model,
+                roi=roi,
+                fps=info.fps,
+                stride=max(1, int(stride)),
+                device=device,
+                player_margin_px=int(player_margin_px),
+                frame_w=int(info.width),
+                frame_h=int(info.height),
+            )
+        else:
+            timestamps, table_energies, player_a_energies, player_b_energies = _collect_nearest_two_energies(
+                cap,
+                person_model,
+                roi=roi,
+                fps=info.fps,
+                stride=max(1, int(stride)),
+                device=device,
+                player_margin_px=int(player_margin_px),
+            )
+
+    if player_signal_source != "none":
+        cap.release()
+        prod_timestamps, prod_table_energies = _extract_production_table_energies(
+            str(v_path),
             roi=roi,
-            fps=info.fps,
+            width=int(info.width),
+            height=int(info.height),
+            fps=float(info.fps),
             stride=max(1, int(stride)),
             device=device,
-            player_margin_px=int(player_margin_px),
         )
 
-    cap.release()
-    prod_timestamps, prod_table_energies = _extract_production_table_energies(
-        str(v_path),
-        roi=roi,
-        width=int(info.width),
-        height=int(info.height),
-        fps=float(info.fps),
-        stride=max(1, int(stride)),
-        device=device,
-    )
-
-    if prod_timestamps and prod_table_energies:
-        aligned_len = min(len(prod_timestamps), max(0, len(player_a_energies) - 1), max(0, len(player_b_energies) - 1))
-        timestamps = prod_timestamps[:aligned_len]
-        table_energies = prod_table_energies[:aligned_len]
-        player_a_energies = player_a_energies[1 : 1 + aligned_len]
-        player_b_energies = player_b_energies[1 : 1 + aligned_len]
-    elif timestamps:
-        timestamps = timestamps[1:]
-        table_energies = table_energies[1:]
-        player_a_energies = player_a_energies[1:]
-        player_b_energies = player_b_energies[1:]
+        if prod_timestamps and prod_table_energies:
+            aligned_len = min(len(prod_timestamps), max(0, len(player_a_energies) - 1), max(0, len(player_b_energies) - 1))
+            timestamps = prod_timestamps[:aligned_len]
+            table_energies = prod_table_energies[:aligned_len]
+            player_a_energies = player_a_energies[1 : 1 + aligned_len]
+            player_b_energies = player_b_energies[1 : 1 + aligned_len]
+        elif timestamps:
+            timestamps = timestamps[1:]
+            table_energies = table_energies[1:]
+            player_a_energies = player_a_energies[1:]
+            player_b_energies = player_b_energies[1:]
 
     if ball_signal_source == "classical":
         ball_signals = extract_ball_motion_energies(
@@ -629,6 +685,7 @@ def extract_multistream_signals(
             frame_h=int(info.height),
             fps=float(info.fps),
             stride=max(1, int(stride)),
+            profile=ball_tracking_profile,
         )
         aligned_len = min(len(timestamps), len(ball_signals.timestamps), len(ball_signals.energies))
         timestamps = timestamps[:aligned_len]
@@ -674,16 +731,37 @@ def detect_multistream_rallies(
     *,
     mode: str = "fused",
 ) -> List[RallySegment]:
-    if mode not in {"table", "fused", "table_refined", "table_ball_refined"}:
+    if mode not in {"table", "ball", "fused", "table_refined", "table_ball_refined"}:
         raise ValueError(f"Invalid mode: {mode}")
+    if mode == "ball" and signals.ball_signal_source == "none":
+        raise ValueError("Ball-only mode requires a real ball signal source.")
 
-    energies = signals.table_energies if mode in {"table", "table_refined", "table_ball_refined"} else signals.fused_energies
+    if mode in {"table", "table_refined", "table_ball_refined"}:
+        energies = signals.table_energies
+    elif mode == "ball":
+        energies = signals.ball_energies
+    else:
+        energies = signals.fused_energies
+    detect_kwargs = {}
+    if mode == "ball":
+        detect_kwargs = {
+            "high_thresh": 0.28,
+            "low_thresh": 0.08,
+            "max_gap_sec": 1.15,
+            "long_segment_sec": 10.0,
+            "split_gap_sec": 0.40,
+            "min_split_dur_sec": 1.5,
+            "artifact_min_dur_sec": 1.2,
+        }
     segments = detect_rally_segments_advanced_gpu(
         list(energies),
         list(signals.timestamps),
         effective_fps=signals.effective_fps,
+        **detect_kwargs,
     )
-    if mode == "table":
+    if mode in {"table", "ball"}:
+        if mode == "ball":
+            return _merge_ball_split_pair_artifacts(segments)
         return segments
     if mode == "table_refined":
         return _refine_table_segments_with_role_support(

@@ -1,11 +1,15 @@
 import numpy as np
 
+import scripts.generate_draft_multistream as generate_draft_multistream
+from backend.ai_multistream_rally import MultiStreamSignals, detect_multistream_rallies
 from backend.ai_multistream_rally import (
     _build_role_energy_series,
+    _merge_ball_split_pair_artifacts,
     _merge_segments_with_ball_support,
     _refine_table_segments_with_role_support,
 )
 from backend.ai_rally_segmentation import RallySegment
+from backend.ai_table_roi import TableROI
 from backend.offline_player_tracker import TrackletObservation
 
 
@@ -151,3 +155,129 @@ def test_ball_refine_keeps_split_when_ball_is_quiet():
     )
 
     assert len(merged) == 2
+
+
+def test_ball_pair_merge_merges_short_contiguous_split_pair():
+    segments = [
+        RallySegment(t_start=0.0, t_end=3.2, confidence=0.5, flags=["split_long"]),
+        RallySegment(t_start=3.2, t_end=9.0, confidence=0.6, flags=["split_long"]),
+        RallySegment(t_start=12.0, t_end=18.0, confidence=0.7, flags=["split_long"]),
+    ]
+
+    merged = _merge_ball_split_pair_artifacts(
+        segments,
+        short_piece_sec=3.8,
+        max_pair_sec=10.0,
+    )
+
+    assert len(merged) == 2
+    assert merged[0].t_start == 0.0
+    assert merged[0].t_end == 9.0
+    assert "ball_pair_merge" in merged[0].flags
+    assert merged[1].t_start == 12.0
+
+
+def test_detect_multistream_rallies_ball_mode_uses_ball_signal(monkeypatch):
+    captured = {}
+
+    def fake_detect(energies, timestamps, effective_fps, **kwargs):
+        captured["energies"] = list(energies)
+        captured["timestamps"] = list(timestamps)
+        captured["effective_fps"] = effective_fps
+        captured["kwargs"] = dict(kwargs)
+        return [RallySegment(t_start=1.0, t_end=3.0, confidence=0.75, flags=["ball_only"])]
+
+    monkeypatch.setattr("backend.ai_multistream_rally.detect_rally_segments_advanced_gpu", fake_detect)
+
+    signals = MultiStreamSignals(
+        roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+        timestamps=[0.0, 1.0, 2.0, 3.0],
+        table_energies=[0.9, 0.8, 0.7, 0.6],
+        ball_energies=[0.0, 0.35, 0.7, 0.2],
+        player_a_energies=[0.0, 0.0, 0.0, 0.0],
+        player_b_energies=[0.0, 0.0, 0.0, 0.0],
+        player_energies=[0.0, 0.0, 0.0, 0.0],
+        fused_energies=[0.9, 0.8, 0.7, 0.6],
+        effective_fps=30.0,
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    segments = detect_multistream_rallies(signals, mode="ball")
+
+    assert captured["energies"] == signals.ball_energies
+    assert captured["timestamps"] == signals.timestamps
+    assert captured["effective_fps"] == signals.effective_fps
+    assert captured["kwargs"]["max_gap_sec"] == 1.15
+    assert captured["kwargs"]["high_thresh"] == 0.28
+    assert captured["kwargs"]["artifact_min_dur_sec"] == 1.2
+    assert len(segments) == 1
+    assert segments[0].flags == ["ball_only"]
+
+
+def test_detect_multistream_rallies_ball_mode_requires_real_ball_source():
+    signals = MultiStreamSignals(
+        roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+        timestamps=[0.0, 1.0],
+        table_energies=[0.2, 0.1],
+        ball_energies=[0.0, 0.0],
+        player_a_energies=[0.0, 0.0],
+        player_b_energies=[0.0, 0.0],
+        player_energies=[0.0, 0.0],
+        fused_energies=[0.2, 0.1],
+        effective_fps=30.0,
+        player_signal_source="role_tracker",
+        ball_signal_source="none",
+    )
+
+    try:
+        detect_multistream_rallies(signals, mode="ball")
+    except ValueError as exc:
+        assert "Ball-only mode requires" in str(exc)
+    else:
+        raise AssertionError("Expected ball-only mode without ball source to fail")
+
+
+def test_build_draft_ball_mode_disables_player_streams(monkeypatch):
+    captured = {}
+
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        captured["player_signal_source"] = kwargs["player_signal_source"]
+        captured["ball_signal_source"] = kwargs["ball_signal_source"]
+        captured["ball_tracking_profile"] = kwargs["ball_tracking_profile"]
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0],
+            table_energies=[0.1, 0.1, 0.1],
+            ball_energies=[0.0, 0.5, 0.0],
+            player_a_energies=[0.0, 0.0, 0.0],
+            player_b_energies=[0.0, 0.0, 0.0],
+            player_energies=[0.0, 0.0, 0.0],
+            fused_energies=[0.1, 0.5, 0.1],
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        assert mode == "ball"
+        return [RallySegment(t_start=1.0, t_end=2.0, confidence=0.8, flags=["ball_only"])]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="ball",
+        ball_signal_source="classical",
+        player_signal_source="role_tracker",
+    )
+
+    assert captured["player_signal_source"] == "none"
+    assert captured["ball_signal_source"] == "classical"
+    assert captured["ball_tracking_profile"] == "standalone"
+    assert len(draft.points) == 1
+    assert "ball_only" in draft.points[0].flags
+    assert "player_signal_none" in draft.points[0].flags

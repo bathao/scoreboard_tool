@@ -33,6 +33,11 @@ def build_draft(
 
     if best_of <= 0 or best_of % 2 == 0:
         raise ValueError("best_of must be a positive odd number.")
+    if mode == "ball" and ball_signal_source == "none":
+        raise ValueError("ball mode requires --ball-signal-source classical")
+
+    effective_player_signal_source = "none" if mode == "ball" else player_signal_source
+    ball_tracking_profile = "standalone" if mode == "ball" else "support"
 
     signals = extract_multistream_signals(
         video_path,
@@ -41,9 +46,10 @@ def build_draft(
         stride=max(1, int(stride)),
         player_margin_px=int(player_margin_px),
         player_fuse_gain=float(player_fuse_gain),
-        player_signal_source=player_signal_source,
+        player_signal_source=effective_player_signal_source,
         ball_fuse_gain=float(ball_fuse_gain),
         ball_signal_source=ball_signal_source,
+        ball_tracking_profile=ball_tracking_profile,
         device="cuda",
     )
     segments = detect_multistream_rallies(signals, mode=mode)
@@ -54,6 +60,8 @@ def build_draft(
         flags = list(seg.flags)
         if mode == "fused":
             flags.append("multistream_fused")
+        elif mode == "ball":
+            flags.append("ball_only")
         elif mode == "table_refined":
             flags.append("table_role_refined")
         elif mode == "table_ball_refined":
@@ -88,14 +96,14 @@ def build_draft(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate draft JSON using table-only or multi-stream fused segmentation.")
+    parser = argparse.ArgumentParser(description="Generate draft JSON using table, ball-only, or multi-stream segmentation.")
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Path to YOLO table weights")
     parser.add_argument("--pose-weights", default="weights/yolov8x-pose.pt", help="Path to YOLO pose weights")
     parser.add_argument("--out", required=True, help="Output draft JSON path")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--mode", choices=["table", "fused", "table_refined", "table_ball_refined"], default="fused")
+    parser.add_argument("--mode", choices=["table", "ball", "fused", "table_refined", "table_ball_refined"], default="fused")
     parser.add_argument("--player-margin-px", type=int, default=220)
     parser.add_argument("--player-fuse-gain", type=float, default=1.0)
     parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two"], default="role_tracker")

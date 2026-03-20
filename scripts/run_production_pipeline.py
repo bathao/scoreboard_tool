@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument("--final-out", required=True, help="Path to final rendered video")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--model", default="llama3.2-vision", help="Ollama model for winner refinement")
+    parser.add_argument("--model", default="qwen3-vl:8b", help="Ollama model for winner refinement")
     parser.add_argument("--votes", type=int, default=3, help="Number of AI votes per rally for majority decision")
     parser.add_argument(
         "--expected-scope",

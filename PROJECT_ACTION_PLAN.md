@@ -123,12 +123,19 @@ This section answers a different question:
     - table-first segmentation
     - optional `Player A / Player B` streams
     - optional classical `ball tracking V0` merge support
+  - standalone `ball-only` draft mode now exists experimentally:
+    - benchmark-only compare path
+    - tuned with standalone ball-tracking profile
+    - not a promoted production baseline
+  - local `Qwen` review paths now exist experimentally:
+    - `qwen3-vl` for frame / boundary inspection
+    - `qwen3` for structured reasoning over review payloads
 - Use this checklist:
   1. `[done]` keep the current `table / ROI-first` draft export as the working production baseline
   2. `[todo]` use `1 set -> rally draft` as the first quality gate for that baseline
   3. `[todo]` inspect the output JSON for rally boundary quality on that set
   4. `[doing]` run `1 set -> rally draft` with the experimental `multistream / YOLO player-signal` path
-  5. `[doing]` compare the set-level drafts against manual review or GT, including the conservative `ball tracking V0` path
+  5. `[doing]` compare the set-level drafts against manual review or GT, including the conservative `ball tracking V0` path and standalone `ball-only` benchmarks when relevant
   6. `[todo]` improve the weaker path or fuse both paths only if fusion clearly beats the table-first baseline
   7. `[todo]` fix root-cause failures at the owning layer
   8. `[todo]` add a focused regression test for each fixed failure
@@ -150,21 +157,47 @@ This section answers a different question:
   - conservative `ball tracking V0` currently looks more promising as a draft-quality assist:
     - `set2` improved from `20 -> 19`
     - `set1 / set3 / set4` stayed neutral on rally count
+  - checked explanation for the current `ball tracking V0` behavior:
+    - `set2` had exactly one eligible merge pair under the current conservative gates:
+      - `160.03 -> 166.57`
+      - combined duration `6.54s`
+      - normalized ball window was just strong enough:
+        - peak about `0.434`
+        - mean about `0.192`
+    - `set1` had no adjacent pair inside the current merge-gap gate
+    - `set3` and `set4` did have contiguous `split_long` neighbors, but their combined durations were above the current `8.5s` cap, so the merge logic never fired
+  - practical read:
+    - current `ball tracking V0` is only helping short false-split repair
+    - it is not currently addressing long-segment correction or missing-rally recovery
+  - experimental standalone `ball-only v7` now exists as a benchmark-only compare path:
+    - `set1`: `18`
+    - `set2`: `20`
+    - `set3`: `20`
+    - `set4`: `22`
+  - practical read for standalone `ball-only`:
+    - it no longer collapses on `set1 / set3`
+    - but it still over-counts known clips and is not the promoted baseline
+  - current `Qwen` review passes are not promotion candidates yet:
+    - `set4` merge-only review regressed strongly
+    - the older `set4` split-review `v0` report stayed neutral because the candidate pass it used was too strict
+    - a fresh `skip-models` rerun on `2026-03-20` now surfaces `11` split candidates on `set4`
+    - the current blocker is choosing which candidates the review stack should accept, not `0-candidate` extraction
 
 ### B. Engineering Path From `Draft Rally JSON` To Winner-Labeled JSON
 - Goal:
   - turn raw draft output into winner-labeled JSON with review metadata
 - Use this checklist:
   1. `[todo]` define or improve the first winner-candidate path from player / pose / YOLO-derived signals if benchmark data shows it helps
-  2. `[todo]` use `Ollama local` as refinement / second-opinion on weak or unresolved rallies
-  3. `[todo]` assign decision status for each rally:
+  2. `[doing]` use `Ollama local` as refinement / second-opinion on weak or unresolved rallies
+  3. `[doing]` benchmark local `Qwen3-VL + Qwen3` review passes on debug clips before trusting them for correction
+  4. `[todo]` assign decision status for each rally:
      - auto-apply
      - review
      - blocked / unknown
-  4. `[todo]` attach score/state validation output
-  5. `[todo]` define the authoritative correction payload
-  6. `[todo]` make one unresolved rally representable without ambiguity
-  7. `[todo]` export `Reviewable Draft JSON`
+  5. `[todo]` attach score/state validation output
+  6. `[todo]` define the authoritative correction payload
+  7. `[todo]` make one unresolved rally representable without ambiguity
+  8. `[todo]` export `Reviewable Draft JSON`
 
 ### C. After `Reviewable Draft JSON` exists
 - Goal:
@@ -274,10 +307,25 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - `Draft Rally JSON`
 - Working method:
   - `debug window -> one set -> regression sets -> full match`
+- Temporary priority note:
+  - `set1 1:34 -> 1:47` is temporarily ignored for the current work cycle
+  - do not treat this as fixed
+  - bring it back before baseline promotion / Stage 1 exit
 - `[todo]` keep one short debug-window export path for fast iteration
 - `[todo]` require one full-set check before accepting a local fix
-- `[doing]` isolate and fix the root cause of `set1 1:34 -> 1:47`
+- `[deferred]` isolate and fix the root cause of `set1 1:34 -> 1:47`
 - `[doing]` benchmark conservative `table_ball_refined` against `table` on `set1`, `set2`, `set3`, `set4`
+- `[doing]` benchmark standalone `ball-only v7` against `table / table_ball_refined` on `set1`, `set2`, `set3`, `set4`
+  - current benchmark counts are:
+    - `set1`: `18`
+    - `set2`: `20`
+    - `set3`: `20`
+    - `set4`: `22`
+  - do not treat this as a promoted baseline yet
+- `[doing]` benchmark `Qwen3-VL + Qwen3` review passes on `set4`:
+  - merge-only review is currently rejected
+  - split-review candidate extraction is now producing a fresh `11-candidate` debug list in `skip-models` mode
+  - the next calibration step is accept / reject quality on that list
 - `[todo]` add the focused regression test for that failure
 - `[todo]` rerun full `set1`, `set2`, `set3`, `set4`
 - Exit gate:
@@ -351,6 +399,8 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - Current experimental sub-directions inside this layer now include:
   - role-aware table refinement
   - classical `ball tracking V0` inside expanded `Table ROI`
+  - standalone `ball-only` rally draft benchmarking
+  - local `Qwen3-VL + Qwen3` review scripts for boundary / split debug
 - The codebase already has real implementations here, but the layer is still far from production target quality.
 - Current clean tracker baseline:
   - `v12 deferred seed bootstrap`
@@ -363,12 +413,19 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[done]` deferred seeding fixed the obvious `set3` frame-0 seeding failure
 - `[done]` experimental `table_refined` path exists for role-aware table segmentation checks
 - `[done]` classical `ball tracking V0` exists as an optional secondary signal in the experimental draft path
+- `[done]` experimental standalone `ball-only` draft mode now exists for benchmark-only compare
+- `[done]` local `Qwen3-VL` and `Qwen3` review scripts now exist for debug-only rally review experiments
+- `[done]` `review_rally_splits_qwen.py` now supports `--skip-models` so split candidates can be benchmarked without Qwen decisions
 
 ### In Progress
-- `[doing]` isolate the real root cause of the `set1` bug around `1:34 -> 1:47`
 - `[doing]` benchmark whether `ball tracking V0` can safely repair false split rallies without harming the table-first baseline
+- `[doing]` decide whether standalone `ball-only v7` stays debug-only or contributes bounded evidence back into the table-first path
+- `[doing]` calibrate `Qwen` review passes so they help debug without hallucinating merge / split decisions
 
 ### Remaining Work
+- `[deferred]` temporarily ignore the `set1` bug around `1:34 -> 1:47`
+  - do not treat it as fixed
+  - bring it back before promoting a new baseline
 - `[todo]` keep the engineering loop fast:
   - short debug window first
   - then one full set
@@ -379,7 +436,13 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[todo]` keep `set2 / set3 / set4` full-match regression mandatory before promoting a new tracker baseline
 - `[todo]` benchmark rally segmentation quality on representative clips
 - `[todo]` verify boundary quality, not only rally count, for `ball tracking V0`
+- `[todo]` verify boundary quality, not only rally count, for standalone `ball-only v7`
+- `[todo]` decide whether standalone `ball-only` should stay benchmark-only or feed bounded evidence back into the table-first path
 - `[todo]` tune `ball_gap_merge` conservatively so it improves real table splits without masking bad parent segments
+- `[todo]` keep `Qwen` review outputs as debug-only until they show real benchmark gains
+- `[todo]` benchmark which fresh `set4` split candidates are real and define conservative accept / reject gates
+  - fresh `skip-models` rerun on `2026-03-20` surfaced `11` candidates across `pt_0001 / pt_0002 / pt_0004 / pt_0010 / pt_0014 / pt_0016`
+  - treat the old `0-candidate` `v0` report as stale
 - `[todo]` integrate `Player A / Player B` streams into winner inference if the current benchmark cannot meet v1 quality targets without them
 
 ## Layer 2 - Decision / Validation
@@ -579,8 +642,8 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[doing]` isolate the real root cause of `set1 1:34 -> 1:47`
-2. `[doing]` analyze why `ball tracking V0` helped `set2` but stayed neutral on `set1 / set3 / set4`
-3. `[todo]` write the focused regression test for that tracker failure
-4. `[todo]` define the authoritative low-confidence correction payload
-5. `[todo]` specify how correction triggers deterministic replay and validation
+1. `[doing]` compare standalone `ball-only v7` against `table / table_ball_refined` and decide whether it stays debug-only or contributes bounded evidence
+2. `[doing]` benchmark which of the fresh `11` `set4` split candidates should be accepted, where debug truth is `20` and baseline is `18`
+3. `[todo]` define the authoritative low-confidence correction payload
+4. `[todo]` write the focused regression test for the deferred `set1` tracker failure
+5. `[deferred]` temporarily ignore `set1 1:34 -> 1:47` until the current priority cycle is finished

@@ -167,6 +167,7 @@ def detect_rally_segments_advanced_gpu(
     split_gap_sec: float = 0.55,
     split_low_factor: float = 0.65,
     min_split_dur_sec: float = 2.0,
+    artifact_min_dur_sec: float = 2.8,
 ) -> List[RallySegment]:
     """
     Advanced Hysteresis Segmentation using GPU-based signal refinement.
@@ -251,5 +252,8 @@ def detect_rally_segments_advanced_gpu(
     if active:
         append_segment(s_idx, l_idx)
 
-    rallies = _merge_contiguous_artifact_runs(rallies)
+    rallies = _merge_contiguous_artifact_runs(
+        rallies,
+        artifact_min_dur_sec=artifact_min_dur_sec,
+    )
     return rallies

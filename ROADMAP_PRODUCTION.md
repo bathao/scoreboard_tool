@@ -179,6 +179,10 @@ The production system should:
 
 ## Winner Inference Doctrine
 - Winner inference should use multiple signals, not one brittle cue.
+- Local multimodal review is allowed as a secondary reviewer:
+  - one local vision model may inspect rally frames
+  - one local reasoning model may judge structured evidence
+  - they should support review / debug / bounded correction, not replace the owning detector blindly
 - The system should support three decision outcomes:
   - safe auto-apply
   - human review
@@ -226,6 +230,10 @@ Exit condition:
 - `ball tracking V0` is currently an experimental secondary signal:
   - it may support conservative rally-boundary merge / validation
   - it is not yet the promoted production baseline
+- Local `Qwen` review paths are currently experimental:
+  - `qwen3-vl` may be used for frame / boundary review
+  - `qwen3` may be used for structured reasoning
+  - these paths are debug tools until they prove benchmark value
 - Experimental paths should not replace the production path until they beat it on benchmarks and regression clips.
 
 ## Document Map

@@ -3,7 +3,7 @@ import ollama
 class OllamaVisionClient:
     def __init__(
         self,
-        model_name="llama3.2-vision",
+        model_name="qwen3-vl:8b",
         temperature: float = 0.0,
     ):
         self.model_name = model_name

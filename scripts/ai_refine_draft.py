@@ -59,7 +59,7 @@ def main():
     parser = argparse.ArgumentParser(description="Refine unknown rally winners using Ollama vision.")
     parser.add_argument("--draft", required=True, help="Path to input draft JSON")
     parser.add_argument("--out", default=None, help="Path to output refined JSON")
-    parser.add_argument("--model", default="llama3.2-vision", help="Ollama vision model name")
+    parser.add_argument("--model", default="qwen3-vl:8b", help="Ollama vision model name")
     parser.add_argument("--votes", type=int, default=3, help="Number of AI votes per rally")
     parser.add_argument(
         "--expected-scope",
