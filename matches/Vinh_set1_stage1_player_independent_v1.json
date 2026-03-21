@@ -1,0 +1,226 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-21T10:28:22.248265+00:00",
+  "roi": {
+    "x": 843,
+    "y": 741,
+    "w": 713,
+    "h": 231,
+    "confidence": 0.1317455917596817,
+    "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+    "notes": "score=0.690; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 0.9676333333333333,
+      "t_end": 18.2182,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "long_unsplit",
+        "player_only",
+        "player_signal_role_tracker"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 20.887533333333334,
+      "t_end": 29.896533333333334,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 32.565866666666665,
+      "t_end": 38.17146666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 43.41003333333333,
+      "t_end": 53.286566666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 53.286566666666666,
+      "t_end": 59.7597,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 59.7597,
+      "t_end": 61.52813333333334,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 61.52813333333334,
+      "t_end": 64.93153333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 64.93153333333333,
+      "t_end": 77.14373333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 79.41266666666667,
+      "t_end": 98.63186666666667,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "merged_short_split",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 100.53376666666666,
+      "t_end": 130.36356666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 130.36356666666666,
+      "t_end": 134.8347,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 134.8347,
+      "t_end": 149.51603333333333,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 149.51603333333333,
+      "t_end": 154.08726666666666,
+      "winner": "unknown",
+      "confidence": 0.5,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_signal_role_tracker",
+        "split_long"
+      ],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "summary": {
+    "total_rallies": 13,
+    "winner_known_rallies": 0,
+    "winner_unknown_rallies": 13
+  },
+  "analysis_metadata": {
+    "detector_mode": "player",
+    "detector_group": "independent",
+    "player_signal_source": "role_tracker",
+    "ball_signal_source": "none",
+    "stride": 2
+  },
+  "score_validation": {}
+}

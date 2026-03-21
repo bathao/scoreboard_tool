@@ -22,8 +22,12 @@ Do not use this file as the long-term architecture spec.
   - `v12 deferred seed bootstrap`
 - Current code state:
   - production draft path remains table-first
+  - last pushed checkpoint:
+    - commit `6764139`
+    - `Add ball-only rally benchmark and Qwen review tooling`
   - experimental multistream code now includes:
     - role-aware table refinement
+    - standalone `player-only` draft mode for benchmark-only compare
     - classical `ball tracking V0`
     - standalone `ball-only` draft mode for benchmark-only compare
   - local `Qwen` review support now also exists:
@@ -34,16 +38,41 @@ Do not use this file as the long-term architecture spec.
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
   - full suite:
-    - `61 passed, 1 warning`
+    - `65 passed, 1 warning`
   - multistream rally tests:
-    - `10 passed, 1 warning`
+    - `14 passed, 1 warning`
   - tracker tests:
     - `15 passed, 1 warning`
   - note:
-    - these were confirmed on `2026-03-21` after the local `Qwen` candidate-only path and `ball-only v7` tuning work
+    - these were confirmed on `2026-03-21` after the independent `table / player / ball` draft-export work
 
 ## Work Log - `2026-03-21`
 ### Experiments That Passed
+- `independent 3-detector draft export baseline`
+  - the Stage 1 independent detector paths now all exist and can export the same draft JSON contract:
+    - `table / ROI-first`
+    - `player-only / YOLO player-signal`
+    - `ball-only / ball tracking`
+  - draft JSON now carries:
+    - `summary.total_rallies`
+    - detector provenance in `analysis_metadata`
+  - benchmark counts on the checked set list are:
+    - `set1`
+      - `table`: `14`
+      - `player`: `13`
+      - `ball`: `18`
+    - `set2`
+      - `table`: `20`
+      - `player`: `17`
+      - `ball`: `20`
+    - `set3`
+      - `table`: `18`
+      - `player`: `13`
+      - `ball`: `20`
+    - `set4`
+      - `table`: `18`
+      - `player`: `22`
+      - `ball`: `22`
 - `set4 qwen split-candidate extraction rerun`
   - added `--skip-models` support in `scripts/review_rally_splits_qwen.py`
   - candidate-only rerun surfaced `11` split candidates on `set4`
@@ -88,6 +117,17 @@ Do not use this file as the long-term architecture spec.
   - keep the `Qwen` outputs debug-only for now
 
 ### Main Findings From Today
+- basic independent rally detection is now completed for all 3 Stage 1 detector families:
+  - `table`
+  - `player`
+  - `ball`
+- `table / ROI-first` remains the strongest reference detector today:
+  - `set1`: local GT-aligned at `14`
+  - `set2`: still close to the known target at `20`
+  - `set3 / set4`: remains the conservative reference count
+- current `player-only` path is usable as an independent benchmark detector, but is not yet strong enough:
+  - it under-counts clearly on `set1 / set2 / set3`
+  - it over-counts on `set4`
 - `ball-only` can now produce a real standalone rally draft and no longer collapses on `set1 / set3`
 - the best current standalone benchmark is `ball-only v7`:
   - `set1`: `18`
@@ -426,6 +466,14 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
   - product artifact flow
   - engineering checklist
   - critical path to `v1 done`
+- Stage 1 is now framed explicitly as:
+  - existing independent `table / ROI-first` reference detector
+  - independent `multistream / YOLO player-signal` detector
+  - independent standalone `ball-only` detector
+  - fusion / validation across the 3 detector outputs before winner work
+- `table / ROI-first` is not treated as new work:
+  - it already exists
+  - it remains the checked Stage 1 reference detector
 
 ## Historical Milestones Worth Remembering
 ### `v2 fixA_missing`
@@ -468,33 +516,42 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
 1. Start from the current code where:
    - production draft baseline is still `table / ROI-first`
    - tracker baseline is still `v12 deferred seed bootstrap`
+   - Stage 1 now has 3 explicit detector paths:
+     - `table / ROI-first` as the already-existing reference detector
+     - `multistream / YOLO player-signal` as an experimental independent detector now benchmarked on `set1..4`
+     - standalone `ball-only v7` as the experimental independent detector already benchmarked on `set1..4`
    - conservative `table_ball_refined` remains experimental
-   - standalone `ball-only v7` now exists for benchmark-only compare
    - local `Qwen` review scripts exist and split-candidate extraction can run in `--skip-models` mode
-2. Do not promote standalone `ball-only` as the new baseline yet:
+2. Do not re-open `table / ROI-first` as if it still needs to be created:
+   - it already exists
+   - use it as detector `#1` in the Stage 1 compare / fusion plan
+3. Next critical Stage 1 work is:
+   - compare `table`, `multistream`, and standalone `ball-only` on the same reviewed sets
+   - align their rally lists by time overlap, not only by count
+   - optimize for ordered rally list and boundary quality, not count alone
+4. After the 3-detector compare is stable enough:
+   - define the first fusion / validation rule that merges the 3 rally lists into one final rally list
+   - benchmark the fused list against the independent detectors
+5. Do not promote standalone `ball-only` as the new baseline yet:
    - it is still benchmark / diagnosis code
    - it still over-counts known clips
-3. First decide whether `ball-only v7` should:
-   - stay debug-only
-   - or contribute bounded evidence back into the table-first path
-4. For `set4`, treat the debug compare target as:
+6. For `set4`, treat the debug compare target as:
    - `20` rallies
    - compare-only, not a clip-specific rule
-5. Continue the unfinished `Qwen` split-review direction:
-   - improve split-candidate generation for long segments
+7. Continue the unfinished `Qwen` split-review direction as a side debug track:
    - define a conservative accept / reject policy on the fresh `11-candidate` list
-   - avoid merge-only logic on `set4`
    - only keep completed reruns as evidence
-6. Keep the deferred `set1` tracker failure visible:
+   - do not let it displace the Stage 1 3-detector compare / fusion path
+8. Keep the deferred `set1` tracker failure visible:
    - `1:34 -> 1:47`
    - do not treat it as fixed
-   - do not let ball-only benchmarking hide it
-7. Do not fix it with:
+   - do not let detector benchmarking hide it
+9. Do not fix it with:
    - render smoothing
    - frozen boxes
    - continuity hacks
    - clip-specific thresholds without broader justification
-8. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
+10. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
 
 ## End-Of-Session Update Rule
 At the end of each work session:

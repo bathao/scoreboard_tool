@@ -33,10 +33,20 @@ def build_draft(
 
     if best_of <= 0 or best_of % 2 == 0:
         raise ValueError("best_of must be a positive odd number.")
+    if mode == "player" and player_signal_source == "none":
+        raise ValueError("player mode requires a real --player-signal-source")
     if mode == "ball" and ball_signal_source == "none":
         raise ValueError("ball mode requires --ball-signal-source classical")
 
-    effective_player_signal_source = "none" if mode == "ball" else player_signal_source
+    effective_player_signal_source = player_signal_source
+    effective_ball_signal_source = ball_signal_source
+    if mode == "table":
+        effective_player_signal_source = "none"
+        effective_ball_signal_source = "none"
+    elif mode == "player":
+        effective_ball_signal_source = "none"
+    elif mode == "ball":
+        effective_player_signal_source = "none"
     ball_tracking_profile = "standalone" if mode == "ball" else "support"
 
     signals = extract_multistream_signals(
@@ -48,7 +58,7 @@ def build_draft(
         player_fuse_gain=float(player_fuse_gain),
         player_signal_source=effective_player_signal_source,
         ball_fuse_gain=float(ball_fuse_gain),
-        ball_signal_source=ball_signal_source,
+        ball_signal_source=effective_ball_signal_source,
         ball_tracking_profile=ball_tracking_profile,
         device="cuda",
     )
@@ -60,8 +70,12 @@ def build_draft(
         flags = list(seg.flags)
         if mode == "fused":
             flags.append("multistream_fused")
+        elif mode == "player":
+            flags.append("player_only")
         elif mode == "ball":
             flags.append("ball_only")
+        elif mode == "table":
+            flags.append("table_only")
         elif mode == "table_refined":
             flags.append("table_role_refined")
         elif mode == "table_ball_refined":
@@ -92,21 +106,28 @@ def build_draft(
             "h": int(signals.roi.h),
         },
         points=points,
+        analysis_metadata={
+            "detector_mode": mode,
+            "detector_group": "independent" if mode in {"table", "player", "ball"} else "experimental",
+            "player_signal_source": signals.player_signal_source,
+            "ball_signal_source": signals.ball_signal_source,
+            "stride": max(1, int(stride)),
+        },
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate draft JSON using table, ball-only, or multi-stream segmentation.")
+    parser = argparse.ArgumentParser(description="Generate draft JSON using independent table/player/ball or multi-stream segmentation.")
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Path to YOLO table weights")
     parser.add_argument("--pose-weights", default="weights/yolov8x-pose.pt", help="Path to YOLO pose weights")
     parser.add_argument("--out", required=True, help="Output draft JSON path")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--mode", choices=["table", "ball", "fused", "table_refined", "table_ball_refined"], default="fused")
+    parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default="fused")
     parser.add_argument("--player-margin-px", type=int, default=220)
     parser.add_argument("--player-fuse-gain", type=float, default=1.0)
-    parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two"], default="role_tracker")
+    parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two", "none"], default="role_tracker")
     parser.add_argument("--ball-fuse-gain", type=float, default=1.15)
     parser.add_argument("--ball-signal-source", choices=["none", "classical"], default="none")
     args = parser.parse_args()
@@ -126,7 +147,7 @@ def main() -> int:
     )
     out_path = Path(args.out)
     save_draft_match(out_path, draft)
-    print(f"[OK] Saved {args.mode} draft: {out_path} | points={len(draft.points)}")
+    print(f"[OK] Saved {args.mode} draft: {out_path} | total_rallies={len(draft.points)}")
     return 0
 
 

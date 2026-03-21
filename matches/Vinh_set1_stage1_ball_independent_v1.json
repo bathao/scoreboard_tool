@@ -4,7 +4,7 @@
   "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-03-20T17:29:24.117887+00:00",
+  "created_at": "2026-03-21T10:30:40.317070+00:00",
   "roi": {
     "x": 843,
     "y": 741,
@@ -268,5 +268,17 @@
       "corrections": []
     }
   ],
+  "summary": {
+    "total_rallies": 18,
+    "winner_known_rallies": 0,
+    "winner_unknown_rallies": 18
+  },
+  "analysis_metadata": {
+    "detector_mode": "ball",
+    "detector_group": "independent",
+    "player_signal_source": "none",
+    "ball_signal_source": "classical",
+    "stride": 2
+  },
   "score_validation": {}
 }

@@ -491,6 +491,7 @@ def apply_split_decisions(
         created_at=draft.created_at,
         roi=dict(draft.roi),
         points=renumbered,
+        analysis_metadata=dict(draft.analysis_metadata),
         score_validation=dict(draft.score_validation),
     )
 

@@ -76,7 +76,17 @@ class DraftMatch:
     created_at: str = ""
     roi: Dict[str, int] = field(default_factory=dict) # Strict ROI storage
     points: List[DraftPointEvent] = field(default_factory=list)
+    analysis_metadata: Dict[str, Any] = field(default_factory=dict)
     score_validation: Dict[str, Any] = field(default_factory=dict)
+
+    def build_summary(self) -> Dict[str, Any]:
+        total_rallies = len(self.points)
+        unknown_winner_rallies = sum(1 for p in self.points if p.winner == "unknown")
+        return {
+            "total_rallies": total_rallies,
+            "winner_known_rallies": total_rallies - unknown_winner_rallies,
+            "winner_unknown_rallies": unknown_winner_rallies,
+        }
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -88,6 +98,8 @@ class DraftMatch:
             "created_at": self.created_at,
             "roi": self.roi,
             "points": [p.to_dict() for p in self.points],
+            "summary": self.build_summary(),
+            "analysis_metadata": self.analysis_metadata,
             "score_validation": self.score_validation,
         }
 
@@ -116,6 +128,7 @@ class DraftMatch:
             created_at=str(d.get("created_at", "")),
             roi=dict(roi),
             points=points,
+            analysis_metadata=dict(d.get("analysis_metadata", {})),
             score_validation=dict(d.get("score_validation", {})),
         )
 

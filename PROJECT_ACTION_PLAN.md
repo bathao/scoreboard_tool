@@ -130,28 +130,43 @@ This section answers a different question:
   - local `Qwen` review paths now exist experimentally:
     - `qwen3-vl` for frame / boundary inspection
     - `qwen3` for structured reasoning over review payloads
+- Preferred Stage 1 strategy from now:
+  1. run `Table ROI / table-first` rally detection as an independent path
+  2. run `multistream / YOLO player-signal` rally detection as an independent path
+  3. run standalone `ball-only / ball tracking online` rally detection as an independent path
+  4. fuse / validate the 3 independent rally lists into one final rally list for the video
+  5. only after Stage 1 rally quality is effectively solved, continue to winner inference
+- Important correction:
+  - do not optimize only for `rally count`
+  - Stage 1 should optimize for:
+    - ordered rally list
+    - boundary quality
+    - count correctness
+  - a correct count with wrong rally boundaries is not sufficient
 - Use this checklist:
   1. `[done]` keep the current `table / ROI-first` draft export as the working production baseline
-  2. `[todo]` use `1 set -> rally draft` as the first quality gate for that baseline
-  3. `[todo]` inspect the output JSON for rally boundary quality on that set
-  4. `[doing]` run `1 set -> rally draft` with the experimental `multistream / YOLO player-signal` path
-  5. `[doing]` compare the set-level drafts against manual review or GT, including the conservative `ball tracking V0` path and standalone `ball-only` benchmarks when relevant
-  6. `[todo]` improve the weaker path or fuse both paths only if fusion clearly beats the table-first baseline
-  7. `[todo]` fix root-cause failures at the owning layer
-  8. `[todo]` add a focused regression test for each fixed failure
-  9. `[todo]` rerun the affected full set
-  10. `[todo]` rerun the regression set list:
+  2. `[done]` independent `Table ROI / table-first` rally detection already exists and is the checked reference detector for Stage 1
+  3. `[doing]` run `1 set -> rally draft` with the independent `multistream / YOLO player-signal` path
+  4. `[done]` benchmark `1 set -> rally draft` with the independent standalone `ball-only / ball tracking online` path on `set1`, `set2`, `set3`, `set4`
+  5. `[doing]` compare the 3 independent set-level drafts against manual review or GT, using `table / ROI-first` as detector `#1`
+  6. `[todo]` define the fusion / validation rule that merges the 3 rally lists into one final rally list
+  7. `[todo]` benchmark the fused rally list against the independent paths
+  8. `[todo]` fix root-cause failures at the owning layer of the weakest path
+  9. `[todo]` add a focused regression test for each fixed failure
+  10. `[todo]` rerun the affected full set
+  11. `[todo]` rerun the regression set list:
      - `set1`
      - `set2`
      - `set3`
      - `set4`
-  11. `[todo]` benchmark rally segmentation / draft quality on representative full-match clips
-  12. `[todo]` only then promote the current draft path as the new baseline
+  12. `[todo]` benchmark rally segmentation / draft quality on representative full-match clips
+  13. `[todo]` only then promote the best independent or fused path as the new baseline
 - Practical rule:
   - for engineering, go from:
     - `debug window -> one set -> regression sets -> full match`
   - do not treat `one successful full-match export` as sufficient proof of quality
   - `100%` may be used as a local engineering target on a small checked regression set, but it is not the global production promise
+  - treat `99.99% rally count` only as a stretch engineering target, not as the only acceptance rule
 - Current experimental read:
   - role streams are useful as secondary evidence, but current `table_refined` logic is not yet a promotion candidate
   - conservative `ball tracking V0` currently looks more promising as a draft-quality assist:
@@ -186,6 +201,9 @@ This section answers a different question:
 ### B. Engineering Path From `Draft Rally JSON` To Winner-Labeled JSON
 - Goal:
   - turn raw draft output into winner-labeled JSON with review metadata
+- Gate before starting this stage:
+  - the video must already have a rally list that is effectively stable on checked benchmarks
+  - do not move to winner work while Stage 1 still has major rally-boundary uncertainty
 - Use this checklist:
   1. `[todo]` define or improve the first winner-candidate path from player / pose / YOLO-derived signals if benchmark data shows it helps
   2. `[doing]` use `Ollama local` as refinement / second-opinion on weak or unresolved rallies
@@ -307,6 +325,17 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - `Draft Rally JSON`
 - Working method:
   - `debug window -> one set -> regression sets -> full match`
+- Stage 1 rally strategy:
+  1. independent `Table ROI / table-first` detector
+  2. independent `multistream / YOLO player-signal` detector
+  3. independent standalone `ball-only / ball tracking online` detector
+  4. fusion / validation across the 3 detectors to produce the final rally list
+- Stage 1 acceptance rule:
+  - the target is not only `correct rally count`
+  - the target is:
+    - correct ordered rally list
+    - correct rally boundaries
+    - count close enough to near-perfect on the checked regression set
 - Temporary priority note:
   - `set1 1:34 -> 1:47` is temporarily ignored for the current work cycle
   - do not treat this as fixed
@@ -314,14 +343,21 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[todo]` keep one short debug-window export path for fast iteration
 - `[todo]` require one full-set check before accepting a local fix
 - `[deferred]` isolate and fix the root cause of `set1 1:34 -> 1:47`
-- `[doing]` benchmark conservative `table_ball_refined` against `table` on `set1`, `set2`, `set3`, `set4`
-- `[doing]` benchmark standalone `ball-only v7` against `table / table_ball_refined` on `set1`, `set2`, `set3`, `set4`
+- `[done]` independent `Table ROI / table-first` path already exists and is the checked Stage 1 reference detector
+- `[done]` benchmark the independent `multistream / YOLO player-signal` path on `set1`, `set2`, `set3`, `set4`
+  - current benchmark counts are:
+    - `set1`: `13`
+    - `set2`: `17`
+    - `set3`: `13`
+    - `set4`: `22`
+- `[done]` benchmark the independent standalone `ball-only v7` path on `set1`, `set2`, `set3`, `set4`
   - current benchmark counts are:
     - `set1`: `18`
     - `set2`: `20`
     - `set3`: `20`
     - `set4`: `22`
   - do not treat this as a promoted baseline yet
+- `[todo]` define the fusion / validation rule that merges the 3 detector outputs into one final rally list
 - `[doing]` benchmark `Qwen3-VL + Qwen3` review passes on `set4`:
   - merge-only review is currently rejected
   - split-review candidate extraction is now producing a fresh `11-candidate` debug list in `skip-models` mode
@@ -419,6 +455,11 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 
 ### In Progress
 - `[doing]` benchmark whether `ball tracking V0` can safely repair false split rallies without harming the table-first baseline
+- `[doing]` benchmark the 3-detector independent Stage 1 plan:
+  - `table` as the already-established reference detector
+  - `multistream / YOLO player-signal`
+  - standalone `ball-only`
+- `[doing]` define how the 3 detector outputs should fuse into one final rally list
 - `[doing]` decide whether standalone `ball-only v7` stays debug-only or contributes bounded evidence back into the table-first path
 - `[doing]` calibrate `Qwen` review passes so they help debug without hallucinating merge / split decisions
 
@@ -435,6 +476,7 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[todo]` rerun full `set1`, `set2`, `set3`, `set4` after a real fix
 - `[todo]` keep `set2 / set3 / set4` full-match regression mandatory before promoting a new tracker baseline
 - `[todo]` benchmark rally segmentation quality on representative clips
+- `[todo]` benchmark the fused rally list against each independent detector path
 - `[todo]` verify boundary quality, not only rally count, for `ball tracking V0`
 - `[todo]` verify boundary quality, not only rally count, for standalone `ball-only v7`
 - `[todo]` decide whether standalone `ball-only` should stay benchmark-only or feed bounded evidence back into the table-first path
@@ -642,8 +684,11 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[doing]` compare standalone `ball-only v7` against `table / table_ball_refined` and decide whether it stays debug-only or contributes bounded evidence
-2. `[doing]` benchmark which of the fresh `11` `set4` split candidates should be accepted, where debug truth is `20` and baseline is `18`
-3. `[todo]` define the authoritative low-confidence correction payload
-4. `[todo]` write the focused regression test for the deferred `set1` tracker failure
+1. `[doing]` compare the 3 independent rally detectors across the checked set list:
+   - `table` as the existing reference detector
+   - `multistream / YOLO player-signal`
+   - standalone `ball-only`
+2. `[doing]` define the first fusion / validation rule that merges those 3 detector outputs into one rally list
+3. `[doing]` benchmark which of the fresh `11` `set4` split candidates should be accepted, where debug truth is `20` and baseline is `18`
+4. `[todo]` define the authoritative low-confidence correction payload
 5. `[deferred]` temporarily ignore `set1 1:34 -> 1:47` until the current priority cycle is finished

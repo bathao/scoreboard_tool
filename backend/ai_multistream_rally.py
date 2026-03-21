@@ -731,13 +731,17 @@ def detect_multistream_rallies(
     *,
     mode: str = "fused",
 ) -> List[RallySegment]:
-    if mode not in {"table", "ball", "fused", "table_refined", "table_ball_refined"}:
+    if mode not in {"table", "player", "ball", "fused", "table_refined", "table_ball_refined"}:
         raise ValueError(f"Invalid mode: {mode}")
+    if mode == "player" and signals.player_signal_source == "none":
+        raise ValueError("Player-only mode requires a real player signal source.")
     if mode == "ball" and signals.ball_signal_source == "none":
         raise ValueError("Ball-only mode requires a real ball signal source.")
 
     if mode in {"table", "table_refined", "table_ball_refined"}:
         energies = signals.table_energies
+    elif mode == "player":
+        energies = signals.player_energies
     elif mode == "ball":
         energies = signals.ball_energies
     else:
@@ -753,13 +757,23 @@ def detect_multistream_rallies(
             "min_split_dur_sec": 1.5,
             "artifact_min_dur_sec": 1.2,
         }
+    elif mode == "player":
+        detect_kwargs = {
+            "high_thresh": 0.22,
+            "low_thresh": 0.09,
+            "max_gap_sec": 1.35,
+            "long_segment_sec": 10.0,
+            "split_gap_sec": 0.45,
+            "min_split_dur_sec": 1.4,
+            "artifact_min_dur_sec": 1.1,
+        }
     segments = detect_rally_segments_advanced_gpu(
         list(energies),
         list(signals.timestamps),
         effective_fps=signals.effective_fps,
         **detect_kwargs,
     )
-    if mode in {"table", "ball"}:
+    if mode in {"table", "player", "ball"}:
         if mode == "ball":
             return _merge_ball_split_pair_artifacts(segments)
         return segments

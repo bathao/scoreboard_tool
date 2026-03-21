@@ -101,6 +101,13 @@ def build_draft(
         created_at=datetime.now(timezone.utc).isoformat(),
         roi={"x": int(tx), "y": int(ty), "w": int(tw), "h": int(th)},
         points=points,
+        analysis_metadata={
+            "detector_mode": "table",
+            "detector_group": "independent",
+            "player_signal_source": "none",
+            "ball_signal_source": "none",
+            "stride": max(1, int(stride)),
+        },
     )
     return draft
 
@@ -130,7 +137,7 @@ def main() -> int:
 
     out_path = Path(args.out)
     save_draft_match(out_path, draft)
-    print(f"[OK] Saved draft: {out_path} | points={len(draft.points)}")
+    print(f"[OK] Saved draft: {out_path} | total_rallies={len(draft.points)}")
     return 0
 
 
