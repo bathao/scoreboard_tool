@@ -65,6 +65,13 @@ class DraftPointEvent:
             corrections=corrections,
         )
 
+
+NON_SCORING_POINT_FLAGS = {"rally_label_let", "let_no_score"}
+
+
+def counts_toward_score(point: DraftPointEvent) -> bool:
+    return not any(flag in NON_SCORING_POINT_FLAGS for flag in point.flags)
+
 @dataclass
 class DraftMatch:
     """Root container for match analysis draft data."""
@@ -82,8 +89,11 @@ class DraftMatch:
     def build_summary(self) -> Dict[str, Any]:
         total_rallies = len(self.points)
         unknown_winner_rallies = sum(1 for p in self.points if p.winner == "unknown")
+        non_scoring_rallies = sum(1 for p in self.points if not counts_toward_score(p))
         return {
             "total_rallies": total_rallies,
+            "scoring_rallies": total_rallies - non_scoring_rallies,
+            "non_scoring_rallies": non_scoring_rallies,
             "winner_known_rallies": total_rallies - unknown_winner_rallies,
             "winner_unknown_rallies": unknown_winner_rallies,
         }
@@ -164,7 +174,10 @@ def needs_human_review(p: DraftPointEvent) -> bool:
 def to_core_rally_events(draft: DraftMatch, timestamp_mode: Literal["end", "start"] = "end") -> List[RallyEvent]:
     core = []
     for p in draft.points:
-        if p.winner == "unknown": continue
+        if p.winner == "unknown":
+            continue
+        if not counts_toward_score(p):
+            continue
         ts = p.t_end if timestamp_mode == "end" else p.t_start
         core.append(RallyEvent(winner=str(p.winner), timestamp=float(ts)))
     core.sort(key=lambda e: e.timestamp)

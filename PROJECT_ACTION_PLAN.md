@@ -49,6 +49,25 @@ To reach the final goal, the project is best organized into 6 runtime layers:
   - partial-clip scoreboard context recovery
 - Fragment clips remain useful for debugging only.
 
+## Current Detector Action Plan
+This is the temporary action plan for the experimental `YOLO player` rally path.
+
+### Step 1. Detect rally starts from images
+- `[doing]` detect every `Toss & Serve` start image independently from player behavior
+- `[doing]` use those start images to estimate:
+  - `total rally starts + total LET starts`
+- `[doing]` improve the start detector until start-state detection is visually obvious and effectively exact on checked debug windows
+- `[doing]` treat this as the current priority over full-rally `active/end` state-machine tuning
+
+### Step 2. Detect `LET` and subtract it
+- `[todo]` detect `LET` only after the start-image detector is stable enough
+- `[todo]` compute:
+  - `total rallies = total starts - total LET`
+- `[todo]` keep `active` bounded strictly between:
+  - one detected start
+  - and the next detected start
+- `[todo]` do not allow a free-running long `active` state outside that bounded interval
+
 ## Artifact Flow
 This is the simplest way to read the project plan.
 
@@ -136,6 +155,12 @@ This section answers a different question:
   3. run standalone `ball-only / ball tracking online` rally detection as an independent path
   4. fuse / validate the 3 independent rally lists into one final rally list for the video
   5. only after Stage 1 rally quality is effectively solved, continue to winner inference
+- Temporary current-cycle note for the `player` detector:
+  - stop treating the failed long-`active` state machine as the current optimization target
+  - first optimize `Toss & Serve` start-image detection
+  - use `start_count = rally_count + let_count`
+  - then add `LET` subtraction as the next pass
+  - bound any later `active` state between consecutive detected starts only
 - Important correction:
   - do not optimize only for `rally count`
   - Stage 1 should optimize for:
@@ -356,7 +381,19 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
     - `set2`: `20`
     - `set3`: `20`
     - `set4`: `22`
-  - do not treat this as a promoted baseline yet
+  - treat `table` and `ball` as temporarily stable reference detectors for the current debug cycle
+  - do not treat this as a promoted final baseline yet
+- `[doing]` debug and improve the independent `multistream / YOLO player-signal` path
+  - current read:
+    - `set1`: under-count at `13`
+    - `set2`: under-count at `17`
+    - `set3`: under-count at `13`
+    - `set4`: over-count at `22`
+  - current goal:
+    - first make `player` a usable independent `start-image` detector
+    - use detected starts to estimate `rally + let`
+    - then add `LET` subtraction
+    - only after that return to full player-rally segmentation and 3-detector fusion
 - `[todo]` define the fusion / validation rule that merges the 3 detector outputs into one final rally list
 - `[doing]` benchmark `Qwen3-VL + Qwen3` review passes on `set4`:
   - merge-only review is currently rejected
@@ -454,13 +491,13 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[done]` `review_rally_splits_qwen.py` now supports `--skip-models` so split candidates can be benchmarked without Qwen decisions
 
 ### In Progress
-- `[doing]` benchmark whether `ball tracking V0` can safely repair false split rallies without harming the table-first baseline
-- `[doing]` benchmark the 3-detector independent Stage 1 plan:
-  - `table` as the already-established reference detector
-  - `multistream / YOLO player-signal`
-  - standalone `ball-only`
-- `[doing]` define how the 3 detector outputs should fuse into one final rally list
-- `[doing]` decide whether standalone `ball-only v7` stays debug-only or contributes bounded evidence back into the table-first path
+- `[doing]` debug the independent `multistream / YOLO player-signal` rally detector:
+  - current temporary scope is narrowed to `Toss & Serve` start-image detection
+  - compare `player` start candidates against visually obvious serve-start frames
+  - confirm that the detected starts cover `rally + let`
+  - do not trust the previous long-`active` state-machine behavior as the working direction
+- `[doing]` keep `table / ROI-first` and standalone `ball-only` as temporary comparison references for Stage 1 detector debugging
+- `[doing]` define how the 3 detector outputs should fuse into one final rally list after the `player` path is stronger
 - `[doing]` calibrate `Qwen` review passes so they help debug without hallucinating merge / split decisions
 
 ### Remaining Work
@@ -684,11 +721,15 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[doing]` compare the 3 independent rally detectors across the checked set list:
-   - `table` as the existing reference detector
-   - `multistream / YOLO player-signal`
-   - standalone `ball-only`
-2. `[doing]` define the first fusion / validation rule that merges those 3 detector outputs into one rally list
-3. `[doing]` benchmark which of the fresh `11` `set4` split candidates should be accepted, where debug truth is `20` and baseline is `18`
-4. `[todo]` define the authoritative low-confidence correction payload
-5. `[deferred]` temporarily ignore `set1 1:34 -> 1:47` until the current priority cycle is finished
+1. `[doing]` keep improving the `YOLO player` `Toss & Serve` start-image detector on checked debug windows
+   - target first:
+     - `3.1s`
+     - `12s`
+     - `25s`
+     - `34s`
+   - export one image + timestamp per detected start candidate
+2. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
+3. `[todo]` add the next-pass `LET` detector and compute:
+   - `total rallies = total starts - total LET`
+4. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
+5. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage

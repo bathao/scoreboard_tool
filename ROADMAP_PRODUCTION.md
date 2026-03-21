@@ -227,6 +227,34 @@ Exit condition:
 ## Current Production Stance
 - The default production direction remains table-first.
 - `backend/ai_multistream_rally.py` and `scripts/generate_draft_multistream.py` are still experimental.
+- Current `player-only` boundary logic has been temporarily reset away from the failed full-rally state machine:
+  - the previous long-`active` state-machine experiment on `set4` is rejected as a rally detector
+  - the current debug direction is now `start-first`
+  - it still runs only when `mode=player` and `player_signal_source=role_tracker`
+  - it still does **not** redesign role assignment:
+    - `Stream 2` still maps to `Player A`
+    - `Stream 3` still maps to `Player B`
+    - role assignment still comes from the existing offline role tracker
+  - the current temporary algorithm is:
+    1. detect every `Toss & Serve` start image independently from player behavior
+    2. treat those detections as `rally_count + let_count`
+    3. define provisional `active` time only between one detected start and the next detected start
+    4. detect `LET` inside that bounded interval
+    5. compute final rally count as:
+       - `total starts - total LET`
+  - the current `start-first` detector uses per-role pose / bbox signals:
+    - crouch / ready posture
+    - reach toward the table
+    - serve cue
+    - upper-body activity
+    - footwork
+    - opponent-ready context
+    - same-role vs opposite-role dominance
+  - `LET` remains represented by segment flags:
+    - `rally_label_let`
+    - `let_no_score`
+  - `LET` segments are still excluded from score conversion in the current contract layer
+  - this branch is still a debug / benchmark path only and is not a promotion candidate yet
 - `ball tracking V0` is currently an experimental secondary signal:
   - it may support conservative rally-boundary merge / validation
   - it is not yet the promoted production baseline

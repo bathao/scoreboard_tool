@@ -28,6 +28,7 @@ Do not use this file as the long-term architecture spec.
   - experimental multistream code now includes:
     - role-aware table refinement
     - standalone `player-only` draft mode for benchmark-only compare
+    - experimental `player-only` start-image candidate mining for `Toss & Serve`
     - classical `ball tracking V0`
     - standalone `ball-only` draft mode for benchmark-only compare
   - local `Qwen` review support now also exists:
@@ -37,17 +38,79 @@ Do not use this file as the long-term architecture spec.
     - `review_rally_splits_qwen.py` now supports `--skip-models` for candidate-only benchmarking
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
-  - full suite:
-    - `65 passed, 1 warning`
-  - multistream rally tests:
-    - `14 passed, 1 warning`
+  - latest targeted multistream rally tests:
+    - `20 passed, 1 warning`
+  - latest previously confirmed full suite:
+    - `70 passed, 1 warning`
   - tracker tests:
     - `15 passed, 1 warning`
   - note:
-    - these were confirmed on `2026-03-21` after the independent `table / player / ball` draft-export work
+    - the newest code change after that full-suite run is the experimental `player-only start-first` detector reset
+    - only the targeted multistream rally tests were re-run after that reset
 
 ## Work Log - `2026-03-21`
 ### Experiments That Passed
+- `player-only start-first detector reset`
+  - the experimental `YOLO player` branch was reset away from the failed long-`active` rally state machine
+  - the current detector now focuses only on finding `Toss & Serve` start images
+  - new code exports `PlayerRallyStartCandidate` items from per-role signals:
+    - crouch / ready posture
+    - reach toward the table
+    - serve cue
+    - upper-body activity
+    - footwork
+    - opponent-ready context
+    - same-role vs opposite-role dominance
+  - the current temporary counting doctrine is now:
+    - `total starts = rallies + LET`
+    - `total rallies = total starts - LET`
+    - `active` should later be bounded only between consecutive detected starts
+- `player-only start-image export tooling`
+  - added `scripts/export_player_rally_start_candidates.py`
+  - this exports one annotated image + timestamp per detected start candidate
+  - current kept artifacts:
+    - `debug_report/Vinh_set4_rally_start_candidates_v1_first80/`
+    - `debug_report/Vinh_set4_rally_start_candidates_v1_full/`
+  - current counts from that detector are:
+    - first `80s`: `18` start candidates
+    - full `set4`: `72` start candidates
+- `checked serve-start examples on set4`
+  - the new start-image detector now catches the operator-confirmed examples:
+    - `3.103s`
+    - `12.279s`
+    - `25.859s`
+    - `33.967s`
+  - these are exported as annotated images and recorded in CSV under the new debug-report folders
+- `experimental player-only state machine v2 wiring`
+  - `backend/ai_multistream_rally.py` now contains a role-aware player-only state machine that uses:
+    - `motion`
+    - `crouch / ready`
+    - `serve`
+    - `upper-body`
+    - `footwork`
+    - `reach / catch proxy`
+    - `net-approach proxy`
+  - the branch still uses the existing role tracker:
+    - `Stream 2 = Player A`
+    - `Stream 3 = Player B`
+  - role assignment logic in `backend/offline_player_tracker.py` was **not** changed in this branch
+- `let-label contract plumbing`
+  - experimental player-only segments can now carry:
+    - `rally_label_let`
+    - `let_no_score`
+  - the contract layer now skips those segments when converting to scoring `RallyEvent`
+- `player-state debug artifact export`
+  - added `scripts/export_player_state_machine_debug.py`
+  - this can export:
+    - annotated MP4 with:
+      - `Player A / Player B` boxes and keypoints
+      - current state-machine phase
+      - feature values used by the detector
+      - segment timeline overlay
+    - per-sampled-frame CSV diagnostics
+  - current artifacts:
+    - `debug_report/Vinh_set4_player_state_machine_debug_first80.mp4`
+    - `debug_report/Vinh_set4_player_state_machine_debug_first80.csv`
 - `independent 3-detector draft export baseline`
   - the Stage 1 independent detector paths now all exist and can export the same draft JSON contract:
     - `table / ROI-first`
@@ -90,10 +153,30 @@ Do not use this file as the long-term architecture spec.
     - `set3`: `20`
     - `set4`: `22`
 - `test coverage refresh`
-  - multistream rally tests now pass at `10 passed, 1 warning`
-  - full suite now passes at `61 passed, 1 warning`
+  - multistream rally tests now pass at `20 passed, 1 warning`
+  - latest previously confirmed full suite remains `70 passed, 1 warning`
 
 ### Experiments That Failed Or Were Rejected
+- `player-only state machine v2 on set4`
+  - current status is `very poor`
+  - full-run artifact:
+    - `matches/Vinh_set4_stage1_player_independent_v2.json`
+  - full clip output collapsed to only `4` rallies:
+    - `0.934 -> 43.877`
+    - `47.180 -> 209.576`
+    - `212.746 -> 249.983`
+    - `256.022 -> 264.764`
+  - first `80s` debug window still collapsed to only `2` rallies:
+    - `3.103 -> 43.844`
+    - `47.214 -> 79.980`
+  - this is not remotely realistic rally timing for table tennis and must be treated as a failed experimental state
+  - current failure shape:
+    - severe over-merge
+    - `active` state held too long
+    - `dead_now` can be true while `live_now` is also true
+  - likely immediate debug target:
+    - `live / dead / end-casual` interaction
+    - not role-assignment redesign
 - `raw ball-only port`
   - first standalone `ball-only` run produced:
     - `set1`: `7`
@@ -117,6 +200,23 @@ Do not use this file as the long-term architecture spec.
   - keep the `Qwen` outputs debug-only for now
 
 ### Main Findings From Today
+- the current experimental `player-only state machine v2` is not usable for rally segmentation quality
+- the `player` branch is now being reset to a simpler `start-first` doctrine:
+  - first detect all visually obvious `Toss & Serve` starts
+  - treat those starts as `rally + let`
+  - then detect `LET` as a subtraction pass
+  - only after that define `active` between consecutive starts
+- the latest failure on `set4` is dominated by `over-merge`, not by a proven `Player A / Player B` stream-mapping bug
+- current evidence says:
+  - `Stream 2 / Stream 3` role assignment remained unchanged
+  - the new bug is in the decision logic that keeps rallies alive too long
+- the new start-image detector is already materially better for debug than the old full-rally state machine:
+  - it catches the operator-confirmed start examples around `3s`, `12s`, `25s`, and `34s`
+  - it still over-generates many additional candidates and is not yet a rally counter
+- debug next session should focus on:
+  - pruning false-positive start candidates
+  - stabilizing `start_count = rally + let`
+  - then adding `LET` subtraction before returning to bounded `active` logic
 - basic independent rally detection is now completed for all 3 Stage 1 detector families:
   - `table`
   - `player`
@@ -518,40 +618,49 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
    - tracker baseline is still `v12 deferred seed bootstrap`
    - Stage 1 now has 3 explicit detector paths:
      - `table / ROI-first` as the already-existing reference detector
-     - `multistream / YOLO player-signal` as an experimental independent detector now benchmarked on `set1..4`
-     - standalone `ball-only v7` as the experimental independent detector already benchmarked on `set1..4`
+   - `multistream / YOLO player-signal` as an experimental independent detector now benchmarked on `set1..4`
+   - standalone `ball-only v7` as the experimental independent detector already benchmarked on `set1..4`
    - conservative `table_ball_refined` remains experimental
    - local `Qwen` review scripts exist and split-candidate extraction can run in `--skip-models` mode
+   - the `player` path has been temporarily reframed from `full-rally state machine` to `start-first`
+   - current kept start-image artifacts are:
+     - `debug_report/Vinh_set4_rally_start_candidates_v1_first80/`
+     - `debug_report/Vinh_set4_rally_start_candidates_v1_full/`
 2. Do not re-open `table / ROI-first` as if it still needs to be created:
    - it already exists
    - use it as detector `#1` in the Stage 1 compare / fusion plan
 3. Next critical Stage 1 work is:
+   - keep improving the `player` `Toss & Serve` start-image detector first
+   - use that detector to estimate `start_count = rally + let`
+   - add `LET` subtraction as the next pass
+   - only then redefine `active` between consecutive starts
+4. After the `player` start-first branch is stable enough:
    - compare `table`, `multistream`, and standalone `ball-only` on the same reviewed sets
    - align their rally lists by time overlap, not only by count
    - optimize for ordered rally list and boundary quality, not count alone
-4. After the 3-detector compare is stable enough:
+5. After the 3-detector compare is stable enough:
    - define the first fusion / validation rule that merges the 3 rally lists into one final rally list
    - benchmark the fused list against the independent detectors
-5. Do not promote standalone `ball-only` as the new baseline yet:
+6. Do not promote standalone `ball-only` as the new baseline yet:
    - it is still benchmark / diagnosis code
    - it still over-counts known clips
-6. For `set4`, treat the debug compare target as:
+7. For `set4`, treat the debug compare target as:
    - `20` rallies
    - compare-only, not a clip-specific rule
-7. Continue the unfinished `Qwen` split-review direction as a side debug track:
+8. Continue the unfinished `Qwen` split-review direction as a side debug track:
    - define a conservative accept / reject policy on the fresh `11-candidate` list
    - only keep completed reruns as evidence
    - do not let it displace the Stage 1 3-detector compare / fusion path
-8. Keep the deferred `set1` tracker failure visible:
+9. Keep the deferred `set1` tracker failure visible:
    - `1:34 -> 1:47`
    - do not treat it as fixed
    - do not let detector benchmarking hide it
-9. Do not fix it with:
+10. Do not fix it with:
    - render smoothing
    - frozen boxes
    - continuity hacks
    - clip-specific thresholds without broader justification
-10. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
+11. If a real root-cause fix is found, rerun full `set1`, `set2`, `set3`, and `set4`.
 
 ## End-Of-Session Update Rule
 At the end of each work session:
