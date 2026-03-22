@@ -227,6 +227,11 @@ Exit condition:
 ## Current Production Stance
 - The default production direction remains table-first.
 - `backend/ai_multistream_rally.py` and `scripts/generate_draft_multistream.py` are still experimental.
+- For the current algorithm-change cycle:
+  - keep `table / ROI-first` unchanged as the production reference
+  - keep the current `ball tracking V0` implementation unchanged as bounded secondary evidence
+  - focus rally-detector debugging only on the independent `player-only / YOLO player-signal` path
+  - defer fusion-policy tuning until the `player` path is materially healthier
 - Current `player-only` boundary logic has been temporarily reset away from the failed full-rally state machine:
   - the previous long-`active` state-machine experiment on `set4` is rejected as a rally detector
   - the current debug direction is now `start-first`

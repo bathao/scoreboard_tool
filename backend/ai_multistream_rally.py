@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -131,6 +131,15 @@ class PlayerRallyStartCandidate:
     serve_score: float
     upper_body_score: float
     footwork_score: float
+    ready_pair_score: float = 0.0
+    pre_ready_mean: float = 0.0
+    pre_live_peak: float = 0.0
+    server_action_score: float = 0.0
+    server_peak_score: float = 0.0
+    server_growth_score: float = 0.0
+    server_peak_delay_sec: float = 0.0
+    receiver_peak_score: float = 0.0
+    live_peak_score: float = 0.0
 
 
 def _calc_wrist_velocity(
@@ -1176,7 +1185,8 @@ def _compute_player_rally_start_candidates(
     *,
     trigger_score_thresh: float = 0.60,
     release_score_thresh: float = 0.52,
-    merge_window_sec: float = 1.80,
+    same_role_merge_window_sec: float = 1.20,
+    cross_role_merge_window_sec: float = 0.70,
 ) -> List[PlayerRallyStartCandidate]:
     if not diagnostics.timestamps:
         return []
@@ -1217,20 +1227,69 @@ def _compute_player_rally_start_candidates(
         serve: np.ndarray,
         upper: np.ndarray,
         foot: np.ndarray,
+        server_action: np.ndarray,
     ) -> PlayerRallyStartCandidate:
         peak_slice = score[start_idx : end_idx + 1]
         peak_idx = int(start_idx + int(np.argmax(peak_slice)))
         peak_score = float(score[peak_idx])
-        onset_floor = max(float(trigger_score_thresh), peak_score - 0.18)
-        chosen_idx = start_idx
-        for idx in range(start_idx, end_idx + 1):
+        server_peak = float(server_action[peak_idx])
+        onset_floor = max(float(release_score_thresh), peak_score - 0.24)
+        relaxed_onset_floor = max(float(release_score_thresh), peak_score - 0.34)
+        early_onset_cap = min(0.76, max(0.54, server_peak - 0.08))
+        chosen_idx = peak_idx
+        calm_prep_idx: Optional[int] = None
+        for idx in range(start_idx, peak_idx + 1):
+            prep_margin = float(prep[idx] - launch[idx])
             if (
-                prep[idx] >= 0.72
-                and launch[idx] >= 0.44
-                and score[idx] >= onset_floor
+                prep[idx] >= 0.68
+                and crouch[idx] >= 0.64
+                and reach[idx] >= 0.52
+                and score[idx] >= relaxed_onset_floor
+                and prep_margin >= 0.04
+                and server_action[idx] <= early_onset_cap
             ):
-                chosen_idx = idx
+                calm_prep_idx = idx
                 break
+
+        if calm_prep_idx is not None:
+            chosen_idx = calm_prep_idx
+        else:
+            best_rank: Optional[Tuple[float, float, float, float, float]] = None
+            for idx in range(start_idx, peak_idx + 1):
+                prep_margin = float(prep[idx] - launch[idx])
+                action_gap = float(server_peak - server_action[idx])
+                if (
+                    prep[idx] < 0.72
+                    or crouch[idx] < 0.68
+                    or reach[idx] < 0.58
+                    or score[idx] < onset_floor
+                    or prep_margin < 0.12
+                    or action_gap < 0.08
+                ):
+                    continue
+                rank = (
+                    prep_margin - (0.28 * float(launch[idx])) - (0.12 * float(upper[idx])) - (0.08 * float(foot[idx])),
+                    float(prep[idx]),
+                    float(action_gap),
+                    float(-launch[idx]),
+                    float(-idx),
+                )
+                if best_rank is None or rank > best_rank:
+                    best_rank = rank
+                    chosen_idx = idx
+
+        if calm_prep_idx is None and best_rank is None:
+            fallback_idx = chosen_idx
+            onset_floor = max(float(trigger_score_thresh), peak_score - 0.18)
+            for idx in range(start_idx, end_idx + 1):
+                if (
+                    prep[idx] >= 0.72
+                    and launch[idx] >= 0.44
+                    and score[idx] >= onset_floor
+                ):
+                    fallback_idx = idx
+                    break
+            chosen_idx = fallback_idx
 
         return PlayerRallyStartCandidate(
             sample_idx=int(chosen_idx),
@@ -1272,13 +1331,21 @@ def _compute_player_rally_start_candidates(
             (0.45 * serve) + (0.20 * upper) + (0.10 * foot) + (0.25 * reach),
             (0.40 * serve) + (0.30 * upper) + (0.15 * foot) + (0.15 * reach),
         )
+        server_action = np.maximum.reduce(
+            [
+                serve,
+                upper,
+                0.78 * foot,
+                0.58 * motion,
+            ]
+        )
         opp_comp = np.maximum.reduce([opp_motion, opp_upper, opp_foot])
         opp_ready = np.clip(opp_crouch * (1.0 - (0.70 * opp_comp)), 0.0, 1.0)
         opp_serve_comp = np.maximum.reduce([opp_serve, opp_upper, opp_foot])
         dominance_ratio = launch / np.maximum(0.15, opp_serve_comp)
-        start_cue = (reach >= 0.55) | (serve >= 0.30) | (upper >= 0.40) | (foot >= 0.55)
-        gate = (crouch >= 0.55) & start_cue & (launch >= 0.42) & (dominance_ratio >= 1.15)
-        score = np.clip((0.58 * prep) + (0.30 * launch) + (0.12 * opp_ready), 0.0, 1.0)
+        start_cue = (reach >= 0.48) | (serve >= 0.24) | (upper >= 0.34) | (foot >= 0.48)
+        gate = (crouch >= 0.50) & start_cue & (launch >= 0.34) & (dominance_ratio >= 1.05)
+        score = np.clip((0.64 * prep) + (0.24 * launch) + (0.12 * opp_ready), 0.0, 1.0)
 
         out: List[PlayerRallyStartCandidate] = []
         active = False
@@ -1310,6 +1377,7 @@ def _compute_player_rally_start_candidates(
                         serve=serve,
                         upper=upper,
                         foot=foot,
+                        server_action=server_action,
                     )
                 )
             active = False
@@ -1331,6 +1399,7 @@ def _compute_player_rally_start_candidates(
                     serve=serve,
                     upper=upper,
                     foot=foot,
+                    server_action=server_action,
                 )
             )
 
@@ -1370,16 +1439,477 @@ def _compute_player_rally_start_candidates(
 
     merged: List[PlayerRallyStartCandidate] = []
     for candidate in candidates:
-        if merged and (candidate.timestamp - merged[-1].timestamp) < merge_window_sec:
+        if merged:
             prev = merged[-1]
-            prev_rank = (prev.episode_peak_score, prev.score, prev.launch_score)
-            curr_rank = (candidate.episode_peak_score, candidate.score, candidate.launch_score)
-            if curr_rank > prev_rank:
-                merged[-1] = candidate
-            continue
+            merge_window_sec = same_role_merge_window_sec if candidate.role == prev.role else cross_role_merge_window_sec
+            if (candidate.timestamp - prev.timestamp) < merge_window_sec:
+                prev_rank = (prev.episode_peak_score, prev.score, prev.launch_score)
+                curr_rank = (candidate.episode_peak_score, candidate.score, candidate.launch_score)
+                if curr_rank > prev_rank:
+                    merged[-1] = candidate
+                continue
         merged.append(candidate)
 
     return merged
+
+
+def _select_player_sandwich_start_candidates(
+    diagnostics: PlayerStateMachineDiagnostics,
+    *,
+    swing_confirm_window_sec: float = 0.70,
+    swing_confirm_peak_thresh: float = 0.42,
+    post_reaction_window_sec: float = 1.05,
+    pre_ready_window_sec: float = 0.55,
+    min_candidate_score: float = 0.60,
+    min_crouch_score: float = 0.65,
+    min_reach_score: float = 0.60,
+    min_opponent_ready_score: float = 0.38,
+    min_ready_pair_score: float = 0.05,
+    min_prep_launch_margin: float = 0.16,
+    max_launch_score: float = 0.72,
+    max_server_action_over_reach: float = 0.10,
+    min_pre_ready_mean: float = 0.06,
+    max_pre_live_peak: float = 0.92,
+    min_server_growth: float = 0.10,
+    min_server_peak: float = 0.46,
+    min_server_peak_delay_sec: float = 0.0,
+    min_receiver_peak: float = 0.08,
+    min_live_peak: float = 0.78,
+    max_serve_over_reach: float = 0.15,
+    max_upper_over_reach: float = 0.18,
+    max_foot_over_reach: float = 0.10,
+) -> List[PlayerRallyStartCandidate]:
+    if not diagnostics.timestamps:
+        return []
+
+    ts = np.asarray(diagnostics.timestamps, dtype=np.float32)
+    sample_count = len(ts)
+
+    def arr(values: List[float]) -> np.ndarray:
+        if values and len(values) == sample_count:
+            return np.asarray(values, dtype=np.float32)
+        return np.zeros(sample_count, dtype=np.float32)
+
+    motion_a = arr(diagnostics.motion_a)
+    motion_b = arr(diagnostics.motion_b)
+    crouch_a = arr(diagnostics.crouch_a)
+    crouch_b = arr(diagnostics.crouch_b)
+    reach_a = arr(diagnostics.reach_a)
+    reach_b = arr(diagnostics.reach_b)
+    serve_a = arr(diagnostics.serve_a)
+    serve_b = arr(diagnostics.serve_b)
+    upper_a = arr(diagnostics.upper_a)
+    upper_b = arr(diagnostics.upper_b)
+    foot_a = arr(diagnostics.foot_a)
+    foot_b = arr(diagnostics.foot_b)
+
+    ready_a = np.clip(crouch_a * (1.0 - (0.82 * np.maximum(motion_a, foot_a))), 0.0, 1.0)
+    ready_b = np.clip(crouch_b * (1.0 - (0.82 * np.maximum(motion_b, foot_b))), 0.0, 1.0)
+    ready_pair = np.minimum(ready_a, ready_b)
+    competitive_a = np.maximum.reduce(
+        [
+            motion_a * (0.35 + (0.65 * crouch_a)),
+            upper_a * (0.45 + (0.55 * crouch_a)),
+            foot_a * (0.42 + (0.58 * crouch_a)),
+        ]
+    )
+    competitive_b = np.maximum.reduce(
+        [
+            motion_b * (0.35 + (0.65 * crouch_b)),
+            upper_b * (0.45 + (0.55 * crouch_b)),
+            foot_b * (0.42 + (0.58 * crouch_b)),
+        ]
+    )
+    live_pair = np.maximum(competitive_a, competitive_b)
+
+    def search_end_idx(start_idx: int, secs: float, *, stop_exclusive: Optional[int] = None) -> int:
+        end_t = float(ts[start_idx] + secs)
+        end_idx = int(np.searchsorted(ts, end_t, side="right"))
+        if stop_exclusive is not None:
+            end_idx = min(end_idx, int(stop_exclusive))
+        min_end_idx = start_idx + 2 if sample_count > (start_idx + 1) else start_idx + 1
+        return max(min_end_idx, min(end_idx, sample_count))
+
+    def search_start_idx(end_idx: int, secs: float) -> int:
+        start_t = float(ts[end_idx] - secs)
+        start_idx = int(np.searchsorted(ts, start_t, side="left"))
+        return max(0, min(start_idx, end_idx))
+
+    def window_max(values: np.ndarray, start_idx: int, secs: float, *, stop_exclusive: Optional[int] = None) -> float:
+        end_idx = search_end_idx(start_idx, secs, stop_exclusive=stop_exclusive)
+        return float(values[start_idx:end_idx].max()) if end_idx > start_idx else float(values[start_idx])
+
+    def range_max(values: np.ndarray, start_idx: int, end_exclusive: int) -> float:
+        end_exclusive = max(start_idx + 1, min(end_exclusive, sample_count))
+        return float(values[start_idx:end_exclusive].max()) if end_exclusive > start_idx else float(values[start_idx])
+
+    def range_mean(values: np.ndarray, start_idx: int, end_exclusive: int) -> float:
+        end_exclusive = max(start_idx + 1, min(end_exclusive, sample_count))
+        return float(values[start_idx:end_exclusive].mean()) if end_exclusive > start_idx else float(values[start_idx])
+
+    def enrich_candidate(candidate: PlayerRallyStartCandidate) -> PlayerRallyStartCandidate:
+        idx = int(candidate.sample_idx)
+        if idx < 0 or idx >= sample_count:
+            return candidate
+
+        pre_start_idx = search_start_idx(idx, pre_ready_window_sec)
+        if pre_start_idx < idx:
+            pre_ready_mean = range_mean(ready_pair, pre_start_idx, idx)
+            pre_live_peak = range_max(live_pair, pre_start_idx, idx)
+        else:
+            pre_ready_mean = float(ready_pair[idx])
+            pre_live_peak = float(live_pair[idx - 1]) if idx > 0 else float(live_pair[idx])
+
+        if candidate.role == "A":
+            server_motion = motion_a
+            server_serve = serve_a
+            server_upper = upper_a
+            server_foot = foot_a
+            receiver_motion = motion_b
+            receiver_upper = upper_b
+            receiver_foot = foot_b
+        else:
+            server_motion = motion_b
+            server_serve = serve_b
+            server_upper = upper_b
+            server_foot = foot_b
+            receiver_motion = motion_a
+            receiver_upper = upper_a
+            receiver_foot = foot_a
+
+        server_action = np.maximum.reduce(
+            [
+                server_serve,
+                server_upper,
+                0.78 * server_foot,
+                0.58 * server_motion,
+            ]
+        )
+        receiver_action = np.maximum.reduce(
+            [
+                receiver_upper,
+                0.92 * receiver_foot,
+                0.65 * receiver_motion,
+            ]
+        )
+
+        stop_exclusive = min(sample_count, int(candidate.episode_end_sample_idx) + 2)
+        confirm_end_idx = search_end_idx(idx, swing_confirm_window_sec, stop_exclusive=stop_exclusive)
+        confirm_slice = server_action[idx:confirm_end_idx]
+        if confirm_slice.size == 0:
+            confirm_peak_idx = idx
+            confirm_peak = float(server_action[idx])
+        else:
+            confirm_peak_idx = int(idx + int(np.argmax(confirm_slice)))
+            confirm_peak = float(confirm_slice.max())
+        server_now = float(server_action[idx])
+        server_growth = float(confirm_peak - server_now)
+        server_peak_delay_sec = float(ts[confirm_peak_idx] - ts[idx]) if confirm_peak_idx >= idx else 0.0
+
+        reaction_end_idx = search_end_idx(confirm_peak_idx, post_reaction_window_sec)
+        receiver_peak = range_max(receiver_action, confirm_peak_idx, reaction_end_idx)
+        live_peak = range_max(live_pair, idx, reaction_end_idx)
+
+        return replace(
+            candidate,
+            ready_pair_score=float(ready_pair[idx]),
+            pre_ready_mean=float(pre_ready_mean),
+            pre_live_peak=float(pre_live_peak),
+            server_action_score=server_now,
+            server_peak_score=float(confirm_peak),
+            server_growth_score=float(server_growth),
+            server_peak_delay_sec=float(server_peak_delay_sec),
+            receiver_peak_score=float(receiver_peak),
+            live_peak_score=float(live_peak),
+        )
+
+    def start_is_confirmed(candidate: PlayerRallyStartCandidate) -> bool:
+        clean_prep_rescue = bool(
+            candidate.prep_score >= 0.82
+            and candidate.launch_score <= 0.40
+            and candidate.serve_score <= 0.34
+            and candidate.upper_body_score <= 0.40
+            and candidate.footwork_score <= 0.45
+            and candidate.dominance_ratio >= 2.0
+            and candidate.server_growth_score >= 0.30
+            and candidate.server_peak_delay_sec >= 0.10
+            and candidate.live_peak_score >= 0.84
+        )
+        if (
+            candidate.score < min_candidate_score
+            or candidate.crouch_score < min_crouch_score
+            or candidate.reach_score < min_reach_score
+            or candidate.ready_pair_score < min_ready_pair_score
+        ):
+            return False
+        if candidate.opponent_ready_score < min_opponent_ready_score and not clean_prep_rescue:
+            return False
+        if (candidate.prep_score - candidate.launch_score) < min_prep_launch_margin:
+            return False
+        if candidate.launch_score > max_launch_score:
+            return False
+        if candidate.server_action_score > (candidate.reach_score + max_server_action_over_reach):
+            return False
+        if candidate.serve_score > (candidate.reach_score + max_serve_over_reach):
+            return False
+        if candidate.upper_body_score > (candidate.reach_score + max_upper_over_reach):
+            return False
+        if candidate.footwork_score > (candidate.reach_score + max_foot_over_reach):
+            return False
+
+        ready_context = max(candidate.pre_ready_mean, 0.88 * candidate.ready_pair_score)
+        if ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak:
+            return False
+        if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
+            return False
+        if candidate.server_growth_score < min_server_growth:
+            return False
+        if candidate.server_peak_delay_sec <= min_server_peak_delay_sec:
+            return False
+        if candidate.receiver_peak_score < min_receiver_peak or candidate.live_peak_score < min_live_peak:
+            return False
+
+        return True
+
+    start_candidates = _compute_player_rally_start_candidates(diagnostics)
+    if not start_candidates:
+        return []
+
+    enriched_candidates = [enrich_candidate(candidate) for candidate in start_candidates]
+    return [candidate for candidate in enriched_candidates if start_is_confirmed(candidate)]
+
+
+def _detect_player_sandwich_rallies_from_diagnostics(
+    diagnostics: PlayerStateMachineDiagnostics,
+    *,
+    swing_confirm_window_sec: float = 0.70,
+    swing_confirm_peak_thresh: float = 0.42,
+    reset_hold_sec: float = 0.55,
+    reset_live_thresh: float = 0.18,
+    stand_reset_thresh: float = 0.56,
+    casual_reset_thresh: float = 0.64,
+    min_point_sec: float = 0.90,
+    let_max_sec: float = 1.50,
+    let_quiet_window_sec: float = 0.60,
+) -> List[RallySegment]:
+    if not diagnostics.timestamps:
+        return []
+
+    ts = np.asarray(diagnostics.timestamps, dtype=np.float32)
+    sample_count = len(ts)
+
+    def arr(values: List[float]) -> np.ndarray:
+        if values and len(values) == sample_count:
+            return np.asarray(values, dtype=np.float32)
+        return np.zeros(sample_count, dtype=np.float32)
+
+    motion_a = arr(diagnostics.motion_a)
+    motion_b = arr(diagnostics.motion_b)
+    crouch_a = arr(diagnostics.crouch_a)
+    crouch_b = arr(diagnostics.crouch_b)
+    serve_a = arr(diagnostics.serve_a)
+    serve_b = arr(diagnostics.serve_b)
+    upper_a = arr(diagnostics.upper_a)
+    upper_b = arr(diagnostics.upper_b)
+    foot_a = arr(diagnostics.foot_a)
+    foot_b = arr(diagnostics.foot_b)
+    reach_a = arr(diagnostics.reach_a)
+    reach_b = arr(diagnostics.reach_b)
+    approach_a = arr(diagnostics.approach_a)
+    approach_b = arr(diagnostics.approach_b)
+
+    competitive_a = np.maximum.reduce(
+        [
+            motion_a * (0.35 + (0.65 * crouch_a)),
+            upper_a * (0.45 + (0.55 * crouch_a)),
+            foot_a * (0.42 + (0.58 * crouch_a)),
+        ]
+    )
+    competitive_b = np.maximum.reduce(
+        [
+            motion_b * (0.35 + (0.65 * crouch_b)),
+            upper_b * (0.45 + (0.55 * crouch_b)),
+            foot_b * (0.42 + (0.58 * crouch_b)),
+        ]
+    )
+    live_pair = np.maximum(competitive_a, competitive_b)
+    stand_a = np.clip((1.0 - crouch_a) * (1.0 - (0.35 * np.maximum(upper_a, foot_a))), 0.0, 1.0)
+    stand_b = np.clip((1.0 - crouch_b) * (1.0 - (0.35 * np.maximum(upper_b, foot_b))), 0.0, 1.0)
+    stand_pair = np.minimum(stand_a, stand_b)
+    casual_a = np.clip(
+        1.0 - np.maximum.reduce([0.90 * upper_a, 0.80 * foot_a, 0.70 * crouch_a, 0.55 * serve_a]),
+        0.0,
+        1.0,
+    )
+    casual_b = np.clip(
+        1.0 - np.maximum.reduce([0.90 * upper_b, 0.80 * foot_b, 0.70 * crouch_b, 0.55 * serve_b]),
+        0.0,
+        1.0,
+    )
+    casual_pair = np.minimum(casual_a, casual_b)
+    reset_pair = np.maximum(stand_pair, 0.92 * casual_pair)
+    shared_activity = np.maximum.reduce([motion_a, motion_b, upper_a, upper_b, foot_a, foot_b])
+
+    def search_end_idx(start_idx: int, secs: float, *, stop_exclusive: Optional[int] = None) -> int:
+        end_t = float(ts[start_idx] + secs)
+        end_idx = int(np.searchsorted(ts, end_t, side="right"))
+        if stop_exclusive is not None:
+            end_idx = min(end_idx, int(stop_exclusive))
+        return max(start_idx + 1, min(end_idx, sample_count))
+
+    def window_max(values: np.ndarray, start_idx: int, secs: float, *, stop_exclusive: Optional[int] = None) -> float:
+        end_idx = search_end_idx(start_idx, secs, stop_exclusive=stop_exclusive)
+        return float(values[start_idx:end_idx].max()) if end_idx > start_idx else float(values[start_idx])
+
+    def window_mean(values: np.ndarray, start_idx: int, secs: float, *, stop_exclusive: Optional[int] = None) -> float:
+        end_idx = search_end_idx(start_idx, secs, stop_exclusive=stop_exclusive)
+        return float(values[start_idx:end_idx].mean()) if end_idx > start_idx else float(values[start_idx])
+
+    def append_segment(
+        out: List[RallySegment],
+        *,
+        start_idx: int,
+        end_idx: int,
+        label: str,
+        start_score: float,
+    ) -> None:
+        if end_idx <= start_idx or start_idx < 0 or end_idx >= sample_count:
+            return
+        seg_start_t = float(ts[start_idx])
+        seg_end_t = float(ts[end_idx])
+        min_dur = 0.35 if label == "let" else min_point_sec
+        if (seg_end_t - seg_start_t) < min_dur:
+            return
+
+        active_window = live_pair[start_idx : end_idx + 1]
+        active_peak = float(active_window.max()) if active_window.size else 0.0
+        active_mean = float(active_window.mean()) if active_window.size else 0.0
+        reset_peak = float(reset_pair[end_idx : min(sample_count, end_idx + 2)].max())
+        conf_floor = 0.42 if label == "let" else 0.50
+        confidence = float(
+            np.clip(
+                0.30 + (0.32 * float(start_score)) + (0.22 * active_peak) + (0.10 * active_mean) + (0.08 * reset_peak),
+                conf_floor,
+                0.96,
+            )
+        )
+
+        flags = ["player_sandwich", "rally_label_point"]
+        if label == "let":
+            flags = ["player_sandwich", "rally_label_let", "let_no_score"]
+        out.append(
+            RallySegment(
+                t_start=seg_start_t,
+                t_end=seg_end_t,
+                confidence=confidence,
+                flags=flags,
+            )
+        )
+
+    def find_preliminary_end(start_idx: int, stop_exclusive: int) -> Optional[int]:
+        reset_run_start_idx: Optional[int] = None
+        earliest_end_idx = int(np.searchsorted(ts, float(ts[start_idx] + 0.45), side="left"))
+        for idx in range(start_idx + 1, max(start_idx + 1, stop_exclusive)):
+            if idx < earliest_end_idx:
+                continue
+            reset_now = bool(
+                ((stand_pair[idx] >= stand_reset_thresh) or (casual_pair[idx] >= casual_reset_thresh))
+                and live_pair[idx] <= reset_live_thresh
+            )
+            if reset_now:
+                if reset_run_start_idx is None:
+                    reset_run_start_idx = idx
+                if float(ts[idx] - ts[reset_run_start_idx]) >= reset_hold_sec:
+                    return int(reset_run_start_idx)
+                continue
+            reset_run_start_idx = None
+        return None
+
+    def is_likely_let(candidate: PlayerRallyStartCandidate, start_idx: int, end_idx: int, stop_exclusive: int) -> bool:
+        duration = float(ts[end_idx] - ts[start_idx])
+        if duration > let_max_sec:
+            return False
+
+        if candidate.role == "A":
+            receive_reach = reach_b
+            receive_approach = approach_b
+            receive_upper = upper_b
+            receive_foot = foot_b
+            receive_motion = motion_b
+        else:
+            receive_reach = reach_a
+            receive_approach = approach_a
+            receive_upper = upper_a
+            receive_foot = foot_a
+            receive_motion = motion_a
+
+        receive_reach_peak = window_max(receive_reach, start_idx, let_max_sec, stop_exclusive=stop_exclusive)
+        receive_approach_peak = window_max(receive_approach, start_idx, let_max_sec, stop_exclusive=stop_exclusive)
+        receive_return_peak = max(
+            window_max(receive_upper, start_idx, let_max_sec, stop_exclusive=stop_exclusive),
+            0.90 * window_max(receive_foot, start_idx, let_max_sec, stop_exclusive=stop_exclusive),
+            0.75 * window_max(receive_motion, start_idx, let_max_sec, stop_exclusive=stop_exclusive),
+        )
+        quiet_after = window_mean(shared_activity, end_idx, let_quiet_window_sec, stop_exclusive=stop_exclusive)
+        return bool(
+            receive_reach_peak >= 0.40
+            and receive_approach_peak >= 0.14
+            and receive_return_peak <= 0.32
+            and quiet_after <= 0.22
+        )
+
+    start_candidates = _select_player_sandwich_start_candidates(
+        diagnostics,
+        swing_confirm_window_sec=swing_confirm_window_sec,
+        swing_confirm_peak_thresh=swing_confirm_peak_thresh,
+    )
+    if not start_candidates:
+        return []
+
+    segments: List[RallySegment] = []
+    for idx, candidate in enumerate(start_candidates):
+        start_idx = int(candidate.sample_idx)
+        if start_idx >= sample_count - 1:
+            continue
+
+        next_start_idx: Optional[int] = None
+        if idx + 1 < len(start_candidates):
+            next_start_idx = int(start_candidates[idx + 1].sample_idx)
+            if next_start_idx <= start_idx:
+                continue
+
+        stop_exclusive = sample_count if next_start_idx is None else max(start_idx + 1, next_start_idx)
+        preliminary_end_idx = find_preliminary_end(start_idx, stop_exclusive)
+        if preliminary_end_idx is None:
+            if next_start_idx is not None:
+                preliminary_end_idx = max(start_idx + 1, next_start_idx - 1)
+            else:
+                trailing_live = np.flatnonzero(live_pair[start_idx:] >= 0.10)
+                if trailing_live.size:
+                    preliminary_end_idx = int(start_idx + trailing_live[-1])
+                else:
+                    preliminary_end_idx = min(sample_count - 1, start_idx + 1)
+
+        if next_start_idx is not None:
+            preliminary_end_idx = min(preliminary_end_idx, next_start_idx - 1)
+        if preliminary_end_idx <= start_idx:
+            continue
+
+        label = "let" if is_likely_let(candidate, start_idx, preliminary_end_idx, stop_exclusive) else "point"
+        append_segment(
+            segments,
+            start_idx=start_idx,
+            end_idx=preliminary_end_idx,
+            label=label,
+            start_score=float(candidate.score),
+        )
+
+    return segments
+
+
+def _detect_player_sandwich_rallies(signals: MultiStreamSignals) -> List[RallySegment]:
+    diagnostics = _compute_player_state_machine_diagnostics(signals)
+    return _detect_player_sandwich_rallies_from_diagnostics(diagnostics)
 
 
 def _collect_nearest_two_energies(
@@ -1981,7 +2511,7 @@ def detect_multistream_rallies(
         }
     elif mode == "player":
         if signals.player_signal_source == "role_tracker" and signals.player_a_crouch_scores and signals.player_b_crouch_scores:
-            return _detect_player_state_machine_rallies(signals)
+            return _detect_player_sandwich_rallies(signals)
         detect_kwargs = {
             "high_thresh": 0.22,
             "low_thresh": 0.09,

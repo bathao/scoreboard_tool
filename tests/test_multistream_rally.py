@@ -3,6 +3,8 @@ import numpy as np
 import scripts.generate_draft_multistream as generate_draft_multistream
 from backend.ai_multistream_rally import MultiStreamSignals, detect_multistream_rallies
 from backend.ai_multistream_rally import (
+    _detect_player_sandwich_rallies,
+    _detect_player_sandwich_rallies_from_diagnostics,
     PlayerStateMachineDiagnostics,
     _build_role_energy_series,
     _compute_player_rally_start_candidates,
@@ -11,6 +13,7 @@ from backend.ai_multistream_rally import (
     _merge_ball_split_pair_artifacts,
     _merge_segments_with_ball_support,
     _refine_table_segments_with_role_support,
+    _select_player_sandwich_start_candidates,
 )
 from backend.ai_rally_segmentation import RallySegment
 from backend.ai_table_roi import TableROI
@@ -46,6 +49,8 @@ def _player_diagnostics(
     foot_b=None,
     reach_a=None,
     reach_b=None,
+    approach_a=None,
+    approach_b=None,
 ):
     timestamps = list(timestamps)
     n = len(timestamps)
@@ -79,8 +84,8 @@ def _player_diagnostics(
         foot_b=fill(foot_b),
         reach_a=fill(reach_a),
         reach_b=fill(reach_b),
-        approach_a=[0.0] * n,
-        approach_b=[0.0] * n,
+        approach_a=fill(approach_a),
+        approach_b=fill(approach_b),
         start_events=[],
     )
 
@@ -510,6 +515,270 @@ def test_player_start_candidate_miner_prefers_early_onset_over_late_peak():
     assert candidates[0].episode_peak_sample_idx == 6
 
 
+def test_player_sandwich_selector_rejects_stroke_like_start_and_keeps_real_serve_chain():
+    timestamps = [i * 0.2 for i in range(18)]
+    n = len(timestamps)
+    motion_a = [0.02] * n
+    motion_b = [0.02] * n
+    crouch_a = [0.12] * n
+    crouch_b = [0.12] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.14] * n
+    reach_b = [0.14] * n
+
+    crouch_a[0:4] = [0.86, 0.88, 0.96, 0.82]
+    crouch_b[0:4] = [0.84, 0.86, 0.82, 0.74]
+    reach_a[2:4] = [0.86, 0.72]
+    serve_a[2:4] = [0.42, 0.92]
+    upper_a[2:4] = [0.48, 0.88]
+    foot_a[2:4] = [0.36, 0.72]
+    motion_a[2:5] = [0.10, 0.26, 0.18]
+    upper_b[3:6] = [0.12, 0.44, 0.28]
+    foot_b[3:6] = [0.08, 0.38, 0.24]
+    motion_b[3:6] = [0.08, 0.34, 0.24]
+
+    crouch_a[12:15] = [0.72, 0.66, 0.48]
+    crouch_b[12:15] = [0.58, 0.46, 0.36]
+    reach_b[12:15] = [0.74, 0.68, 0.40]
+    serve_b[12:15] = [0.92, 0.86, 0.30]
+    upper_b[12:15] = [0.96, 0.88, 0.28]
+    foot_b[12:15] = [0.88, 0.72, 0.22]
+    motion_b[11:15] = [0.30, 0.42, 0.34, 0.20]
+    motion_a[11:15] = [0.26, 0.30, 0.22, 0.14]
+    upper_a[11:15] = [0.22, 0.30, 0.24, 0.12]
+    foot_a[11:15] = [0.18, 0.28, 0.22, 0.10]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+    )
+
+    raw_candidates = _compute_player_rally_start_candidates(diagnostics)
+    selected = _select_player_sandwich_start_candidates(diagnostics)
+
+    assert len(raw_candidates) == 2
+    assert [(candidate.role, candidate.sample_idx) for candidate in raw_candidates] == [("A", 2), ("B", 12)]
+    assert [(candidate.role, candidate.sample_idx) for candidate in selected] == [("A", 2)]
+    assert selected[0].server_peak_delay_sec >= 0.08
+    assert selected[0].live_peak_score >= 0.78
+
+
+def test_player_sandwich_detector_uses_reset_to_close_rallies():
+    timestamps = [float(i) for i in range(16)]
+    n = len(timestamps)
+    motion_a = [0.03] * n
+    motion_b = [0.03] * n
+    crouch_a = [0.08] * n
+    crouch_b = [0.08] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.12] * n
+    reach_b = [0.12] * n
+
+    def inject_start(role_values, start_idx: int) -> None:
+        role_values["crouch"][start_idx : start_idx + 3] = [1.0, 0.96, 0.80]
+        role_values["reach"][start_idx : start_idx + 3] = [0.84, 0.74, 0.52]
+        role_values["serve"][start_idx : start_idx + 3] = [0.42, 0.90, 0.34]
+        role_values["upper"][start_idx : start_idx + 3] = [0.48, 0.88, 0.30]
+        role_values["foot"][start_idx : start_idx + 3] = [0.44, 0.74, 0.26]
+
+    inject_start(
+        {
+            "crouch": crouch_a,
+            "reach": reach_a,
+            "serve": serve_a,
+            "upper": upper_a,
+            "foot": foot_a,
+        },
+        2,
+    )
+    inject_start(
+        {
+            "crouch": crouch_b,
+            "reach": reach_b,
+            "serve": serve_b,
+            "upper": upper_b,
+            "foot": foot_b,
+        },
+        10,
+    )
+    crouch_b[2:5] = [0.86, 0.84, 0.72]
+    crouch_a[10:13] = [0.86, 0.84, 0.72]
+
+    motion_a[2:6] = [0.18, 0.42, 0.38, 0.24]
+    motion_b[2:6] = [0.10, 0.28, 0.35, 0.22]
+    motion_a[10:14] = [0.10, 0.24, 0.34, 0.22]
+    motion_b[10:14] = [0.18, 0.44, 0.36, 0.24]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+    )
+
+    segments = _detect_player_sandwich_rallies_from_diagnostics(diagnostics)
+
+    assert len(segments) == 2
+    assert segments[0].t_start == 2.0
+    assert segments[0].t_end == 5.0
+    assert segments[1].t_start == 10.0
+    assert segments[1].t_end == 13.0
+    assert "player_sandwich" in segments[0].flags
+
+
+def test_player_sandwich_detector_force_closes_at_next_start():
+    timestamps = [float(i) for i in range(12)]
+    n = len(timestamps)
+    motion_a = [0.03] * n
+    motion_b = [0.03] * n
+    crouch_a = [0.10] * n
+    crouch_b = [0.10] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.12] * n
+    reach_b = [0.12] * n
+
+    crouch_a[2:5] = [1.0, 0.95, 0.82]
+    reach_a[2:5] = [0.84, 0.76, 0.58]
+    serve_a[2:5] = [0.44, 0.90, 0.36]
+    upper_a[2:5] = [0.48, 0.86, 0.32]
+    foot_a[2:5] = [0.44, 0.72, 0.28]
+
+    crouch_b[7:10] = [1.0, 0.96, 0.82]
+    reach_b[7:10] = [0.84, 0.76, 0.58]
+    serve_b[7:10] = [0.44, 0.90, 0.36]
+    upper_b[7:10] = [0.48, 0.86, 0.32]
+    foot_b[7:10] = [0.44, 0.72, 0.28]
+    crouch_b[2:5] = [0.86, 0.82, 0.72]
+    crouch_a[7:10] = [0.86, 0.82, 0.72]
+
+    motion_a[2:7] = [0.16, 0.42, 0.38, 0.34, 0.28]
+    motion_b[2:7] = [0.10, 0.26, 0.30, 0.26, 0.22]
+    motion_a[7:11] = [0.10, 0.24, 0.30, 0.22]
+    motion_b[7:11] = [0.16, 0.40, 0.34, 0.24]
+    crouch_a[5:7] = [0.55, 0.42]
+    crouch_b[5:7] = [0.48, 0.40]
+    upper_a[5:7] = [0.34, 0.26]
+    upper_b[5:7] = [0.26, 0.22]
+    foot_a[5:7] = [0.30, 0.24]
+    foot_b[5:7] = [0.26, 0.22]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+    )
+
+    segments = _detect_player_sandwich_rallies_from_diagnostics(diagnostics)
+
+    assert len(segments) == 2
+    assert segments[0].t_start == 2.0
+    assert segments[0].t_end == 6.0
+    assert segments[1].t_start == 7.0
+
+
+def test_player_sandwich_detector_marks_short_catch_and_walk_as_let():
+    timestamps = [i * 0.5 for i in range(12)]
+    n = len(timestamps)
+    motion_a = [0.02] * n
+    motion_b = [0.02] * n
+    crouch_a = [0.08] * n
+    crouch_b = [0.08] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.10] * n
+    reach_b = [0.10] * n
+    approach_a = [0.0] * n
+    approach_b = [0.0] * n
+
+    crouch_a[3:6] = [1.0, 0.92, 0.74]
+    reach_a[3:6] = [0.86, 0.78, 0.50]
+    serve_a[3:6] = [0.42, 0.90, 0.28]
+    upper_a[3:6] = [0.46, 0.86, 0.24]
+    foot_a[3:6] = [0.40, 0.70, 0.22]
+    motion_a[3:6] = [0.14, 0.36, 0.10]
+    motion_b[3:6] = [0.08, 0.10, 0.04]
+    crouch_b[3:5] = [0.84, 0.78]
+
+    reach_b[4:7] = [0.70, 0.88, 0.46]
+    approach_b[4:7] = [0.18, 0.62, 0.30]
+    upper_b[4:7] = [0.08, 0.10, 0.04]
+    foot_b[4:7] = [0.08, 0.10, 0.04]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+        approach_a=approach_a,
+        approach_b=approach_b,
+    )
+
+    segments = _detect_player_sandwich_rallies_from_diagnostics(diagnostics)
+
+    assert len(segments) == 1
+    assert "rally_label_let" in segments[0].flags
+    assert "let_no_score" in segments[0].flags
+    assert segments[0].t_end <= 3.0
+
+
 def test_player_state_machine_marks_short_catch_and_walk_to_net_as_let():
     timestamps = [i * 0.5 for i in range(12)]
     signals = MultiStreamSignals(
@@ -544,6 +813,34 @@ def test_player_state_machine_marks_short_catch_and_walk_to_net_as_let():
     assert "rally_label_let" in segments[0].flags
     assert "let_no_score" in segments[0].flags
     assert segments[0].t_end <= 2.5
+
+
+def test_detect_multistream_rallies_player_mode_uses_sandwich_detector_for_role_tracker(monkeypatch):
+    signals = MultiStreamSignals(
+        roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+        timestamps=[0.0, 1.0, 2.0],
+        table_energies=[0.0, 0.0, 0.0],
+        ball_energies=[0.0, 0.0, 0.0],
+        player_a_energies=[0.0, 0.0, 0.0],
+        player_b_energies=[0.0, 0.0, 0.0],
+        player_energies=[0.0, 0.0, 0.0],
+        fused_energies=[0.0, 0.0, 0.0],
+        effective_fps=30.0,
+        player_signal_source="role_tracker",
+        ball_signal_source="none",
+        player_a_crouch_scores=[0.5, 0.5, 0.5],
+        player_b_crouch_scores=[0.5, 0.5, 0.5],
+    )
+
+    def fake_detect(_signals):
+        return [RallySegment(t_start=1.0, t_end=2.0, confidence=0.8, flags=["player_sandwich"])]
+
+    monkeypatch.setattr("backend.ai_multistream_rally._detect_player_sandwich_rallies", fake_detect)
+
+    segments = detect_multistream_rallies(signals, mode="player")
+
+    assert len(segments) == 1
+    assert segments[0].flags == ["player_sandwich"]
 
 
 def test_detect_multistream_rallies_ball_mode_requires_real_ball_source():

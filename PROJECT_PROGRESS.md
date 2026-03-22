@@ -15,13 +15,16 @@ Do not use this file as the long-term architecture spec.
 
 ## Current Status
 - Date:
-  - `2026-03-21`
+  - `2026-03-23`
 - Current production draft baseline:
   - `table / ROI-first`
 - Current tracker baseline:
   - `v12 deferred seed bootstrap`
 - Current code state:
   - production draft path remains table-first
+  - current local work-cycle started from checkpoint:
+    - commit `e7ea372`
+    - `bắt đầu đổi thuật toán dettect rally = yolo player`
   - last pushed checkpoint:
     - commit `6764139`
     - `Add ball-only rally benchmark and Qwen review tooling`
@@ -36,17 +39,171 @@ Do not use this file as the long-term architecture spec.
     - `qwen3:14b` installed in Ollama for reasoning review
     - default local vision model config was switched from `llama3.2-vision` to `qwen3-vl:8b`
     - `review_rally_splits_qwen.py` now supports `--skip-models` for candidate-only benchmarking
+  - current kept workspace artifacts include:
+    - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
+    - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+    - `matches/Vinh_set3_stage1_player_independent_v2.json`
+    - `matches/Vinh_set4_stage1_player_independent_v2.json`
+    - `matches/Vinh_set4_qwen_split_review_report_v0b.json`
+    - `matches/Vinh_set4_qwen_split_reviewed_v0b.json`
+    - `debug_report/Vinh_set4_rally_start_candidates_v1_full/`
+    - `matches/qwen_boundary_review/`
+    - `matches/qwen_split_review/`
+  - these artifacts are still debug outputs and do not change the promoted baseline yet
+  - current work-cycle constraint:
+    - keep `table / ROI-first` unchanged
+    - keep `ball tracking V0` unchanged
+    - change the rally algorithm only in the independent `YOLO player` path for now
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
-  - latest targeted multistream rally tests:
-    - `20 passed, 1 warning`
-  - latest previously confirmed full suite:
-    - `70 passed, 1 warning`
+  - latest targeted multistream + contract tests:
+    - `27 passed, 1 warning`
   - tracker tests:
     - `15 passed, 1 warning`
+  - latest previously confirmed full suite:
+    - `70 passed, 1 warning`
   - note:
-    - the newest code change after that full-suite run is the experimental `player-only start-first` detector reset
-    - only the targeted multistream rally tests were re-run after that reset
+    - targeted tests were re-run on `2026-03-23` with `.venv\Scripts\python.exe -m pytest`
+    - the warning remains a `.pytest_cache` permission warning inside the workspace
+    - no fresh full-suite rerun was completed after local HEAD `e7ea372`
+
+## Work Log - `2026-03-23`
+### Experiments That Passed
+- `player-only start-first tuning on set1`
+  - the independent `YOLO player` path was iterated through `sandwich_v4 .. sandwich_v9`
+  - the current kept snapshot is:
+    - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
+  - current `set1` result:
+    - `total_rallies = 12`
+    - kept `t_start` list:
+      - `3.670`
+      - `10.210`
+      - `20.254`
+      - `25.158`
+      - `43.377`
+      - `54.288`
+      - `81.581`
+      - `92.259`
+      - `104.204`
+      - `125.659`
+      - `135.836`
+      - `145.145`
+  - the false positive around `44.845s` is currently removed
+- `start detector quality improvements`
+  - the raw miner is now more `prep-first`
+  - the selector now uses stronger `pre-ready / pre-live / post-growth / live-exchange` confirmation
+  - `opponent_ready` remains a guard against rally-active false positives
+  - `clean prep rescue` now recovers visually good serve-prep starts that had weak `opponent_ready`
+  - narrower cross-role merge windows now preserve nearby real starts instead of swallowing them
+- `saved operator-review artifact for tomorrow`
+  - the current kept review folder is:
+    - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+  - it contains:
+    - `12` start images
+    - `1` CSV with the current detector scores per candidate
+- `targeted regression rerun on current snapshot`
+  - `tests/test_multistream_rally.py` + `tests/test_ai_contract.py`:
+    - `27 passed, 1 warning`
+  - the only observed warning is still `.pytest_cache` access denied
+
+### Experiments That Failed Or Were Rejected
+- `player-only sandwich v1 on set1`
+  - severe over-split at `34` rallies
+- `player-only sandwich v7 on set1`
+  - over-corrected and collapsed to only `3` rallies
+- `player-only sandwich v9 on set1`
+  - still under-detects clearly for this set
+  - it is a better debug snapshot, not a promotion candidate
+
+### Main Findings From Today
+- the current bottleneck is still `start` selection quality, not JSON export plumbing
+- the most useful next signal is manual review on the saved `12` `set1` start images
+- keep `table / ROI-first` frozen for this cycle
+- keep `ball tracking V0` frozen for this cycle
+- keep all algorithm work inside the independent `YOLO player` path until the reviewed start detector is healthier
+
+## Work Log - `2026-03-22`
+### Experiments That Passed
+- `workspace state verification`
+  - local HEAD is still `e7ea372`
+  - current branch focus remains aligned with the docs:
+    - production draft baseline is still `table / ROI-first`
+    - the `player` path is still in the `start-first` debug phase
+- `targeted regression rerun on current workspace`
+  - `tests/test_multistream_rally.py` + `tests/test_ai_contract.py`:
+    - `22 passed, 1 warning`
+  - `tests/test_offline_player_tracker.py`:
+    - `15 passed, 1 warning`
+  - the only observed warning is `.pytest_cache` access denied
+- `artifact verification for latest debug outputs`
+  - `matches/Vinh_set3_stage1_player_independent_v2.json` still reports:
+    - `total_rallies = 4`
+  - `matches/Vinh_set4_stage1_player_independent_v2.json` still reports:
+    - `total_rallies = 4`
+  - `matches/Vinh_set4_qwen_split_review_report_v0b.json` reports:
+    - `input_count = 18`
+    - `output_count = 18`
+    - `candidate_count = 2`
+  - current conclusion stays the same:
+    - no new promoted baseline
+    - no accepted `Qwen` split policy yet
+- `player-only sandwich detector wiring`
+  - `mode=player` with `player_signal_source=role_tracker` now routes through a new independent `player_sandwich` detector
+  - the new detector currently uses:
+    - pose-driven start candidates
+    - swing confirmation window
+    - posture-reset end detection
+    - short-rally `LET` classification
+    - forced close at `Start(n+1)` when no clean end is found
+- `targeted sandwich detector test coverage`
+  - added focused tests for:
+    - reset-based close
+    - forced close at next start
+    - short `LET`
+    - `mode=player` dispatch
+  - current test result:
+    - `tests/test_multistream_rally.py`: `24 passed, 1 warning`
+    - `tests/test_ai_contract.py`: `2 passed, 1 warning`
+
+### Experiments That Failed Or Were Rejected
+- `player-only v2 full-run artifacts`
+  - the saved `set3` and `set4` `v2` artifacts both still collapse to only `4` rallies
+  - treat them as failed experimental outputs, not forward progress for Stage 1 quality
+- `set4 qwen split-review v0b`
+  - the saved `v0b` rerun still keeps the output at `18`
+  - only `2` candidates were actually reviewed in the saved report
+  - this still does not recover the missing-rally gap versus the debug target `20`
+- `player-only sandwich v1 on set1`
+  - output artifact:
+    - `matches/Vinh_set1_stage1_player_independent_sandwich_v1.json`
+  - current result:
+    - `total_rallies = 34`
+    - `scoring_rallies = 34`
+    - `non_scoring_rallies = 0`
+  - current local GT read for `set1` is still `14`
+  - current failure shape:
+    - severe over-split
+    - many adjacent rallies are separated by tiny gaps
+    - `LET` logic did not fire on this first set1 run
+  - quick symptom check on the saved JSON:
+    - `16` segments are shorter than `3s`
+    - `26` segments are shorter than `5s`
+    - `29` inter-segment gaps are below `0.2s`
+  - current read:
+    - the detector now runs end-to-end and exports valid JSON
+    - but start anchors are still too dense and are chaining false boundaries
+
+### Main Findings From Today
+- docs are now aligned with the current local HEAD and verified targeted test state
+- no new evidence today changes the production baseline away from `table / ROI-first`
+- the next resume point remains:
+  - keep `table / ROI-first` frozen for this cycle
+  - keep `ball tracking V0` frozen for this cycle
+  - improve the `player` `start-first` detector
+  - reduce false-positive start anchors before trusting sandwich closure behavior
+  - add `LET` subtraction
+  - then return to 3-detector fusion
+- `Qwen` split review remains deferred until the independent `player` detector is materially healthier
 
 ## Work Log - `2026-03-21`
 ### Experiments That Passed
@@ -400,6 +557,14 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
 - `matches/Vinh_set4_qwen_split_review_report_v0.json`
 - `matches/Vinh_set4_qwen_split_reviewed_candidates_only_v1.json`
 - `matches/Vinh_set4_qwen_split_review_report_candidates_only_v1.json`
+- `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
+- `matches/Vinh_set3_stage1_player_independent_v2.json`
+- `matches/Vinh_set4_stage1_player_independent_v2.json`
+- `matches/Vinh_set4_qwen_split_reviewed_v0b.json`
+- `matches/Vinh_set4_qwen_split_review_report_v0b.json`
+- `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+- `debug_report/Vinh_set4_rally_start_candidates_v1_first80/`
+- `debug_report/Vinh_set4_rally_start_candidates_v1_full/`
 - `scripts/review_rally_boundaries_qwen.py`
 - `scripts/review_rally_splits_qwen.py`
 - `outputs/smoke_set1_ball_only_v7_20260320.json`
@@ -434,11 +599,14 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
   - operator-provided debug truth is `20`
   - current `qwen` merge-only review result is `14`
   - current `qwen` split-review v0 result is still `18`
+  - current `qwen` split-review `v0b` result is also still `18`
+  - the saved `v0b` report only reviews `2` split candidates
   - current `qwen` split candidate-only rerun now surfaces `11` candidates
   - current read:
     - merge-only `Qwen` review is clearly worse
     - standalone `ball-only` recovers missing-rally pressure better than table-only, but still over-counts
     - split-review direction is still unresolved
+    - candidate accept / reject quality is still the bottleneck
 - `set3`
   - current `table` baseline is `18`
   - current `table_ball_refined` result is also `18`
@@ -484,7 +652,8 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
   - baseline `table` under-counts at `18`
   - debug target is `20`
   - current `Qwen` merge-only review made this much worse
-  - current `Qwen` split-review logic still needs better candidate generation before the models can help
+  - saved `Qwen` split-review `v0b` still keeps the output at `18`
+  - current `Qwen` split-review logic still needs trustworthy candidate acceptance before the models can help
 
 ### `standalone ball-only` promotion question
 - Current read:
@@ -624,12 +793,22 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
    - local `Qwen` review scripts exist and split-candidate extraction can run in `--skip-models` mode
    - the `player` path has been temporarily reframed from `full-rally state machine` to `start-first`
    - current kept start-image artifacts are:
-     - `debug_report/Vinh_set4_rally_start_candidates_v1_first80/`
-     - `debug_report/Vinh_set4_rally_start_candidates_v1_full/`
+     - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+     - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
 2. Do not re-open `table / ROI-first` as if it still needs to be created:
    - it already exists
    - use it as detector `#1` in the Stage 1 compare / fusion plan
 3. Next critical Stage 1 work is:
+   - do not change `table / ROI-first` in this cycle
+   - do not retune `ball tracking V0` in this cycle
+   - use both only as fixed references while debugging `player`
+   - change the rally algorithm only in the independent `YOLO player` path
+   - first review the saved `12` `set1` start images and label each as:
+     - `correct`
+     - `early`
+     - `late`
+     - `false positive`
+   - use that labeled `set1` review set to retune only the `player` start miner / selector
    - keep improving the `player` `Toss & Serve` start-image detector first
    - use that detector to estimate `start_count = rally + let`
    - add `LET` subtraction as the next pass
@@ -647,10 +826,11 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
 7. For `set4`, treat the debug compare target as:
    - `20` rallies
    - compare-only, not a clip-specific rule
-8. Continue the unfinished `Qwen` split-review direction as a side debug track:
-   - define a conservative accept / reject policy on the fresh `11-candidate` list
+8. Continue the unfinished `Qwen` split-review direction only after the current `player` work is checked:
+   - the saved `v0b` rerun still keeps the output at `18` with only `2` reviewed candidates
+   - define a conservative accept / reject policy on the broader candidate list before trusting model output
    - only keep completed reruns as evidence
-   - do not let it displace the Stage 1 3-detector compare / fusion path
+   - do not let it displace the current independent `YOLO player` debug cycle
 9. Keep the deferred `set1` tracker failure visible:
    - `1:34 -> 1:47`
    - do not treat it as fixed

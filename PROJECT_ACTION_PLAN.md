@@ -52,6 +52,12 @@ To reach the final goal, the project is best organized into 6 runtime layers:
 ## Current Detector Action Plan
 This is the temporary action plan for the experimental `YOLO player` rally path.
 
+### Current Work-Cycle Constraint
+- `[doing]` keep `table / ROI-first` unchanged as the current production reference detector
+- `[doing]` keep the current `ball tracking V0` implementation unchanged as a secondary reference signal
+- `[doing]` restrict current algorithm-change work to the independent `multistream / YOLO player-signal` rally path
+- `[deferred]` do not spend the current cycle on fusion-rule tuning or `Qwen` boundary/split tuning until the `player` detector is materially stronger
+
 ### Step 1. Detect rally starts from images
 - `[doing]` detect every `Toss & Serve` start image independently from player behavior
 - `[doing]` use those start images to estimate:
@@ -155,6 +161,11 @@ This section answers a different question:
   3. run standalone `ball-only / ball tracking online` rally detection as an independent path
   4. fuse / validate the 3 independent rally lists into one final rally list for the video
   5. only after Stage 1 rally quality is effectively solved, continue to winner inference
+- Current-cycle execution override:
+  1. do not retune `table / ROI-first` in this cycle
+  2. do not retune `ball tracking V0` in this cycle
+  3. use `table` and `ball` outputs only as fixed comparison references while debugging `player`
+  4. make rally-algorithm changes only in the independent `YOLO player` path before resuming fusion work
 - Temporary current-cycle note for the `player` detector:
   - stop treating the failed long-`active` state machine as the current optimization target
   - first optimize `Toss & Serve` start-image detection
@@ -173,8 +184,8 @@ This section answers a different question:
   2. `[done]` independent `Table ROI / table-first` rally detection already exists and is the checked reference detector for Stage 1
   3. `[doing]` run `1 set -> rally draft` with the independent `multistream / YOLO player-signal` path
   4. `[done]` benchmark `1 set -> rally draft` with the independent standalone `ball-only / ball tracking online` path on `set1`, `set2`, `set3`, `set4`
-  5. `[doing]` compare the 3 independent set-level drafts against manual review or GT, using `table / ROI-first` as detector `#1`
-  6. `[todo]` define the fusion / validation rule that merges the 3 rally lists into one final rally list
+  5. `[doing]` compare the 3 independent set-level drafts against manual review or GT, using `table / ROI-first` and `ball-only` as fixed references while `player` is being debugged
+  6. `[deferred]` define the fusion / validation rule that merges the 3 rally lists into one final rally list only after the independent `player` path is trustworthy enough
   7. `[todo]` benchmark the fused rally list against the independent paths
   8. `[todo]` fix root-cause failures at the owning layer of the weakest path
   9. `[todo]` add a focused regression test for each fixed failure
@@ -355,6 +366,10 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   2. independent `multistream / YOLO player-signal` detector
   3. independent standalone `ball-only / ball tracking online` detector
   4. fusion / validation across the 3 detectors to produce the final rally list
+- Current-cycle override:
+  - keep `table / ROI-first` unchanged
+  - keep `ball tracking V0` unchanged
+  - change the rally algorithm only in the independent `YOLO player` detector before returning to fusion work
 - Stage 1 acceptance rule:
   - the target is not only `correct rally count`
   - the target is:
@@ -371,7 +386,7 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[done]` independent `Table ROI / table-first` path already exists and is the checked Stage 1 reference detector
 - `[done]` benchmark the independent `multistream / YOLO player-signal` path on `set1`, `set2`, `set3`, `set4`
   - current benchmark counts are:
-    - `set1`: `13`
+    - `set1`: historical pre-`v9` benchmark `13`
     - `set2`: `17`
     - `set3`: `13`
     - `set4`: `22`
@@ -385,7 +400,8 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - do not treat this as a promoted final baseline yet
 - `[doing]` debug and improve the independent `multistream / YOLO player-signal` path
   - current read:
-    - `set1`: under-count at `13`
+    - latest `set1` start-first snapshot `sandwich_v9` now reports `12`
+    - `set1` is still under-detecting and is waiting for manual image review on the saved `12` starts
     - `set2`: under-count at `17`
     - `set3`: under-count at `13`
     - `set4`: over-count at `22`
@@ -394,11 +410,8 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
     - use detected starts to estimate `rally + let`
     - then add `LET` subtraction
     - only after that return to full player-rally segmentation and 3-detector fusion
-- `[todo]` define the fusion / validation rule that merges the 3 detector outputs into one final rally list
-- `[doing]` benchmark `Qwen3-VL + Qwen3` review passes on `set4`:
-  - merge-only review is currently rejected
-  - split-review candidate extraction is now producing a fresh `11-candidate` debug list in `skip-models` mode
-  - the next calibration step is accept / reject quality on that list
+- `[deferred]` define the fusion / validation rule that merges the 3 detector outputs into one final rally list
+- `[deferred]` benchmark `Qwen3-VL + Qwen3` review passes on `set4` again only after the independent `player` detector is in a healthier state
 - `[todo]` add the focused regression test for that failure
 - `[todo]` rerun full `set1`, `set2`, `set3`, `set4`
 - Exit gate:
@@ -495,15 +508,19 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - current temporary scope is narrowed to `Toss & Serve` start-image detection
   - compare `player` start candidates against visually obvious serve-start frames
   - confirm that the detected starts cover `rally + let`
+  - keep the current checked review artifact at:
+    - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+  - keep the current checked JSON snapshot at:
+    - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
   - do not trust the previous long-`active` state-machine behavior as the working direction
-- `[doing]` keep `table / ROI-first` and standalone `ball-only` as temporary comparison references for Stage 1 detector debugging
-- `[doing]` define how the 3 detector outputs should fuse into one final rally list after the `player` path is stronger
-- `[doing]` calibrate `Qwen` review passes so they help debug without hallucinating merge / split decisions
+- `[doing]` keep `table / ROI-first` and standalone `ball-only` as fixed comparison references while the current algorithm work stays inside the independent `player` path
 
 ### Remaining Work
 - `[deferred]` temporarily ignore the `set1` bug around `1:34 -> 1:47`
   - do not treat it as fixed
   - bring it back before promoting a new baseline
+- `[deferred]` return to 3-detector fusion only after the independent `player` detector is trustworthy enough on checked sets
+- `[deferred]` return to `Qwen` split / boundary tuning only after the current `player` rally-algorithm change is checked
 - `[todo]` keep the engineering loop fast:
   - short debug window first
   - then one full set
@@ -721,15 +738,18 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[doing]` keep improving the `YOLO player` `Toss & Serve` start-image detector on checked debug windows
-   - target first:
-     - `3.1s`
-     - `12s`
-     - `25s`
-     - `34s`
-   - export one image + timestamp per detected start candidate
-2. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
-3. `[todo]` add the next-pass `LET` detector and compute:
+1. `[doing]` review the saved `12` `set1` start images in `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
+   - label each image as:
+     - `correct`
+     - `early`
+     - `late`
+     - `false positive`
+2. `[doing]` retune only the independent `YOLO player` start miner / selector from that labeled `set1` review set
+   - do not retune `table / ROI-first`
+   - do not retune `ball tracking V0`
+   - keep `44.845s` rejected while recovering more obvious starts
+3. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
+4. `[todo]` add the next-pass `LET` detector and compute:
    - `total rallies = total starts - total LET`
-4. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
-5. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage
+5. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
+6. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage
