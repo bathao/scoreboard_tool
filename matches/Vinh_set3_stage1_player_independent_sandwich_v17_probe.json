@@ -1,0 +1,322 @@
+{
+  "schema_version": "draft_match_v1",
+  "sport": "table_tennis",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set3.mp4",
+  "video_fps": 59.94005994005994,
+  "best_of": 5,
+  "created_at": "2026-03-23T18:10:58.694026+00:00",
+  "roi": {
+    "x": 842,
+    "y": 749,
+    "w": 718,
+    "h": 223,
+    "confidence": 0.12692846357822418,
+    "method": "yolo+blue+rect+edge+center+consensus+topshrink",
+    "notes": "score=0.688; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+  },
+  "points": [
+    {
+      "id": "pt_0001",
+      "t_start": 2.2355666160583496,
+      "t_end": 8.675333023071289,
+      "winner": "unknown",
+      "confidence": 0.8798778760433197,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0002",
+      "t_start": 26.760066986083984,
+      "t_end": 51.88516616821289,
+      "winner": "unknown",
+      "confidence": 0.8312832790613174,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0003",
+      "t_start": 51.91853332519531,
+      "t_end": 58.29156494140625,
+      "winner": "unknown",
+      "confidence": 0.7793964713811874,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0004",
+      "t_start": 58.32493209838867,
+      "t_end": 69.03563690185547,
+      "winner": "unknown",
+      "confidence": 0.8295949059724808,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0005",
+      "t_start": 69.06900024414062,
+      "t_end": 83.61686706542969,
+      "winner": "unknown",
+      "confidence": 0.82262637257576,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0006",
+      "t_start": 83.65023040771484,
+      "t_end": 90.02326965332031,
+      "winner": "unknown",
+      "confidence": 0.7780953270196915,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0007",
+      "t_start": 90.05663299560547,
+      "t_end": 96.06262969970703,
+      "winner": "unknown",
+      "confidence": 0.845470848083496,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0008",
+      "t_start": 101.5347671508789,
+      "t_end": 103.3031997680664,
+      "winner": "unknown",
+      "confidence": 0.789591246843338,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0009",
+      "t_start": 103.33656311035156,
+      "t_end": 118.78533172607422,
+      "winner": "unknown",
+      "confidence": 0.8383770346641541,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0010",
+      "t_start": 118.8187026977539,
+      "t_end": 127.06026458740234,
+      "winner": "unknown",
+      "confidence": 0.8942896902561188,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0011",
+      "t_start": 134.2007293701172,
+      "t_end": 154.52102661132812,
+      "winner": "unknown",
+      "confidence": 0.8234905254840851,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0012",
+      "t_start": 158.1246337890625,
+      "t_end": 160.193359375,
+      "winner": "unknown",
+      "confidence": 0.8423317241668701,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0013",
+      "t_start": 160.2267303466797,
+      "t_end": 172.1052703857422,
+      "winner": "unknown",
+      "confidence": 0.8831184720993042,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0014",
+      "t_start": 175.9424285888672,
+      "t_end": 177.84432983398438,
+      "winner": "unknown",
+      "confidence": 0.841519501209259,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0015",
+      "t_start": 177.87770080566406,
+      "t_end": 197.29710388183594,
+      "winner": "unknown",
+      "confidence": 0.8226052713394165,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0016",
+      "t_start": 197.33045959472656,
+      "t_end": 201.93507385253906,
+      "winner": "unknown",
+      "confidence": 0.862464679479599,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0017",
+      "t_start": 224.79122924804688,
+      "t_end": 232.5323028564453,
+      "winner": "unknown",
+      "confidence": 0.8339747226238251,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0018",
+      "t_start": 232.565673828125,
+      "t_end": 240.90733337402344,
+      "winner": "unknown",
+      "confidence": 0.886052360534668,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    }
+  ],
+  "summary": {
+    "total_rallies": 18,
+    "scoring_rallies": 18,
+    "non_scoring_rallies": 0,
+    "winner_known_rallies": 0,
+    "winner_unknown_rallies": 18
+  },
+  "analysis_metadata": {
+    "detector_mode": "player",
+    "detector_group": "independent",
+    "player_signal_source": "role_tracker",
+    "ball_signal_source": "none",
+    "stride": 2
+  },
+  "score_validation": {}
+}

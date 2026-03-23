@@ -744,12 +744,49 @@ This is the user-facing flow the full system must eventually support:
      - `early`
      - `late`
      - `false positive`
-2. `[doing]` retune only the independent `YOLO player` start miner / selector from that labeled `set1` review set
+2. `[done]` ingest operator review for `set2 v14` start images in `debug_report/Vinh_set2_rally_start_candidates_v14_review/`
+   - all unmentioned images were accepted as correct
+   - false positives were:
+     - `#5` at `29.062s`
+     - `#8` at `56.323s`
+     - `#12` at `111.979s`
+     - `#14` at `124.124s`
+     - `#20` at `192.693s`
+     - `#22` at `202.002s`
+   - the accepted read is:
+     - these rejected frames are already live exchanges, not serve prep
+     - the ball is already on the table / no one is holding the ball
+3. `[doing]` retune only the independent `YOLO player` start miner / selector from the reviewed `set1` + `set2` start sets
    - do not retune `table / ROI-first`
    - do not retune `ball tracking V0`
    - keep `44.845s` rejected while recovering more obvious starts
-3. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
-4. `[todo]` add the next-pass `LET` detector and compute:
+   - keep the `set2` live-exchange false positives rejected:
+     - `29.062`
+     - `56.323`
+     - `111.979`
+     - `124.124`
+     - `192.693`
+     - `202.002`
+4. `[doing]` rerun `set1`, `set3`, and `set4` on the post-`set2` selector snapshot before promoting the new guard
+   - accept the tuning only if those clips do not regress on reviewed boundaries
+   - current `set3` probe result on the latest safe snapshot:
+     - improved from `24` to `18`
+     - removed reviewed false positives:
+       - `70.504`
+       - `109.776`
+       - `143.110`
+       - `144.811`
+       - `162.262`
+       - `198.498`
+     - remaining reviewed hard cases:
+       - `101.535`
+       - `160.227`
+       - `197.330`
+   - keep `set2` frozen as the guardrail:
+     - latest `set2` stayed `16`
+     - no `set2` timestamps changed versus the accepted `v15` probe
+5. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
+6. `[todo]` add the next-pass `LET` detector and compute:
    - `total rallies = total starts - total LET`
-5. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
-6. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage
+7. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
+8. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage

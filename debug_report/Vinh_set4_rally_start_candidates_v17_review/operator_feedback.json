@@ -1,0 +1,27 @@
+{
+  "review_date": "2026-03-24",
+  "video": "Vinh_set4.mp4",
+  "review_artifact_dir": "debug_report/Vinh_set4_rally_start_candidates_v17_review",
+  "selection_mode": "sandwich",
+  "reviewed_by": "operator",
+  "default_for_unspecified_candidates": "correct",
+  "operator_target_total_rallies": 20,
+  "summary": {
+    "candidate_count": 15,
+    "false_positive_count": 1,
+    "correct_by_default_count": 14,
+    "estimated_missing_count": 6
+  },
+  "false_positives": [
+    {
+      "candidate_id": 14,
+      "timestamp": 242.008438,
+      "role": "B",
+      "label": "false_positive",
+      "comment": "Sai, dang chuan bi giat, tay khong cam bong."
+    }
+  ],
+  "notes": [
+    "Operator read: this set is primarily missing starts rather than producing many false positives."
+  ]
+}

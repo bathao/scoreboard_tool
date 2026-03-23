@@ -15,7 +15,7 @@ Do not use this file as the long-term architecture spec.
 
 ## Current Status
 - Date:
-  - `2026-03-23`
+  - `2026-03-24`
 - Current production draft baseline:
   - `table / ROI-first`
 - Current tracker baseline:
@@ -57,15 +57,120 @@ Do not use this file as the long-term architecture spec.
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
   - latest targeted multistream + contract tests:
-    - `27 passed, 1 warning`
+    - `28 passed, 1 warning`
   - tracker tests:
     - `15 passed, 1 warning`
   - latest previously confirmed full suite:
     - `70 passed, 1 warning`
   - note:
-    - targeted tests were re-run on `2026-03-23` with `.venv\Scripts\python.exe -m pytest`
+    - targeted tests were re-run on `2026-03-24` with `.venv\Scripts\python.exe -m pytest`
     - the warning remains a `.pytest_cache` permission warning inside the workspace
     - no fresh full-suite rerun was completed after local HEAD `e7ea372`
+
+## Work Log - `2026-03-24`
+### Experiments That Passed
+- `set2 v14 operator review ingestion`
+  - saved operator feedback at:
+    - `debug_report/Vinh_set2_rally_start_candidates_v14_review/operator_feedback.json`
+  - operator accepted all unmentioned `set2 v14` start images as correct
+  - operator marked these `set2 v14` candidates as false positives:
+    - `#5` at `29.062s`
+    - `#8` at `56.323s`
+    - `#12` at `111.979s`
+    - `#14` at `124.124s`
+    - `#20` at `192.693s`
+    - `#22` at `202.002s`
+  - operator description of the rejected frames:
+    - no one is holding the ball
+    - the ball is already on the table
+    - both players are already in live chop / drive / loop preparation, not serve preparation
+- `selector guard against already-live exchange false positives`
+  - `backend/ai_multistream_rally.py` now rejects an additional class of `player_sandwich` starts where the scene is already rally-active before the chosen candidate
+  - the new local rejection shape focuses on:
+    - weak `pre_ready`
+    - high `pre_live`
+    - high live exchange continuation after the candidate
+    - low / moderate dominance for the supposed server
+  - also added a stricter high-action rejection for the `already-live attack` pattern seen in `set2`
+- `targeted regression after set2 feedback`
+  - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+  - result:
+    - `28 passed, 1 warning`
+- `set2 rerun after the feedback-driven selector change`
+  - saved probe artifact:
+    - `matches/Vinh_set2_stage1_player_independent_sandwich_v15_probe.json`
+  - result:
+    - `total_rallies = 16`
+    - `LET = 0`
+  - compared with `matches/Vinh_set2_stage1_player_independent_sandwich_v14.json`:
+    - removed exactly the operator-rejected start timestamps:
+      - `29.062`
+      - `56.323`
+      - `111.979`
+      - `124.124`
+      - `192.693`
+      - `202.002`
+    - added no new timestamps
+- `set3 operator review ingestion`
+  - saved operator feedback at:
+    - `debug_report/Vinh_set3_rally_start_candidates_v14_review/operator_feedback.json`
+  - operator accepted all unmentioned `set3 v14` start images as correct
+  - operator marked these `set3 v14` candidates as false positives:
+    - `#6` at `70.504s`
+    - `#9` at `101.535s`
+    - `#11` at `109.776s`
+    - `#14` at `143.110s`
+    - `#15` at `144.811s`
+    - `#17` at `160.227s`
+    - `#18` at `162.262s`
+    - `#21` at `197.330s`
+    - `#22` at `198.498s`
+- `post-set2 selector tuning on set3 with set2 guardrail preserved`
+  - kept the `set2`-driven live-exchange rejection in place
+  - added a narrow `strong follow-up` exception so the selector can keep a stronger near-next start instead of over-pruning all high-live cases
+  - added two narrower rejection patterns for:
+    - `weak_opponent_mid_rally`
+    - `post_rally_freeze`
+  - targeted regression after the tuning:
+    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+    - result:
+      - `28 passed, 1 warning`
+- `set2 + set3 cross-check on the new selector snapshot`
+  - saved probe artifacts:
+    - `matches/Vinh_set2_stage1_player_independent_sandwich_v17_probe.json`
+    - `matches/Vinh_set3_stage1_player_independent_sandwich_v17_probe.json`
+  - `set2` stayed exactly aligned with the accepted `v15` probe:
+    - `16` rallies
+    - no timestamps added
+    - no timestamps removed
+  - `set3` improved from `24` to `18` while preserving accepted starts
+  - removed reviewed `set3` false positives:
+    - `70.504`
+    - `109.776`
+    - `143.110`
+    - `144.811`
+    - `162.262`
+    - `198.498`
+  - no reviewed-correct `set3` timestamp was removed
+  - remaining reviewed `set3` hard false positives are now:
+    - `101.535`
+    - `160.227`
+    - `197.330`
+
+### Main Findings From Today
+- the most important `set2` false-positive family is no longer generic `stroke-like` motion
+- the sharper failure mode is:
+  - the selector is picking frames that are already inside a live exchange
+  - ball state is visually inconsistent with serve prep
+  - player motion remains strong before and after the chosen timestamp
+- the reviewed `set2` labels were enough to recover the draft count from `22` to `16` without introducing extra starts
+- the additional `set3` review labels were enough to push `set3` from `24` to `18` without breaking the current `set2` guardrail
+- the remaining `set3` mistakes are now concentrated in only `3` hard cases:
+  - `101.535`
+  - `160.227`
+  - `197.330`
+- the next debug direction should no longer be broad threshold tuning
+- the next likely win is a more local duplicate / cluster suppression pass around nearby starts, while keeping `set2` frozen as the promotion guardrail
 
 ## Work Log - `2026-03-23`
 ### Experiments That Passed

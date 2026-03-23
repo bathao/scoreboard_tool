@@ -579,6 +579,69 @@ def test_player_sandwich_selector_rejects_stroke_like_start_and_keeps_real_serve
     assert selected[0].live_peak_score >= 0.78
 
 
+def test_player_sandwich_selector_rejects_already_live_exchange_false_positive():
+    timestamps = [i * 0.2 for i in range(20)]
+    n = len(timestamps)
+    motion_a = [0.02] * n
+    motion_b = [0.02] * n
+    crouch_a = [0.12] * n
+    crouch_b = [0.12] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.14] * n
+    reach_b = [0.14] * n
+
+    crouch_a[0:4] = [0.86, 0.90, 0.96, 0.82]
+    crouch_b[0:4] = [0.84, 0.86, 0.82, 0.74]
+    reach_a[2:4] = [0.86, 0.74]
+    serve_a[2:4] = [0.42, 0.92]
+    upper_a[2:4] = [0.48, 0.88]
+    foot_a[2:4] = [0.36, 0.72]
+    motion_a[2:5] = [0.10, 0.26, 0.18]
+    upper_b[3:6] = [0.12, 0.44, 0.28]
+    foot_b[3:6] = [0.08, 0.38, 0.24]
+    motion_b[3:6] = [0.08, 0.34, 0.24]
+
+    crouch_a[9:14] = [0.58, 0.60, 0.62, 0.58, 0.44]
+    crouch_b[9:15] = [0.64, 0.66, 0.72, 0.76, 0.70, 0.48]
+    motion_a[9:15] = [0.28, 0.34, 0.38, 0.40, 0.36, 0.22]
+    motion_b[9:15] = [0.30, 0.34, 0.38, 0.42, 0.34, 0.20]
+    upper_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.18]
+    upper_b[9:15] = [0.24, 0.30, 0.34, 0.44, 0.86, 0.26]
+    foot_a[9:15] = [0.18, 0.24, 0.30, 0.34, 0.30, 0.16]
+    foot_b[9:15] = [0.20, 0.26, 0.30, 0.38, 0.66, 0.22]
+    serve_a[9:15] = [0.10, 0.14, 0.20, 0.22, 0.18, 0.08]
+    serve_b[9:15] = [0.12, 0.16, 0.24, 0.36, 0.74, 0.18]
+    reach_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.20]
+    reach_b[9:15] = [0.24, 0.30, 0.38, 0.86, 0.74, 0.36]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+    )
+
+    raw_candidates = _compute_player_rally_start_candidates(diagnostics)
+    selected = _select_player_sandwich_start_candidates(diagnostics)
+
+    assert [(candidate.role, candidate.sample_idx) for candidate in raw_candidates] == [("A", 2), ("B", 12)]
+    assert [(candidate.role, candidate.sample_idx) for candidate in selected] == [("A", 2)]
+
+
 def test_player_sandwich_detector_uses_reset_to_close_rallies():
     timestamps = [float(i) for i in range(16)]
     n = len(timestamps)

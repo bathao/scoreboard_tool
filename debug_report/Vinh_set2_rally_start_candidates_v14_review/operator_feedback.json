@@ -1,0 +1,57 @@
+{
+  "review_date": "2026-03-24",
+  "video": "Vinh_set2.mp4",
+  "review_artifact_dir": "debug_report/Vinh_set2_rally_start_candidates_v14_review",
+  "selection_mode": "sandwich",
+  "reviewed_by": "operator",
+  "default_for_unspecified_candidates": "correct",
+  "summary": {
+    "candidate_count": 22,
+    "false_positive_count": 6,
+    "correct_by_default_count": 16
+  },
+  "false_positives": [
+    {
+      "candidate_id": 5,
+      "timestamp": 29.062366,
+      "role": "B",
+      "label": "false_positive",
+      "comment": "Sai, khong cam bong, khong chuan bi giao bong."
+    },
+    {
+      "candidate_id": 8,
+      "timestamp": 56.322933,
+      "role": "B",
+      "label": "false_positive",
+      "comment": "Sai, dang chuan bi cat bong, khong ai cam bong."
+    },
+    {
+      "candidate_id": 12,
+      "timestamp": 111.978531,
+      "role": "A",
+      "label": "false_positive",
+      "comment": "Qua sai, bong dang nam tren ban."
+    },
+    {
+      "candidate_id": 14,
+      "timestamp": 124.124001,
+      "role": "B",
+      "label": "false_positive",
+      "comment": "Qua sai, 2 vdv de tay chuan bi giat, bong nam tren ban."
+    },
+    {
+      "candidate_id": 20,
+      "timestamp": 192.692505,
+      "role": "A",
+      "label": "false_positive",
+      "comment": "Sai tuong tu, bong nam tren ban, 2 vdv dang danh."
+    },
+    {
+      "candidate_id": 22,
+      "timestamp": 202.001801,
+      "role": "B",
+      "label": "false_positive",
+      "comment": "Sai tuong tu, dang chuan bi go cat, khong phai giao bong."
+    }
+  ]
+}

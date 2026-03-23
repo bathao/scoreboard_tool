@@ -1183,8 +1183,8 @@ def _detect_player_state_machine_rallies(signals: MultiStreamSignals) -> List[Ra
 def _compute_player_rally_start_candidates(
     diagnostics: PlayerStateMachineDiagnostics,
     *,
-    trigger_score_thresh: float = 0.60,
-    release_score_thresh: float = 0.52,
+    trigger_score_thresh: float = 0.58,
+    release_score_thresh: float = 0.50,
     same_role_merge_window_sec: float = 1.20,
     cross_role_merge_window_sec: float = 0.70,
 ) -> List[PlayerRallyStartCandidate]:
@@ -1242,10 +1242,10 @@ def _compute_player_rally_start_candidates(
             prep_margin = float(prep[idx] - launch[idx])
             if (
                 prep[idx] >= 0.68
-                and crouch[idx] >= 0.64
-                and reach[idx] >= 0.52
+                and crouch[idx] >= 0.62
+                and reach[idx] >= 0.50
                 and score[idx] >= relaxed_onset_floor
-                and prep_margin >= 0.04
+                and prep_margin >= 0.02
                 and server_action[idx] <= early_onset_cap
             ):
                 calm_prep_idx = idx
@@ -1259,12 +1259,12 @@ def _compute_player_rally_start_candidates(
                 prep_margin = float(prep[idx] - launch[idx])
                 action_gap = float(server_peak - server_action[idx])
                 if (
-                    prep[idx] < 0.72
-                    or crouch[idx] < 0.68
-                    or reach[idx] < 0.58
+                    prep[idx] < 0.70
+                    or crouch[idx] < 0.64
+                    or reach[idx] < 0.54
                     or score[idx] < onset_floor
-                    or prep_margin < 0.12
-                    or action_gap < 0.08
+                    or prep_margin < 0.10
+                    or action_gap < 0.06
                 ):
                     continue
                 rank = (
@@ -1343,9 +1343,9 @@ def _compute_player_rally_start_candidates(
         opp_ready = np.clip(opp_crouch * (1.0 - (0.70 * opp_comp)), 0.0, 1.0)
         opp_serve_comp = np.maximum.reduce([opp_serve, opp_upper, opp_foot])
         dominance_ratio = launch / np.maximum(0.15, opp_serve_comp)
-        start_cue = (reach >= 0.48) | (serve >= 0.24) | (upper >= 0.34) | (foot >= 0.48)
-        gate = (crouch >= 0.50) & start_cue & (launch >= 0.34) & (dominance_ratio >= 1.05)
-        score = np.clip((0.64 * prep) + (0.24 * launch) + (0.12 * opp_ready), 0.0, 1.0)
+        start_cue = (reach >= 0.46) | (serve >= 0.22) | (upper >= 0.30) | (foot >= 0.46)
+        gate = (crouch >= 0.48) & start_cue & (launch >= 0.32) & (dominance_ratio >= 1.02)
+        score = np.clip((0.68 * prep) + (0.20 * launch) + (0.12 * opp_ready), 0.0, 1.0)
 
         out: List[PlayerRallyStartCandidate] = []
         active = False
@@ -1460,24 +1460,24 @@ def _select_player_sandwich_start_candidates(
     swing_confirm_peak_thresh: float = 0.42,
     post_reaction_window_sec: float = 1.05,
     pre_ready_window_sec: float = 0.55,
-    min_candidate_score: float = 0.60,
+    min_candidate_score: float = 0.58,
     min_crouch_score: float = 0.65,
-    min_reach_score: float = 0.60,
-    min_opponent_ready_score: float = 0.38,
+    min_reach_score: float = 0.56,
+    min_opponent_ready_score: float = 0.30,
     min_ready_pair_score: float = 0.05,
-    min_prep_launch_margin: float = 0.16,
-    max_launch_score: float = 0.72,
+    min_prep_launch_margin: float = 0.14,
+    max_launch_score: float = 0.78,
     max_server_action_over_reach: float = 0.10,
     min_pre_ready_mean: float = 0.06,
     max_pre_live_peak: float = 0.92,
-    min_server_growth: float = 0.10,
-    min_server_peak: float = 0.46,
+    min_server_growth: float = 0.08,
+    min_server_peak: float = 0.44,
     min_server_peak_delay_sec: float = 0.0,
-    min_receiver_peak: float = 0.08,
+    min_receiver_peak: float = 0.06,
     min_live_peak: float = 0.78,
-    max_serve_over_reach: float = 0.15,
-    max_upper_over_reach: float = 0.18,
-    max_foot_over_reach: float = 0.10,
+    max_serve_over_reach: float = 0.18,
+    max_upper_over_reach: float = 0.20,
+    max_foot_over_reach: float = 0.14,
 ) -> List[PlayerRallyStartCandidate]:
     if not diagnostics.timestamps:
         return []
@@ -1625,21 +1625,76 @@ def _select_player_sandwich_start_candidates(
 
     def start_is_confirmed(candidate: PlayerRallyStartCandidate) -> bool:
         clean_prep_rescue = bool(
-            candidate.prep_score >= 0.82
-            and candidate.launch_score <= 0.40
-            and candidate.serve_score <= 0.34
-            and candidate.upper_body_score <= 0.40
-            and candidate.footwork_score <= 0.45
-            and candidate.dominance_ratio >= 2.0
-            and candidate.server_growth_score >= 0.30
-            and candidate.server_peak_delay_sec >= 0.10
-            and candidate.live_peak_score >= 0.84
+            candidate.prep_score >= 0.78
+            and candidate.launch_score <= 0.48
+            and candidate.serve_score <= 0.40
+            and candidate.upper_body_score <= 0.46
+            and candidate.footwork_score <= 0.50
+            and candidate.dominance_ratio >= 1.75
+            and candidate.pre_live_peak <= 0.80
+            and candidate.server_growth_score >= 0.24
+            and candidate.server_peak_delay_sec >= 0.08
+            and candidate.receiver_peak_score >= 0.80
+            and candidate.live_peak_score >= 0.82
         )
+        strong_followup_start_exception = bool(
+            candidate.prep_score >= 0.85
+            and candidate.opponent_ready_score >= 0.50
+            and candidate.ready_pair_score >= 0.45
+            and candidate.dominance_ratio >= 1.45
+            and candidate.footwork_score <= 0.40
+        )
+        aggressive_stroke_pattern = bool(
+            candidate.launch_score >= 0.54
+            and candidate.dominance_ratio < 1.70
+            and (candidate.upper_body_score >= 0.46 or candidate.footwork_score >= 0.46)
+        )
+        already_live_exchange_pattern = bool(
+            candidate.pre_live_peak >= 0.48
+            and candidate.live_peak_score >= 0.92
+            and candidate.pre_ready_mean <= 0.40
+            and candidate.dominance_ratio <= 1.55
+            and candidate.server_action_score >= 0.34
+            and max(candidate.launch_score, candidate.upper_body_score, candidate.footwork_score) >= 0.36
+            and not strong_followup_start_exception
+        )
+        already_live_attack_pattern = bool(
+            candidate.pre_live_peak >= 0.84
+            and candidate.pre_ready_mean <= 0.24
+            and candidate.opponent_ready_score <= 0.42
+            and candidate.launch_score >= 0.56
+            and candidate.server_action_score >= 0.62
+            and candidate.upper_body_score >= 0.60
+        )
+        weak_opponent_mid_rally_pattern = bool(
+            candidate.dominance_ratio <= 1.20
+            and candidate.opponent_ready_score <= 0.35
+            and candidate.pre_ready_mean <= 0.34
+            and candidate.pre_live_peak >= 0.48
+            and candidate.server_action_score >= 0.28
+            and max(candidate.launch_score, candidate.footwork_score) >= 0.36
+        )
+        post_rally_freeze_pattern = bool(
+            candidate.dominance_ratio <= 1.15
+            and candidate.pre_live_peak >= 0.88
+            and candidate.server_action_score <= 0.30
+            and candidate.launch_score <= 0.40
+            and max(candidate.upper_body_score, candidate.footwork_score) <= 0.30
+        )
+        if candidate.score < min_candidate_score or candidate.crouch_score < min_crouch_score:
+            return False
+        if clean_prep_rescue:
+            if candidate.reach_score < 0.50:
+                return False
+        else:
+            if candidate.reach_score < min_reach_score or candidate.ready_pair_score < min_ready_pair_score:
+                return False
         if (
-            candidate.score < min_candidate_score
-            or candidate.crouch_score < min_crouch_score
-            or candidate.reach_score < min_reach_score
-            or candidate.ready_pair_score < min_ready_pair_score
+            aggressive_stroke_pattern
+            or already_live_exchange_pattern
+            or already_live_attack_pattern
+            or weak_opponent_mid_rally_pattern
+            or post_rally_freeze_pattern
         ):
             return False
         if candidate.opponent_ready_score < min_opponent_ready_score and not clean_prep_rescue:
@@ -1658,7 +1713,7 @@ def _select_player_sandwich_start_candidates(
             return False
 
         ready_context = max(candidate.pre_ready_mean, 0.88 * candidate.ready_pair_score)
-        if ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak:
+        if not clean_prep_rescue and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
             return False
         if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
             return False
