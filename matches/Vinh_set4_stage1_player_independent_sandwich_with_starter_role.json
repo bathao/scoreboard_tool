@@ -4,7 +4,7 @@
   "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set4.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-03-21T10:56:43.327938+00:00",
+  "created_at": "2026-03-24T17:11:46.669077+00:00",
   "roi": {
     "x": 874,
     "y": 753,
@@ -17,340 +17,402 @@
   "points": [
     {
       "id": "pt_0001",
-      "t_start": 3.2032000000000003,
-      "t_end": 7.8078,
+      "t_start": 3.1364667415618896,
+      "t_end": 7.540866851806641,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5681991577148438,
+      "confidence": 0.8895294678211212,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0002",
-      "t_start": 7.8078,
-      "t_end": 18.852166666666665,
+      "t_start": 13.012999534606934,
+      "t_end": 18.81879997253418,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8665648663043976,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0003",
-      "t_start": 20.353666666666665,
-      "t_end": 23.1231,
+      "t_start": 25.19183349609375,
+      "t_end": 33.466766357421875,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8031295418739318,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0004",
-      "t_start": 23.1231,
-      "t_end": 32.29893333333333,
+      "t_start": 33.5001335144043,
+      "t_end": 43.309932708740234,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8483739590644837,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0005",
-      "t_start": 32.29893333333333,
-      "t_end": 43.30993333333333,
+      "t_start": 52.819435119628906,
+      "t_end": 67.36730194091797,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8624211263656615,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0006",
-      "t_start": 46.6466,
-      "t_end": 52.318933333333334,
+      "t_start": 79.57949829101562,
+      "t_end": 88.22146606445312,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8303252375125885,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0007",
-      "t_start": 52.318933333333334,
-      "t_end": 61.29456666666667,
+      "t_start": 88.25483703613281,
+      "t_end": 99.29920196533203,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8426908826828003,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0008",
-      "t_start": 63.93053333333334,
-      "t_end": 68.33493333333334,
+      "t_start": 99.33256530761719,
+      "t_end": 106.53976440429688,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8735195207595825,
       "flags": [
         "ball_signal_none",
         "player_only",
-        "player_signal_role_tracker"
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0009",
-      "t_start": 74.6746,
-      "t_end": 106.94016666666667,
+      "t_start": 111.77833557128906,
+      "t_end": 115.01490020751953,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8175292134284973,
       "flags": [
         "ball_signal_none",
-        "merged_short_split",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0010",
-      "t_start": 106.94016666666667,
-      "t_end": 109.27583333333334,
+      "t_start": 115.04826354980469,
+      "t_end": 122.98953247070312,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.7897006887197495,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0011",
-      "t_start": 109.27583333333334,
-      "t_end": 130.29683333333332,
+      "t_start": 123.02290344238281,
+      "t_end": 129.86306762695312,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8328529000282288,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0012",
-      "t_start": 130.29683333333332,
-      "t_end": 139.80633333333333,
+      "t_start": 132.76596069335938,
+      "t_end": 141.54139709472656,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.795901318192482,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0013",
-      "t_start": 139.80633333333333,
-      "t_end": 157.157,
+      "t_start": 141.57476806640625,
+      "t_end": 152.65249633789062,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8374813139438629,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0014",
-      "t_start": 159.35920000000002,
-      "t_end": 163.79696666666666,
+      "t_start": 152.6858673095703,
+      "t_end": 157.25709533691406,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8620201802253723,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0015",
-      "t_start": 163.79696666666666,
-      "t_end": 170.83733333333333,
+      "t_start": 165.49867248535156,
+      "t_end": 168.36819458007812,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8518927586078643,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0016",
-      "t_start": 170.83733333333333,
-      "t_end": 175.2751,
+      "t_start": 177.84432983398438,
+      "t_end": 186.0525360107422,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8017923420667648,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0017",
-      "t_start": 175.2751,
-      "t_end": 195.02816666666666,
+      "t_start": 186.08590698242188,
+      "t_end": 196.06253051757812,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8320537471771241,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0018",
-      "t_start": 195.02816666666666,
-      "t_end": 205.73886666666667,
+      "t_start": 196.0959014892578,
+      "t_end": 205.67213439941406,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8699993658065795,
       "flags": [
         "ball_signal_none",
-        "merged_short_split",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0019",
-      "t_start": 208.04116666666667,
-      "t_end": 209.44256666666666,
+      "t_start": 216.51629638671875,
+      "t_end": 220.7872314453125,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8152533388137817,
       "flags": [
         "ball_signal_none",
         "player_only",
-        "player_signal_role_tracker"
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0020",
-      "t_start": 211.67813333333334,
-      "t_end": 249.08216666666667,
+      "t_start": 220.8206024169922,
+      "t_end": 228.66177368164062,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8113202440738677,
       "flags": [
         "ball_signal_none",
-        "long_unsplit",
         "player_only",
-        "player_signal_role_tracker"
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0021",
-      "t_start": 252.78586666666666,
-      "t_end": 255.22163333333333,
+      "t_start": 228.69512939453125,
+      "t_end": 239.839599609375,
+      "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8032991158962248,
       "flags": [
         "ball_signal_none",
-        "merged_short_split",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     },
     {
       "id": "pt_0022",
-      "t_start": 255.22163333333333,
-      "t_end": 264.7645,
+      "t_start": 239.8729705810547,
+      "t_end": 249.24899291992188,
+      "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.5,
+      "confidence": 0.8501691502332687,
       "flags": [
         "ball_signal_none",
         "player_only",
+        "player_sandwich",
         "player_signal_role_tracker",
-        "split_long"
+        "rally_label_point"
+      ],
+      "source": "ai",
+      "corrections": []
+    },
+    {
+      "id": "pt_0023",
+      "t_start": 256.2560119628906,
+      "t_end": 264.7644958496094,
+      "starter_role": "A",
+      "winner": "unknown",
+      "confidence": 0.787210372686386,
+      "flags": [
+        "ball_signal_none",
+        "player_only",
+        "player_sandwich",
+        "player_signal_role_tracker",
+        "rally_label_point"
       ],
       "source": "ai",
       "corrections": []
     }
   ],
   "summary": {
-    "total_rallies": 22,
+    "total_rallies": 23,
+    "scoring_rallies": 23,
+    "non_scoring_rallies": 0,
     "winner_known_rallies": 0,
-    "winner_unknown_rallies": 22
+    "winner_unknown_rallies": 23
   },
   "analysis_metadata": {
     "detector_mode": "player",
