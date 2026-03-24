@@ -2169,6 +2169,7 @@ def _detect_player_sandwich_rallies_from_diagnostics(
         end_idx: int,
         label: str,
         start_score: float,
+        server_role: str,
     ) -> None:
         if end_idx <= start_idx or start_idx < 0 or end_idx >= sample_count:
             return
@@ -2200,6 +2201,7 @@ def _detect_player_sandwich_rallies_from_diagnostics(
                 t_end=seg_end_t,
                 confidence=confidence,
                 flags=flags,
+                server_role=str(server_role) if server_role in {"A", "B"} else None,
             )
         )
 
@@ -2299,6 +2301,7 @@ def _detect_player_sandwich_rallies_from_diagnostics(
             end_idx=preliminary_end_idx,
             label=label,
             start_score=float(candidate.score),
+            server_role=str(candidate.role),
         )
 
     return segments

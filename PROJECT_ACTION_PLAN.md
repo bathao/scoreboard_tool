@@ -64,9 +64,37 @@ This is the temporary action plan for the experimental `YOLO player` rally path.
   - `total rally starts + total LET starts`
 - `[doing]` improve the start detector until start-state detection is visually obvious and effectively exact on checked debug windows
 - `[doing]` treat this as the current priority over full-rally `active/end` state-machine tuning
+- `[done]` current checked regression suite `set1..4` is now operator-accepted for starter detection in the independent `YOLO player` path
+  - scope:
+    - `starter = rally + let`
+  - accepted counts:
+    - `set1 = 15`
+    - `set2 = 19`
+    - `set3 = 18`
+    - `set4 = 23`
+  - latest pushed checkpoint:
+    - commit `5e94835`
+    - `Detect accurate starters for all 4 sets (server + let)`
+  - latest targeted regression:
+    - `31 passed, 1 warning`
 
 ### Step 2. Detect `LET` and subtract it
 - `[todo]` detect `LET` only after the start-image detector is stable enough
+- `[todo]` infer `serve mode` before localizing `LET`
+  - use the accepted `starter_role` sequence as the primary signal
+  - infer:
+    - `double-serve mode` when the game is likely still before `10-10`
+    - `single-serve mode` when the game is likely already after `10-10`
+  - preferred read:
+    - `AA -> BB -> AA -> BB` patterns support `double-serve mode`
+    - `A -> B -> A -> B` patterns support `single-serve mode`
+- `[todo]` derive mandatory `LET` counts from same-server run length, assuming starter detection is already exact
+  - if `double-serve mode` is active:
+    - a same-server run of length `L` implies `max(0, L - 2)` mandatory `LET`
+  - if `single-serve mode` is active:
+    - a same-server run of length `L` implies `max(0, L - 1)` mandatory `LET`
+- `[todo]` use local post-start vision / timing cues only to localize which starter(s) inside a forced run are the actual `LET`
+  - do not use those cues to re-open the starter list itself
 - `[todo]` compute:
   - `total rallies = total starts - total LET`
 - `[todo]` keep `active` bounded strictly between:
@@ -738,55 +766,33 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[doing]` review the saved `12` `set1` start images in `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
-   - label each image as:
-     - `correct`
-     - `early`
-     - `late`
-     - `false positive`
-2. `[done]` ingest operator review for `set2 v14` start images in `debug_report/Vinh_set2_rally_start_candidates_v14_review/`
-   - all unmentioned images were accepted as correct
-   - false positives were:
-     - `#5` at `29.062s`
-     - `#8` at `56.323s`
-     - `#12` at `111.979s`
-     - `#14` at `124.124s`
-     - `#20` at `192.693s`
-     - `#22` at `202.002s`
-   - the accepted read is:
-     - these rejected frames are already live exchanges, not serve prep
-     - the ball is already on the table / no one is holding the ball
-3. `[doing]` retune only the independent `YOLO player` start miner / selector from the reviewed `set1` + `set2` start sets
+1. `[done]` lock the independent `YOLO player` starter detector as accepted on checked `set1`, `set2`, `set3`, `set4`
+   - scope:
+     - `starter = rally + let`
+   - accepted counts:
+     - `set1 = 15`
+     - `set2 = 19`
+     - `set3 = 18`
+     - `set4 = 23`
+   - latest pushed checkpoint:
+     - commit `5e94835`
+     - `Detect accurate starters for all 4 sets (server + let)`
+   - latest targeted regression:
+     - `31 passed, 1 warning`
+2. `[doing]` treat the current starter detector as frozen guardrail while implementing `LET` subtraction
    - do not retune `table / ROI-first`
    - do not retune `ball tracking V0`
-   - keep `44.845s` rejected while recovering more obvious starts
-   - keep the `set2` live-exchange false positives rejected:
-     - `29.062`
-     - `56.323`
-     - `111.979`
-     - `124.124`
-     - `192.693`
-     - `202.002`
-4. `[doing]` rerun `set1`, `set3`, and `set4` on the post-`set2` selector snapshot before promoting the new guard
-   - accept the tuning only if those clips do not regress on reviewed boundaries
-   - current `set3` probe result on the latest safe snapshot:
-     - improved from `24` to `18`
-     - removed reviewed false positives:
-       - `70.504`
-       - `109.776`
-       - `143.110`
-       - `144.811`
-       - `162.262`
-       - `198.498`
-     - remaining reviewed hard cases:
-       - `101.535`
-       - `160.227`
-       - `197.330`
-   - keep `set2` frozen as the guardrail:
-     - latest `set2` stayed `16`
-     - no `set2` timestamps changed versus the accepted `v15` probe
-5. `[doing]` measure whether `start_count` is a good proxy for `rally + let` on reviewed clips
-6. `[todo]` add the next-pass `LET` detector and compute:
+   - do not reopen accepted `set1..4` starter boundaries without new operator evidence
+3. `[doing]` infer `serve mode` from the accepted `starter_role` sequence on the reviewed `set1..4` suite
+   - compare `double-serve` vs `single-serve` fit on the whole starter sequence
+   - use the chosen serve mode to determine the legal max same-server run length
+4. `[doing]` convert same-server runs into mandatory `LET` counts under the current serve mode
+   - `double-serve mode`:
+     - forced `LET count = max(0, run_len - 2)`
+   - `single-serve mode`:
+     - forced `LET count = max(0, run_len - 1)`
+5. `[todo]` add the next-pass `LET` localizer and compute:
    - `total rallies = total starts - total LET`
-7. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
-8. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage
+   - use pose / timing evidence only to choose which starter(s) inside a forced run are the actual `LET`
+6. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
+7. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage

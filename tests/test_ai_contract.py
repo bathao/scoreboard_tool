@@ -48,3 +48,19 @@ def test_to_core_rally_events_skips_non_scoring_let_points():
     assert [event.winner for event in core] == ["player_a", "player_b"]
     assert [event.timestamp for event in core] == [2.0, 6.0]
     assert draft.build_summary()["non_scoring_rallies"] == 1
+
+
+def test_draft_point_event_roundtrip_preserves_starter_role():
+    point = DraftPointEvent(
+        id="pt_0001",
+        t_start=1.0,
+        t_end=2.0,
+        starter_role="B",
+        winner="unknown",
+        confidence=0.8,
+        flags=["player_only"],
+    )
+
+    restored = DraftPointEvent.from_dict(point.to_dict())
+
+    assert restored.starter_role == "B"

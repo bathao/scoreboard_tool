@@ -11,6 +11,7 @@ class RallySegment:
     t_end: float
     confidence: float
     flags: List[str]
+    server_role: str | None = None
 
 
 def _merge_contiguous_artifact_runs(

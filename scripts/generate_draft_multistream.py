@@ -87,6 +87,7 @@ def build_draft(
                 id=f"pt_{i:04d}",
                 t_start=float(seg.t_start),
                 t_end=float(seg.t_end),
+                starter_role=(str(seg.server_role) if getattr(seg, "server_role", None) in {"A", "B"} else None),
                 winner="unknown",
                 confidence=float(seg.confidence),
                 flags=sorted(set(flags)),

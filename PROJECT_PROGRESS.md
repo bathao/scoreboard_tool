@@ -24,10 +24,18 @@ Do not use this file as the long-term architecture spec.
   - production draft path remains table-first
   - current local work-cycle started from checkpoint:
     - commit `e7ea372`
+    - `started changing rally detection algorithm in the independent YOLO player path`
+  - current accepted independent `YOLO player` starter baseline on checked sets:
+    - `set1 = 15`
+    - `set2 = 19`
+    - `set3 = 18`
+    - `set4 = 23`
+    - scope:
+      - `starter = rally + let`
     - `bắt đầu đổi thuật toán dettect rally = yolo player`
   - last pushed checkpoint:
-    - commit `6764139`
-    - `Add ball-only rally benchmark and Qwen review tooling`
+    - commit `5e94835`
+    - `Detect accurate starters for all 4 sets (server + let)`
   - experimental multistream code now includes:
     - role-aware table refinement
     - standalone `player-only` draft mode for benchmark-only compare
@@ -57,7 +65,7 @@ Do not use this file as the long-term architecture spec.
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
   - latest targeted multistream + contract tests:
-    - `28 passed, 1 warning`
+    - `31 passed, 1 warning`
   - tracker tests:
     - `15 passed, 1 warning`
   - latest previously confirmed full suite:
@@ -65,10 +73,36 @@ Do not use this file as the long-term architecture spec.
   - note:
     - targeted tests were re-run on `2026-03-24` with `.venv\Scripts\python.exe -m pytest`
     - the warning remains a `.pytest_cache` permission warning inside the workspace
-    - no fresh full-suite rerun was completed after local HEAD `e7ea372`
+    - no fresh full-suite rerun was completed after local HEAD `5e94835`
 
 ## Work Log - `2026-03-24`
 ### Experiments That Passed
+- `independent YOLO player starter detector accepted on checked set1..4`
+  - final accepted starter counts on the checked set suite are now:
+    - `set1 = 15`
+    - `set2 = 19`
+    - `set3 = 18`
+    - `set4 = 23`
+  - scope of this acceptance:
+    - `starter = rally + let`
+    - only for the independent `multistream / YOLO player-signal` path
+  - the last `set4` duplicate false positive at `4.872s` was removed
+  - latest accepted `set4` review artifact:
+    - `debug_report/Vinh_set4_rally_start_candidates_feedback_probe_v2/`
+  - latest accepted probe artifacts:
+    - `matches/Vinh_set1_stage1_player_independent_sandwich_set4_feedback_probe_v2.json`
+    - `matches/Vinh_set2_stage1_player_independent_sandwich_set4_feedback_probe_v2.json`
+    - `matches/Vinh_set3_stage1_player_independent_sandwich_set4_feedback_probe_v2.json`
+    - `matches/Vinh_set4_stage1_player_independent_sandwich_set4_feedback_probe_v2.json`
+  - regression remembered:
+    - `set1 / set2 / set3` stayed exactly unchanged on timestamp lists while fixing `set4`
+  - targeted regression after the final guard:
+    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+    - result:
+      - `31 passed, 1 warning`
+  - committed and pushed checkpoint:
+    - commit `5e94835`
+    - `Detect accurate starters for all 4 sets (server + let)`
 - `set2 v14 operator review ingestion`
   - saved operator feedback at:
     - `debug_report/Vinh_set2_rally_start_candidates_v14_review/operator_feedback.json`
@@ -890,6 +924,14 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
 1. Start from the current code where:
    - production draft baseline is still `table / ROI-first`
    - tracker baseline is still `v12 deferred seed bootstrap`
+   - the independent `YOLO player` starter detector is now accepted on checked `set1..4`:
+     - `set1 = 15`
+     - `set2 = 19`
+     - `set3 = 18`
+     - `set4 = 23`
+     - current pushed checkpoint:
+       - commit `5e94835`
+       - `Detect accurate starters for all 4 sets (server + let)`
    - Stage 1 now has 3 explicit detector paths:
      - `table / ROI-first` as the already-existing reference detector
    - `multistream / YOLO player-signal` as an experimental independent detector now benchmarked on `set1..4`
@@ -897,9 +939,8 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
    - conservative `table_ball_refined` remains experimental
    - local `Qwen` review scripts exist and split-candidate extraction can run in `--skip-models` mode
    - the `player` path has been temporarily reframed from `full-rally state machine` to `start-first`
-   - current kept start-image artifacts are:
-     - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
-     - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
+   - current kept start-image artifact for the latest accepted `set4` snapshot is:
+     - `debug_report/Vinh_set4_rally_start_candidates_feedback_probe_v2/`
 2. Do not re-open `table / ROI-first` as if it still needs to be created:
    - it already exists
    - use it as detector `#1` in the Stage 1 compare / fusion plan
@@ -907,16 +948,18 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
    - do not change `table / ROI-first` in this cycle
    - do not retune `ball tracking V0` in this cycle
    - use both only as fixed references while debugging `player`
-   - change the rally algorithm only in the independent `YOLO player` path
-   - first review the saved `12` `set1` start images and label each as:
-     - `correct`
-     - `early`
-     - `late`
-     - `false positive`
-   - use that labeled `set1` review set to retune only the `player` start miner / selector
-   - keep improving the `player` `Toss & Serve` start-image detector first
+   - keep the accepted `set1..4` starter detector frozen as the current guardrail
    - use that detector to estimate `start_count = rally + let`
    - add `LET` subtraction as the next pass
+   - infer `serve mode` first from the accepted `starter_role` sequence:
+     - `double-serve mode` if the sequence fits pre-`10-10` serving better
+     - `single-serve mode` if the sequence fits post-`10-10` serving better
+   - then convert each same-server run into a forced `LET` count:
+     - `double-serve mode`:
+       - `forced LET = max(0, run_len - 2)`
+     - `single-serve mode`:
+       - `forced LET = max(0, run_len - 1)`
+   - only after that, use pose / timing cues to localize which starter(s) inside the run are the actual `LET`
    - only then redefine `active` between consecutive starts
 4. After the `player` start-first branch is stable enough:
    - compare `table`, `multistream`, and standalone `ball-only` on the same reviewed sets

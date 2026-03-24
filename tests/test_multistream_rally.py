@@ -1303,7 +1303,7 @@ def test_build_draft_player_mode_disables_ball_streams(monkeypatch):
 
     def fake_detect_multistream_rallies(signals, *, mode):
         assert mode == "player"
-        return [RallySegment(t_start=0.5, t_end=2.0, confidence=0.78, flags=["player_only"])]
+        return [RallySegment(t_start=0.5, t_end=2.0, confidence=0.78, flags=["player_only"], server_role="B")]
 
     monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
@@ -1324,5 +1324,6 @@ def test_build_draft_player_mode_disables_ball_streams(monkeypatch):
     assert "player_only" in draft.points[0].flags
     assert "player_signal_role_tracker" in draft.points[0].flags
     assert "ball_signal_none" in draft.points[0].flags
+    assert draft.points[0].starter_role == "B"
     assert draft.analysis_metadata["detector_mode"] == "player"
     assert draft.to_dict()["summary"]["total_rallies"] == 1

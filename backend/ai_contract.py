@@ -28,6 +28,7 @@ class DraftPointEvent:
     id: str
     t_start: float
     t_end: float
+    starter_role: Optional[str] = None
     winner: DraftWinner = "unknown"
     confidence: float = 0.0
     flags: List[str] = field(default_factory=list)
@@ -58,6 +59,7 @@ class DraftPointEvent:
             id=str(d["id"]),
             t_start=float(d["t_start"]),
             t_end=float(d["t_end"]),
+            starter_role=(None if d.get("starter_role") in (None, "") else str(d.get("starter_role"))),
             winner=str(d.get("winner", "unknown")),  # type: ignore
             confidence=float(d.get("confidence", 0.0)),
             flags=list(d.get("flags", [])),
