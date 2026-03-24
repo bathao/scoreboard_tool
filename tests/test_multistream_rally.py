@@ -3,6 +3,7 @@ import numpy as np
 import scripts.generate_draft_multistream as generate_draft_multistream
 from backend.ai_multistream_rally import MultiStreamSignals, detect_multistream_rallies
 from backend.ai_multistream_rally import (
+    _dedupe_player_sandwich_start_candidates,
     _detect_player_sandwich_rallies,
     _detect_player_sandwich_rallies_from_diagnostics,
     _merge_player_start_candidates,
@@ -743,6 +744,72 @@ def test_player_start_candidate_merge_keeps_clean_prep_anchor_over_later_same_ro
     assert merged[0].episode_end_sample_idx == 16
     assert merged[0].episode_peak_sample_idx == 15
     assert merged[0].episode_peak_score == 0.932
+
+
+def test_player_sandwich_dedupe_rejects_same_role_live_followup_after_true_start():
+    timestamps = np.asarray([i * 0.2 for i in range(40)], dtype=np.float32)
+    confirmed_candidates = [
+        PlayerRallyStartCandidate(
+            sample_idx=15,
+            timestamp=float(timestamps[15]),
+            role="B",
+            score=0.684,
+            prep_score=0.794,
+            launch_score=0.328,
+            opponent_ready_score=0.649,
+            dominance_ratio=2.187,
+            episode_start_sample_idx=12,
+            episode_end_sample_idx=23,
+            episode_peak_sample_idx=22,
+            episode_peak_score=0.925,
+            crouch_score=0.872,
+            reach_score=0.668,
+            serve_score=0.184,
+            upper_body_score=0.171,
+            footwork_score=0.442,
+            ready_pair_score=0.556,
+            pre_ready_mean=0.571,
+            pre_live_peak=0.627,
+            server_action_score=0.345,
+            server_peak_score=0.925,
+            server_growth_score=0.580,
+            server_peak_delay_sec=0.200,
+            receiver_peak_score=0.665,
+            live_peak_score=1.000,
+        ),
+        PlayerRallyStartCandidate(
+            sample_idx=24,
+            timestamp=float(timestamps[24]),
+            role="B",
+            score=0.729,
+            prep_score=0.824,
+            launch_score=0.418,
+            opponent_ready_score=0.710,
+            dominance_ratio=1.189,
+            episode_start_sample_idx=24,
+            episode_end_sample_idx=27,
+            episode_peak_sample_idx=26,
+            episode_peak_score=1.000,
+            crouch_score=1.000,
+            reach_score=0.537,
+            serve_score=0.365,
+            upper_body_score=0.482,
+            footwork_score=0.229,
+            ready_pair_score=0.670,
+            pre_ready_mean=0.377,
+            pre_live_peak=1.000,
+            server_action_score=0.482,
+            server_peak_score=1.000,
+            server_growth_score=0.518,
+            server_peak_delay_sec=0.500,
+            receiver_peak_score=1.000,
+            live_peak_score=1.000,
+        ),
+    ]
+
+    deduped = _dedupe_player_sandwich_start_candidates(timestamps, confirmed_candidates)
+
+    assert [(candidate.role, candidate.sample_idx) for candidate in deduped] == [("B", 15)]
 
 
 def test_player_sandwich_selector_rejects_already_live_exchange_false_positive():

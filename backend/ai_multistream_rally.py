@@ -191,7 +191,9 @@ def _merge_player_start_candidates(
             and prev.reach_score >= 0.58
             and prev_prep_margin >= 0.18
             and prev.launch_score <= 0.46
-            and prev_action <= 0.44
+            and prev.serve_score <= 0.45
+            and prev.upper_body_score <= 0.45
+            and prev.footwork_score <= 0.78
             and curr.timestamp > prev.timestamp
             and curr_action >= 0.56
             and curr_action >= (prev_action + 0.12)
@@ -228,6 +230,68 @@ def _merge_player_start_candidates(
         merged.append(candidate)
 
     return merged
+
+
+def _dedupe_player_sandwich_start_candidates(
+    timestamps: np.ndarray,
+    confirmed_candidates: List[PlayerRallyStartCandidate],
+) -> List[PlayerRallyStartCandidate]:
+    if not confirmed_candidates:
+        return []
+
+    deduped_candidates: List[PlayerRallyStartCandidate] = []
+    for candidate in confirmed_candidates:
+        if deduped_candidates:
+            prev = deduped_candidates[-1]
+            gap_sec = float(candidate.timestamp - prev.timestamp)
+            prev_end_idx = max(0, min(int(prev.episode_end_sample_idx), len(timestamps) - 1))
+            curr_start_idx = max(0, min(int(candidate.episode_start_sample_idx), len(timestamps) - 1))
+            episode_gap_sec = float(timestamps[curr_start_idx] - timestamps[prev_end_idx])
+            followup_duplicate_pattern = bool(
+                gap_sec <= 3.0
+                and candidate.pre_live_peak >= 0.70
+                and candidate.pre_ready_mean <= 0.25
+                and candidate.live_peak_score >= 0.95
+            )
+            upright_duplicate_pattern = bool(
+                gap_sec <= 4.0
+                and candidate.pre_live_peak <= 0.45
+                and candidate.pre_ready_mean >= 0.40
+                and candidate.receiver_peak_score >= 0.90
+                and candidate.live_peak_score >= 0.95
+                and candidate.crouch_score <= 0.75
+            )
+            low_dominance_duplicate_pattern = bool(
+                gap_sec <= 2.5
+                and candidate.pre_live_peak >= 0.75
+                and candidate.launch_score >= 0.50
+                and candidate.dominance_ratio <= 1.30
+                and candidate.live_peak_score >= 0.78
+            )
+            same_role_live_followup_duplicate_pattern = bool(
+                prev.role == candidate.role
+                and gap_sec <= 2.2
+                and episode_gap_sec <= 0.35
+                and prev.live_peak_score >= 0.95
+                and prev.server_peak_score >= 0.85
+                and candidate.pre_live_peak >= 0.95
+                and candidate.pre_ready_mean <= 0.40
+                and candidate.ready_pair_score >= 0.60
+                and candidate.server_action_score >= 0.44
+                and candidate.receiver_peak_score >= 0.95
+                and candidate.live_peak_score >= 0.95
+                and candidate.dominance_ratio <= 1.30
+            )
+            if (
+                followup_duplicate_pattern
+                or upright_duplicate_pattern
+                or low_dominance_duplicate_pattern
+                or same_role_live_followup_duplicate_pattern
+            ):
+                continue
+        deduped_candidates.append(candidate)
+
+    return deduped_candidates
 
 
 def _calc_wrist_velocity(
@@ -1752,6 +1816,78 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.55
             and 0.50 <= candidate.live_peak_score <= 0.78
         )
+        high_prelive_context_start_rescue = bool(
+            candidate.prep_score >= 0.80
+            and candidate.launch_score <= 0.40
+            and candidate.serve_score <= 0.33
+            and candidate.upper_body_score <= 0.35
+            and candidate.footwork_score <= 0.30
+            and candidate.dominance_ratio >= 1.75
+            and candidate.ready_pair_score >= 0.52
+            and candidate.pre_ready_mean >= 0.19
+            and candidate.pre_live_peak >= 0.95
+            and candidate.server_action_score <= 0.35
+            and candidate.server_peak_score >= 0.85
+            and candidate.server_growth_score >= 0.50
+            and candidate.server_peak_delay_sec >= 0.30
+            and candidate.live_peak_score >= 0.95
+        )
+        low_live_floor_rescue = bool(
+            candidate.prep_score >= 0.75
+            and candidate.launch_score <= 0.42
+            and candidate.ready_pair_score >= 0.55
+            and candidate.opponent_ready_score >= 0.55
+            and candidate.pre_live_peak <= 0.35
+            and candidate.server_action_score <= 0.37
+            and candidate.server_peak_score >= 0.60
+            and candidate.server_growth_score >= 0.40
+            and candidate.server_peak_delay_sec >= 0.13
+            and candidate.receiver_peak_score >= 0.40
+            and 0.74 <= candidate.live_peak_score <= 0.78
+        )
+        marginal_reach_start_rescue = bool(
+            candidate.prep_score >= 0.70
+            and candidate.launch_score <= 0.42
+            and candidate.reach_score >= 0.54
+            and candidate.opponent_ready_score >= 0.45
+            and candidate.dominance_ratio >= 2.0
+            and candidate.ready_pair_score >= 0.40
+            and candidate.pre_ready_mean >= 0.40
+            and candidate.pre_live_peak <= 0.50
+            and candidate.server_action_score <= 0.46
+            and candidate.server_peak_score >= 0.75
+            and candidate.server_growth_score >= 0.30
+            and candidate.server_peak_delay_sec >= 0.20
+            and candidate.live_peak_score >= 0.95
+        )
+        opening_live_context_rescue = bool(
+            candidate.prep_score >= 0.82
+            and candidate.crouch_score >= 0.98
+            and candidate.reach_score >= 0.53
+            and candidate.ready_pair_score >= 0.65
+            and candidate.pre_ready_mean >= 0.35
+            and candidate.pre_live_peak >= 0.98
+            and candidate.launch_score <= 0.44
+            and candidate.server_action_score <= 0.50
+            and candidate.server_peak_score >= 0.95
+            and candidate.server_growth_score >= 0.50
+            and candidate.server_peak_delay_sec >= 0.40
+            and candidate.receiver_peak_score >= 0.95
+            and candidate.live_peak_score >= 0.95
+        )
+        dynamic_footwork_start_rescue = bool(
+            candidate.prep_score >= 0.84
+            and candidate.crouch_score >= 0.95
+            and candidate.launch_score <= 0.48
+            and candidate.footwork_score >= 0.70
+            and 0.50 <= candidate.server_action_score <= 0.60
+            and candidate.pre_ready_mean >= 0.30
+            and candidate.pre_live_peak >= 0.70
+            and candidate.dominance_ratio >= 1.20
+            and candidate.receiver_peak_score <= 0.45
+            and candidate.live_peak_score >= 0.98
+            and candidate.server_peak_delay_sec >= 0.60
+        )
         # Some real serves briefly lose receiver-ready confidence exactly at trigger time
         # even though the receiver was ready just beforehand and the rally confirms cleanly.
         receiver_ready_dropout_rescue = bool(
@@ -1805,6 +1941,9 @@ def _select_player_sandwich_start_candidates(
         elif receiver_ready_dropout_rescue or late_reset_dropout_rescue:
             if candidate.reach_score < 0.50:
                 return False
+        elif marginal_reach_start_rescue or opening_live_context_rescue:
+            if candidate.reach_score < 0.53:
+                return False
         elif quick_abort_start_rescue:
             if candidate.reach_score < min_reach_score:
                 return False
@@ -1824,6 +1963,8 @@ def _select_player_sandwich_start_candidates(
             and candidate.server_action_score >= 0.34
             and max(candidate.launch_score, candidate.upper_body_score, candidate.footwork_score) >= 0.36
             and not strong_followup_start_exception
+            and not dynamic_footwork_start_rescue
+            and not opening_live_context_rescue
         )
         already_live_attack_pattern = bool(
             candidate.pre_live_peak >= 0.84
@@ -1904,6 +2045,11 @@ def _select_player_sandwich_start_candidates(
             or strong_live_context_start_rescue
             or quick_abort_start_rescue
             or late_reset_dropout_rescue
+            or high_prelive_context_start_rescue
+            or low_live_floor_rescue
+            or marginal_reach_start_rescue
+            or opening_live_context_rescue
+            or dynamic_footwork_start_rescue
         ) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
             return False
         if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
@@ -1912,7 +2058,7 @@ def _select_player_sandwich_start_candidates(
             return False
         if candidate.server_peak_delay_sec <= min_server_peak_delay_sec:
             return False
-        if not quick_abort_start_rescue and (candidate.receiver_peak_score < min_receiver_peak or candidate.live_peak_score < min_live_peak):
+        if not (quick_abort_start_rescue or low_live_floor_rescue) and (candidate.receiver_peak_score < min_receiver_peak or candidate.live_peak_score < min_live_peak):
             return False
         if quick_abort_start_rescue and candidate.receiver_peak_score < 0.55:
             return False
@@ -1924,7 +2070,10 @@ def _select_player_sandwich_start_candidates(
         return []
 
     enriched_candidates = [enrich_candidate(candidate) for candidate in start_candidates]
-    return [candidate for candidate in enriched_candidates if start_is_confirmed(candidate)]
+    confirmed_candidates = [candidate for candidate in enriched_candidates if start_is_confirmed(candidate)]
+    if not confirmed_candidates:
+        return []
+    return _dedupe_player_sandwich_start_candidates(diagnostics.timestamps, confirmed_candidates)
 
 
 def _detect_player_sandwich_rallies_from_diagnostics(
