@@ -142,6 +142,94 @@ class PlayerRallyStartCandidate:
     live_peak_score: float = 0.0
 
 
+def _merge_player_start_candidates(
+    timestamps: np.ndarray,
+    candidates: List[PlayerRallyStartCandidate],
+    *,
+    same_role_merge_window_sec: float = 1.20,
+    cross_role_merge_window_sec: float = 0.70,
+) -> List[PlayerRallyStartCandidate]:
+    if not candidates:
+        return []
+
+    sorted_candidates = sorted(candidates, key=lambda item: item.timestamp)
+
+    def cluster_gap_seconds(prev: PlayerRallyStartCandidate, curr: PlayerRallyStartCandidate) -> float:
+        prev_end_idx = max(0, min(int(prev.episode_end_sample_idx), len(timestamps) - 1))
+        curr_start_idx = max(0, min(int(curr.episode_start_sample_idx), len(timestamps) - 1))
+        return float(timestamps[curr_start_idx] - timestamps[prev_end_idx])
+
+    def merge_cluster(
+        representative: PlayerRallyStartCandidate,
+        other: PlayerRallyStartCandidate,
+    ) -> PlayerRallyStartCandidate:
+        peak_idx = representative.episode_peak_sample_idx
+        peak_score = representative.episode_peak_score
+        if other.episode_peak_score > peak_score:
+            peak_idx = other.episode_peak_sample_idx
+            peak_score = other.episode_peak_score
+        return replace(
+            representative,
+            episode_start_sample_idx=min(representative.episode_start_sample_idx, other.episode_start_sample_idx),
+            episode_end_sample_idx=max(representative.episode_end_sample_idx, other.episode_end_sample_idx),
+            episode_peak_sample_idx=int(peak_idx),
+            episode_peak_score=float(peak_score),
+        )
+
+    def keep_earlier_prep_anchor(
+        prev: PlayerRallyStartCandidate,
+        curr: PlayerRallyStartCandidate,
+    ) -> bool:
+        peak_lead = int(prev.episode_peak_sample_idx) - int(prev.sample_idx)
+        prev_prep_margin = float(prev.prep_score - prev.launch_score)
+        prev_action = max(prev.launch_score, prev.serve_score, prev.upper_body_score, prev.footwork_score)
+        curr_action = max(curr.launch_score, curr.serve_score, curr.upper_body_score, curr.footwork_score)
+        return bool(
+            peak_lead >= 1
+            and prev.prep_score >= 0.72
+            and prev.crouch_score >= 0.68
+            and prev.reach_score >= 0.58
+            and prev_prep_margin >= 0.18
+            and prev.launch_score <= 0.46
+            and prev_action <= 0.44
+            and curr.timestamp > prev.timestamp
+            and curr_action >= 0.56
+            and curr_action >= (prev_action + 0.12)
+        )
+
+    merged: List[PlayerRallyStartCandidate] = []
+    for candidate in sorted_candidates:
+        if merged:
+            prev = merged[-1]
+            if candidate.role == prev.role:
+                timestamp_gap_sec = float(candidate.timestamp - prev.timestamp)
+                extend_merge_for_prep_anchor = bool(
+                    timestamp_gap_sec >= same_role_merge_window_sec
+                    and cluster_gap_seconds(prev, candidate) < same_role_merge_window_sec
+                    and keep_earlier_prep_anchor(prev, candidate)
+                )
+                should_merge = timestamp_gap_sec < same_role_merge_window_sec or extend_merge_for_prep_anchor
+                if should_merge:
+                    if keep_earlier_prep_anchor(prev, candidate):
+                        merged[-1] = merge_cluster(prev, candidate)
+                        continue
+                    prev_rank = (prev.episode_peak_score, prev.score, prev.launch_score)
+                    curr_rank = (candidate.episode_peak_score, candidate.score, candidate.launch_score)
+                    representative = candidate if curr_rank > prev_rank else prev
+                    merged[-1] = merge_cluster(representative, candidate if representative is prev else prev)
+                    continue
+            else:
+                if (candidate.timestamp - prev.timestamp) < cross_role_merge_window_sec:
+                    prev_rank = (prev.episode_peak_score, prev.score, prev.launch_score)
+                    curr_rank = (candidate.episode_peak_score, candidate.score, candidate.launch_score)
+                    if curr_rank > prev_rank:
+                        merged[-1] = candidate
+                    continue
+        merged.append(candidate)
+
+    return merged
+
+
 def _calc_wrist_velocity(
     curr_kpts: np.ndarray,
     prev_kpts: np.ndarray | None,
@@ -1437,20 +1525,12 @@ def _compute_player_rally_start_candidates(
     )
     candidates.sort(key=lambda item: item.timestamp)
 
-    merged: List[PlayerRallyStartCandidate] = []
-    for candidate in candidates:
-        if merged:
-            prev = merged[-1]
-            merge_window_sec = same_role_merge_window_sec if candidate.role == prev.role else cross_role_merge_window_sec
-            if (candidate.timestamp - prev.timestamp) < merge_window_sec:
-                prev_rank = (prev.episode_peak_score, prev.score, prev.launch_score)
-                curr_rank = (candidate.episode_peak_score, candidate.score, candidate.launch_score)
-                if curr_rank > prev_rank:
-                    merged[-1] = candidate
-                continue
-        merged.append(candidate)
-
-    return merged
+    return _merge_player_start_candidates(
+        ts,
+        candidates,
+        same_role_merge_window_sec=same_role_merge_window_sec,
+        cross_role_merge_window_sec=cross_role_merge_window_sec,
+    )
 
 
 def _select_player_sandwich_start_candidates(
@@ -1637,6 +1717,24 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.80
             and candidate.live_peak_score >= 0.82
         )
+        strong_live_context_start_rescue = bool(
+            candidate.prep_score >= 0.88
+            and candidate.launch_score <= 0.38
+            and candidate.serve_score <= 0.22
+            and candidate.upper_body_score <= 0.30
+            and candidate.footwork_score <= 0.45
+            and candidate.server_action_score <= 0.35
+            and candidate.dominance_ratio >= 2.0
+            and candidate.ready_pair_score >= 0.45
+            and candidate.opponent_ready_score >= 0.45
+            and candidate.pre_ready_mean >= 0.40
+            and candidate.pre_live_peak >= 0.95
+            and candidate.server_peak_score >= 0.95
+            and candidate.server_growth_score >= 0.60
+            and candidate.server_peak_delay_sec >= 0.40
+            and candidate.receiver_peak_score >= 0.28
+            and candidate.live_peak_score >= 0.98
+        )
         # Some real serves briefly lose receiver-ready confidence exactly at trigger time
         # even though the receiver was ready just beforehand and the rally confirms cleanly.
         receiver_ready_dropout_rescue = bool(
@@ -1657,6 +1755,13 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.55
             and candidate.live_peak_score >= 0.88
         )
+        strong_followup_start_exception = bool(
+            candidate.prep_score >= 0.85
+            and candidate.opponent_ready_score >= 0.50
+            and candidate.ready_pair_score >= 0.45
+            and candidate.dominance_ratio >= 1.45
+            and candidate.footwork_score <= 0.40
+        )
         if candidate.score < min_candidate_score or candidate.crouch_score < min_crouch_score:
             return False
         if clean_prep_rescue:
@@ -1673,7 +1778,24 @@ def _select_player_sandwich_start_candidates(
             and candidate.dominance_ratio < 1.70
             and (candidate.upper_body_score >= 0.46 or candidate.footwork_score >= 0.46)
         )
-        if aggressive_stroke_pattern:
+        already_live_exchange_pattern = bool(
+            candidate.pre_live_peak >= 0.48
+            and candidate.live_peak_score >= 0.92
+            and candidate.pre_ready_mean <= 0.40
+            and candidate.dominance_ratio <= 1.55
+            and candidate.server_action_score >= 0.34
+            and max(candidate.launch_score, candidate.upper_body_score, candidate.footwork_score) >= 0.36
+            and not strong_followup_start_exception
+        )
+        already_live_attack_pattern = bool(
+            candidate.pre_live_peak >= 0.84
+            and candidate.pre_ready_mean <= 0.24
+            and candidate.opponent_ready_score <= 0.42
+            and candidate.launch_score >= 0.56
+            and candidate.server_action_score >= 0.62
+            and candidate.upper_body_score >= 0.60
+        )
+        if aggressive_stroke_pattern or already_live_exchange_pattern or already_live_attack_pattern:
             return False
         if candidate.opponent_ready_score < min_opponent_ready_score and not (clean_prep_rescue or receiver_ready_dropout_rescue):
             return False
@@ -1691,7 +1813,7 @@ def _select_player_sandwich_start_candidates(
             return False
 
         ready_context = max(candidate.pre_ready_mean, 0.88 * candidate.ready_pair_score)
-        if not (clean_prep_rescue or receiver_ready_dropout_rescue) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
+        if not (clean_prep_rescue or receiver_ready_dropout_rescue or strong_live_context_start_rescue) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
             return False
         if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
             return False

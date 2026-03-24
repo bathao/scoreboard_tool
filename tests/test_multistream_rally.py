@@ -5,7 +5,9 @@ from backend.ai_multistream_rally import MultiStreamSignals, detect_multistream_
 from backend.ai_multistream_rally import (
     _detect_player_sandwich_rallies,
     _detect_player_sandwich_rallies_from_diagnostics,
+    _merge_player_start_candidates,
     PlayerStateMachineDiagnostics,
+    PlayerRallyStartCandidate,
     _build_role_energy_series,
     _compute_player_rally_start_candidates,
     _compute_player_state_machine_diagnostics,
@@ -652,6 +654,158 @@ def test_player_sandwich_selector_rescues_true_start_when_receiver_ready_drops_a
     assert selected[0].pre_ready_mean >= 0.16
     assert selected[0].server_peak_score >= 0.90
     assert selected[0].receiver_peak_score >= 0.55
+
+
+def test_player_start_candidate_merge_keeps_clean_prep_anchor_over_later_same_role_burst():
+    timestamps = np.asarray([i * 0.2 for i in range(24)], dtype=np.float32)
+    candidates = [
+        PlayerRallyStartCandidate(
+            sample_idx=4,
+            timestamp=float(timestamps[4]),
+            role="B",
+            score=0.596,
+            prep_score=0.657,
+            launch_score=0.380,
+            opponent_ready_score=0.420,
+            dominance_ratio=1.180,
+            episode_start_sample_idx=4,
+            episode_end_sample_idx=4,
+            episode_peak_sample_idx=4,
+            episode_peak_score=0.620,
+            crouch_score=0.670,
+            reach_score=0.560,
+            serve_score=0.286,
+            upper_body_score=0.303,
+            footwork_score=0.486,
+        ),
+        PlayerRallyStartCandidate(
+            sample_idx=7,
+            timestamp=float(timestamps[7]),
+            role="B",
+            score=0.669,
+            prep_score=0.756,
+            launch_score=0.409,
+            opponent_ready_score=0.410,
+            dominance_ratio=1.360,
+            episode_start_sample_idx=7,
+            episode_end_sample_idx=10,
+            episode_peak_sample_idx=8,
+            episode_peak_score=0.752,
+            crouch_score=0.790,
+            reach_score=0.770,
+            serve_score=0.369,
+            upper_body_score=0.282,
+            footwork_score=0.220,
+        ),
+        PlayerRallyStartCandidate(
+            sample_idx=12,
+            timestamp=float(timestamps[12]),
+            role="B",
+            score=0.733,
+            prep_score=0.742,
+            launch_score=0.848,
+            opponent_ready_score=0.300,
+            dominance_ratio=1.920,
+            episode_start_sample_idx=12,
+            episode_end_sample_idx=14,
+            episode_peak_sample_idx=13,
+            episode_peak_score=0.900,
+            crouch_score=0.740,
+            reach_score=0.860,
+            serve_score=0.915,
+            upper_body_score=0.851,
+            footwork_score=1.000,
+        ),
+        PlayerRallyStartCandidate(
+            sample_idx=15,
+            timestamp=float(timestamps[15]),
+            role="B",
+            score=0.709,
+            prep_score=0.724,
+            launch_score=0.581,
+            opponent_ready_score=0.320,
+            dominance_ratio=1.600,
+            episode_start_sample_idx=15,
+            episode_end_sample_idx=16,
+            episode_peak_sample_idx=15,
+            episode_peak_score=0.932,
+            crouch_score=0.720,
+            reach_score=0.740,
+            serve_score=0.611,
+            upper_body_score=0.621,
+            footwork_score=0.423,
+        ),
+    ]
+
+    merged = _merge_player_start_candidates(timestamps, candidates)
+
+    assert [(candidate.role, candidate.sample_idx) for candidate in merged] == [("B", 7)]
+    assert merged[0].episode_end_sample_idx == 16
+    assert merged[0].episode_peak_sample_idx == 15
+    assert merged[0].episode_peak_score == 0.932
+
+
+def test_player_sandwich_selector_rejects_already_live_exchange_false_positive():
+    timestamps = [i * 0.2 for i in range(20)]
+    n = len(timestamps)
+    motion_a = [0.02] * n
+    motion_b = [0.02] * n
+    crouch_a = [0.12] * n
+    crouch_b = [0.12] * n
+    serve_a = [0.02] * n
+    serve_b = [0.02] * n
+    upper_a = [0.02] * n
+    upper_b = [0.02] * n
+    foot_a = [0.02] * n
+    foot_b = [0.02] * n
+    reach_a = [0.14] * n
+    reach_b = [0.14] * n
+
+    crouch_a[0:4] = [0.86, 0.90, 0.96, 0.82]
+    crouch_b[0:4] = [0.84, 0.86, 0.82, 0.74]
+    reach_a[2:4] = [0.86, 0.74]
+    serve_a[2:4] = [0.42, 0.92]
+    upper_a[2:4] = [0.48, 0.88]
+    foot_a[2:4] = [0.36, 0.72]
+    motion_a[2:5] = [0.10, 0.26, 0.18]
+    upper_b[3:6] = [0.12, 0.44, 0.28]
+    foot_b[3:6] = [0.08, 0.38, 0.24]
+    motion_b[3:6] = [0.08, 0.34, 0.24]
+
+    crouch_a[9:14] = [0.58, 0.60, 0.62, 0.58, 0.44]
+    crouch_b[9:15] = [0.64, 0.66, 0.72, 0.76, 0.70, 0.48]
+    motion_a[9:15] = [0.28, 0.34, 0.38, 0.40, 0.36, 0.22]
+    motion_b[9:15] = [0.30, 0.34, 0.38, 0.42, 0.34, 0.20]
+    upper_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.18]
+    upper_b[9:15] = [0.24, 0.30, 0.34, 0.44, 0.86, 0.26]
+    foot_a[9:15] = [0.18, 0.24, 0.30, 0.34, 0.30, 0.16]
+    foot_b[9:15] = [0.20, 0.26, 0.30, 0.38, 0.66, 0.22]
+    serve_a[9:15] = [0.10, 0.14, 0.20, 0.22, 0.18, 0.08]
+    serve_b[9:15] = [0.12, 0.16, 0.24, 0.36, 0.74, 0.18]
+    reach_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.20]
+    reach_b[9:15] = [0.24, 0.30, 0.38, 0.86, 0.74, 0.36]
+
+    diagnostics = _player_diagnostics(
+        timestamps,
+        motion_a=motion_a,
+        motion_b=motion_b,
+        crouch_a=crouch_a,
+        crouch_b=crouch_b,
+        serve_a=serve_a,
+        serve_b=serve_b,
+        upper_a=upper_a,
+        upper_b=upper_b,
+        foot_a=foot_a,
+        foot_b=foot_b,
+        reach_a=reach_a,
+        reach_b=reach_b,
+    )
+
+    raw_candidates = _compute_player_rally_start_candidates(diagnostics)
+    selected = _select_player_sandwich_start_candidates(diagnostics)
+
+    assert [(candidate.role, candidate.sample_idx) for candidate in raw_candidates] == [("A", 2), ("B", 12)]
+    assert [(candidate.role, candidate.sample_idx) for candidate in selected] == [("A", 2)]
 
 
 def test_player_sandwich_detector_uses_reset_to_close_rallies():
