@@ -1735,6 +1735,23 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.28
             and candidate.live_peak_score >= 0.98
         )
+        quick_abort_start_rescue = bool(
+            candidate.prep_score >= 0.80
+            and candidate.crouch_score >= 0.90
+            and candidate.launch_score <= 0.52
+            and candidate.serve_score <= 0.40
+            and candidate.upper_body_score <= 0.46
+            and candidate.footwork_score <= 0.58
+            and candidate.ready_pair_score >= 0.45
+            and candidate.opponent_ready_score >= 0.55
+            and candidate.pre_ready_mean >= 0.20
+            and candidate.pre_live_peak >= 0.80
+            and candidate.server_action_score <= 0.46
+            and candidate.server_peak_score >= 0.46
+            and candidate.server_peak_delay_sec >= 0.06
+            and candidate.receiver_peak_score >= 0.55
+            and 0.50 <= candidate.live_peak_score <= 0.78
+        )
         # Some real serves briefly lose receiver-ready confidence exactly at trigger time
         # even though the receiver was ready just beforehand and the rally confirms cleanly.
         receiver_ready_dropout_rescue = bool(
@@ -1755,6 +1772,24 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.55
             and candidate.live_peak_score >= 0.88
         )
+        late_reset_dropout_rescue = bool(
+            candidate.prep_score >= 0.80
+            and candidate.launch_score <= 0.38
+            and candidate.serve_score <= 0.32
+            and candidate.upper_body_score <= 0.32
+            and candidate.footwork_score <= 0.34
+            and candidate.dominance_ratio >= 2.0
+            and candidate.ready_pair_score < min_ready_pair_score
+            and candidate.opponent_ready_score < min_opponent_ready_score
+            and candidate.pre_ready_mean >= 0.16
+            and candidate.pre_live_peak >= 0.95
+            and candidate.server_action_score <= 0.30
+            and candidate.server_peak_score >= 0.52
+            and candidate.server_growth_score >= 0.20
+            and candidate.server_peak_delay_sec >= 0.20
+            and candidate.receiver_peak_score >= 0.85
+            and candidate.live_peak_score >= 0.92
+        )
         strong_followup_start_exception = bool(
             candidate.prep_score >= 0.85
             and candidate.opponent_ready_score >= 0.50
@@ -1767,7 +1802,10 @@ def _select_player_sandwich_start_candidates(
         if clean_prep_rescue:
             if candidate.reach_score < 0.50:
                 return False
-        elif receiver_ready_dropout_rescue:
+        elif receiver_ready_dropout_rescue or late_reset_dropout_rescue:
+            if candidate.reach_score < 0.50:
+                return False
+        elif quick_abort_start_rescue:
             if candidate.reach_score < min_reach_score:
                 return False
         else:
@@ -1795,9 +1833,56 @@ def _select_player_sandwich_start_candidates(
             and candidate.server_action_score >= 0.62
             and candidate.upper_body_score >= 0.60
         )
-        if aggressive_stroke_pattern or already_live_exchange_pattern or already_live_attack_pattern:
+        weak_followup_live_pattern = bool(
+            candidate.pre_live_peak >= 0.48
+            and candidate.live_peak_score >= 0.86
+            and candidate.dominance_ratio <= 1.15
+            and candidate.ready_pair_score <= 0.32
+            and candidate.server_action_score <= 0.32
+            and candidate.receiver_peak_score <= 0.40
+            and candidate.prep_score <= 0.82
+        )
+        upright_live_reset_pattern = bool(
+            candidate.crouch_score <= 0.70
+            and candidate.prep_score <= 0.70
+            and candidate.launch_score >= 0.34
+            and candidate.pre_live_peak >= 0.60
+            and candidate.ready_pair_score >= 0.30
+            and candidate.server_action_score <= 0.38
+            and candidate.live_peak_score >= 0.90
+            and candidate.receiver_peak_score >= 0.35
+        )
+        low_dominance_attack_pattern = bool(
+            candidate.dominance_ratio <= 1.15
+            and candidate.launch_score >= 0.50
+            and candidate.footwork_score >= 0.55
+            and candidate.pre_live_peak >= 0.48
+            and candidate.server_action_score >= 0.44
+            and candidate.live_peak_score >= 0.80
+        )
+        live_reattack_pattern = bool(
+            candidate.pre_live_peak >= 0.85
+            and candidate.pre_ready_mean <= 0.36
+            and candidate.launch_score >= 0.50
+            and candidate.server_action_score >= 0.44
+            and candidate.live_peak_score >= 0.90
+            and candidate.receiver_peak_score >= 0.75
+        )
+        if (
+            aggressive_stroke_pattern
+            or already_live_exchange_pattern
+            or already_live_attack_pattern
+            or weak_followup_live_pattern
+            or upright_live_reset_pattern
+            or low_dominance_attack_pattern
+            or live_reattack_pattern
+        ):
             return False
-        if candidate.opponent_ready_score < min_opponent_ready_score and not (clean_prep_rescue or receiver_ready_dropout_rescue):
+        if candidate.opponent_ready_score < min_opponent_ready_score and not (
+            clean_prep_rescue
+            or receiver_ready_dropout_rescue
+            or late_reset_dropout_rescue
+        ):
             return False
         if (candidate.prep_score - candidate.launch_score) < min_prep_launch_margin:
             return False
@@ -1813,15 +1898,23 @@ def _select_player_sandwich_start_candidates(
             return False
 
         ready_context = max(candidate.pre_ready_mean, 0.88 * candidate.ready_pair_score)
-        if not (clean_prep_rescue or receiver_ready_dropout_rescue or strong_live_context_start_rescue) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
+        if not (
+            clean_prep_rescue
+            or receiver_ready_dropout_rescue
+            or strong_live_context_start_rescue
+            or quick_abort_start_rescue
+            or late_reset_dropout_rescue
+        ) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
             return False
         if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
             return False
-        if candidate.server_growth_score < min_server_growth:
+        if not quick_abort_start_rescue and candidate.server_growth_score < min_server_growth:
             return False
         if candidate.server_peak_delay_sec <= min_server_peak_delay_sec:
             return False
-        if candidate.receiver_peak_score < min_receiver_peak or candidate.live_peak_score < min_live_peak:
+        if not quick_abort_start_rescue and (candidate.receiver_peak_score < min_receiver_peak or candidate.live_peak_score < min_live_peak):
+            return False
+        if quick_abort_start_rescue and candidate.receiver_peak_score < 0.55:
             return False
 
         return True
