@@ -1637,67 +1637,45 @@ def _select_player_sandwich_start_candidates(
             and candidate.receiver_peak_score >= 0.80
             and candidate.live_peak_score >= 0.82
         )
-        strong_followup_start_exception = bool(
-            candidate.prep_score >= 0.85
-            and candidate.opponent_ready_score >= 0.50
-            and candidate.ready_pair_score >= 0.45
-            and candidate.dominance_ratio >= 1.45
-            and candidate.footwork_score <= 0.40
-        )
-        aggressive_stroke_pattern = bool(
-            candidate.launch_score >= 0.54
-            and candidate.dominance_ratio < 1.70
-            and (candidate.upper_body_score >= 0.46 or candidate.footwork_score >= 0.46)
-        )
-        already_live_exchange_pattern = bool(
-            candidate.pre_live_peak >= 0.48
-            and candidate.live_peak_score >= 0.92
-            and candidate.pre_ready_mean <= 0.40
-            and candidate.dominance_ratio <= 1.55
-            and candidate.server_action_score >= 0.34
-            and max(candidate.launch_score, candidate.upper_body_score, candidate.footwork_score) >= 0.36
-            and not strong_followup_start_exception
-        )
-        already_live_attack_pattern = bool(
-            candidate.pre_live_peak >= 0.84
-            and candidate.pre_ready_mean <= 0.24
-            and candidate.opponent_ready_score <= 0.42
-            and candidate.launch_score >= 0.56
-            and candidate.server_action_score >= 0.62
-            and candidate.upper_body_score >= 0.60
-        )
-        weak_opponent_mid_rally_pattern = bool(
-            candidate.dominance_ratio <= 1.20
-            and candidate.opponent_ready_score <= 0.35
-            and candidate.pre_ready_mean <= 0.34
-            and candidate.pre_live_peak >= 0.48
-            and candidate.server_action_score >= 0.28
-            and max(candidate.launch_score, candidate.footwork_score) >= 0.36
-        )
-        post_rally_freeze_pattern = bool(
-            candidate.dominance_ratio <= 1.15
-            and candidate.pre_live_peak >= 0.88
-            and candidate.server_action_score <= 0.30
+        # Some real serves briefly lose receiver-ready confidence exactly at trigger time
+        # even though the receiver was ready just beforehand and the rally confirms cleanly.
+        receiver_ready_dropout_rescue = bool(
+            candidate.prep_score >= 0.78
             and candidate.launch_score <= 0.40
-            and max(candidate.upper_body_score, candidate.footwork_score) <= 0.30
+            and candidate.serve_score <= 0.40
+            and candidate.upper_body_score <= 0.40
+            and candidate.footwork_score <= 0.48
+            and candidate.server_action_score <= 0.42
+            and candidate.dominance_ratio >= 1.75
+            and candidate.ready_pair_score < min_ready_pair_score
+            and candidate.opponent_ready_score < min_opponent_ready_score
+            and candidate.pre_ready_mean >= max(0.16, min_pre_ready_mean)
+            and candidate.pre_live_peak <= 0.80
+            and candidate.server_peak_score >= 0.90
+            and candidate.server_growth_score >= 0.24
+            and candidate.server_peak_delay_sec >= 0.08
+            and candidate.receiver_peak_score >= 0.55
+            and candidate.live_peak_score >= 0.88
         )
         if candidate.score < min_candidate_score or candidate.crouch_score < min_crouch_score:
             return False
         if clean_prep_rescue:
             if candidate.reach_score < 0.50:
                 return False
+        elif receiver_ready_dropout_rescue:
+            if candidate.reach_score < min_reach_score:
+                return False
         else:
             if candidate.reach_score < min_reach_score or candidate.ready_pair_score < min_ready_pair_score:
                 return False
-        if (
-            aggressive_stroke_pattern
-            or already_live_exchange_pattern
-            or already_live_attack_pattern
-            or weak_opponent_mid_rally_pattern
-            or post_rally_freeze_pattern
-        ):
+        aggressive_stroke_pattern = bool(
+            candidate.launch_score >= 0.54
+            and candidate.dominance_ratio < 1.70
+            and (candidate.upper_body_score >= 0.46 or candidate.footwork_score >= 0.46)
+        )
+        if aggressive_stroke_pattern:
             return False
-        if candidate.opponent_ready_score < min_opponent_ready_score and not clean_prep_rescue:
+        if candidate.opponent_ready_score < min_opponent_ready_score and not (clean_prep_rescue or receiver_ready_dropout_rescue):
             return False
         if (candidate.prep_score - candidate.launch_score) < min_prep_launch_margin:
             return False
@@ -1713,7 +1691,7 @@ def _select_player_sandwich_start_candidates(
             return False
 
         ready_context = max(candidate.pre_ready_mean, 0.88 * candidate.ready_pair_score)
-        if not clean_prep_rescue and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
+        if not (clean_prep_rescue or receiver_ready_dropout_rescue) and (ready_context < min_pre_ready_mean or candidate.pre_live_peak > max_pre_live_peak):
             return False
         if candidate.server_peak_score < max(swing_confirm_peak_thresh, min_server_peak):
             return False

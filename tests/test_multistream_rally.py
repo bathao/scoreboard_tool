@@ -579,45 +579,52 @@ def test_player_sandwich_selector_rejects_stroke_like_start_and_keeps_real_serve
     assert selected[0].live_peak_score >= 0.78
 
 
-def test_player_sandwich_selector_rejects_already_live_exchange_false_positive():
-    timestamps = [i * 0.2 for i in range(20)]
+def test_player_sandwich_selector_rescues_true_start_when_receiver_ready_drops_at_trigger_frame():
+    timestamps = [i * 0.2 for i in range(18)]
     n = len(timestamps)
     motion_a = [0.02] * n
     motion_b = [0.02] * n
-    crouch_a = [0.12] * n
-    crouch_b = [0.12] * n
+    crouch_a = [0.08] * n
+    crouch_b = [0.08] * n
     serve_a = [0.02] * n
     serve_b = [0.02] * n
     upper_a = [0.02] * n
     upper_b = [0.02] * n
     foot_a = [0.02] * n
     foot_b = [0.02] * n
-    reach_a = [0.14] * n
-    reach_b = [0.14] * n
+    reach_a = [0.12] * n
+    reach_b = [0.12] * n
 
-    crouch_a[0:4] = [0.86, 0.90, 0.96, 0.82]
-    crouch_b[0:4] = [0.84, 0.86, 0.82, 0.74]
-    reach_a[2:4] = [0.86, 0.74]
-    serve_a[2:4] = [0.42, 0.92]
-    upper_a[2:4] = [0.48, 0.88]
-    foot_a[2:4] = [0.36, 0.72]
-    motion_a[2:5] = [0.10, 0.26, 0.18]
-    upper_b[3:6] = [0.12, 0.44, 0.28]
-    foot_b[3:6] = [0.08, 0.38, 0.24]
-    motion_b[3:6] = [0.08, 0.34, 0.24]
+    crouch_a[3:6] = [0.74, 0.76, 0.78]
+    reach_a[3:6] = [0.46, 0.48, 0.50]
+    serve_a[3:6] = [0.10, 0.10, 0.12]
+    upper_a[3:6] = [0.10, 0.10, 0.12]
+    foot_a[3:6] = [0.12, 0.12, 0.14]
 
-    crouch_a[9:14] = [0.58, 0.60, 0.62, 0.58, 0.44]
-    crouch_b[9:15] = [0.64, 0.66, 0.72, 0.76, 0.70, 0.48]
-    motion_a[9:15] = [0.28, 0.34, 0.38, 0.40, 0.36, 0.22]
-    motion_b[9:15] = [0.30, 0.34, 0.38, 0.42, 0.34, 0.20]
-    upper_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.18]
-    upper_b[9:15] = [0.24, 0.30, 0.34, 0.44, 0.86, 0.26]
-    foot_a[9:15] = [0.18, 0.24, 0.30, 0.34, 0.30, 0.16]
-    foot_b[9:15] = [0.20, 0.26, 0.30, 0.38, 0.66, 0.22]
-    serve_a[9:15] = [0.10, 0.14, 0.20, 0.22, 0.18, 0.08]
-    serve_b[9:15] = [0.12, 0.16, 0.24, 0.36, 0.74, 0.18]
-    reach_a[9:15] = [0.22, 0.28, 0.34, 0.40, 0.36, 0.20]
-    reach_b[9:15] = [0.24, 0.30, 0.38, 0.86, 0.74, 0.36]
+    crouch_b[2:6] = [0.92, 0.90, 0.88, 0.86]
+    reach_b[2:6] = [0.30, 0.28, 0.26, 0.24]
+    foot_b[2:6] = [0.08, 0.08, 0.06, 0.06]
+    motion_b[2:6] = [0.04, 0.04, 0.03, 0.03]
+
+    crouch_a[5:10] = [0.92, 0.95, 1.00, 0.86, 0.72]
+    reach_a[5:10] = [0.60, 0.64, 0.70, 0.66, 0.52]
+    serve_a[5:10] = [0.18, 0.28, 0.56, 1.00, 0.44]
+    upper_a[5:10] = [0.18, 0.24, 0.34, 0.98, 0.46]
+    foot_a[5:10] = [0.38, 0.44, 0.50, 0.20, 0.10]
+    motion_a[5:10] = [0.16, 0.22, 0.28, 0.42, 0.20]
+
+    crouch_b[5:8] = [0.0, 0.0, 0.0]
+    reach_b[5:8] = [0.0, 0.0, 0.0]
+    serve_b[5:8] = [0.0, 0.0, 0.0]
+    upper_b[5:8] = [0.0, 0.0, 0.0]
+    foot_b[5:8] = [0.0, 0.0, 0.0]
+    motion_b[5:8] = [0.0, 0.0, 0.0]
+
+    crouch_b[8:11] = [0.70, 0.66, 0.54]
+    reach_b[8:11] = [0.52, 0.62, 0.50]
+    upper_b[8:11] = [0.66, 0.40, 0.18]
+    foot_b[8:11] = [0.62, 0.28, 0.12]
+    motion_b[8:11] = [0.32, 0.18, 0.10]
 
     diagnostics = _player_diagnostics(
         timestamps,
@@ -638,8 +645,13 @@ def test_player_sandwich_selector_rejects_already_live_exchange_false_positive()
     raw_candidates = _compute_player_rally_start_candidates(diagnostics)
     selected = _select_player_sandwich_start_candidates(diagnostics)
 
-    assert [(candidate.role, candidate.sample_idx) for candidate in raw_candidates] == [("A", 2), ("B", 12)]
-    assert [(candidate.role, candidate.sample_idx) for candidate in selected] == [("A", 2)]
+    assert [(candidate.role, candidate.sample_idx) for candidate in raw_candidates] == [("A", 6)]
+    assert [(candidate.role, candidate.sample_idx) for candidate in selected] == [("A", 6)]
+    assert selected[0].ready_pair_score < 0.05
+    assert selected[0].opponent_ready_score < 0.30
+    assert selected[0].pre_ready_mean >= 0.16
+    assert selected[0].server_peak_score >= 0.90
+    assert selected[0].receiver_peak_score >= 0.55
 
 
 def test_player_sandwich_detector_uses_reset_to_close_rallies():
