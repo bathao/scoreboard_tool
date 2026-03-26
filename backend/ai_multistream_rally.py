@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple
 
 import cv2
 import numpy as np
@@ -292,6 +292,85 @@ def _dedupe_player_sandwich_start_candidates(
         deduped_candidates.append(candidate)
 
     return deduped_candidates
+
+
+def _infer_player_serve_mode_from_starter_roles(starter_roles: Sequence[str]) -> Literal["double", "single"]:
+    runs: List[int] = []
+    prev_role: Optional[str] = None
+    current_len = 0
+    for role in starter_roles:
+        if role not in {"A", "B"}:
+            continue
+        if role == prev_role:
+            current_len += 1
+            continue
+        if current_len > 0:
+            runs.append(current_len)
+        prev_role = role
+        current_len = 1
+    if current_len > 0:
+        runs.append(current_len)
+    if not runs:
+        return "double"
+
+    double_score = 0.0
+    single_score = 0.0
+    for run_len in runs:
+        if run_len == 2:
+            double_score += 1.0
+            single_score -= 1.0
+            continue
+        if run_len == 1:
+            double_score += 0.20
+            single_score += 1.0
+            continue
+        double_score -= 0.65 * float(run_len - 2)
+        single_score -= 1.10 * float(run_len - 1)
+
+    return "double" if double_score >= single_score else "single"
+
+
+def _infer_forced_let_indices_from_starter_roles(
+    starter_roles: Sequence[str],
+    point_likelihoods: Sequence[float],
+    *,
+    serve_mode: Literal["double", "single"],
+) -> Set[int]:
+    let_indices: Set[int] = set()
+    legal_limit = 2 if serve_mode == "double" else 1
+
+    run_start = 0
+    sample_count = min(len(starter_roles), len(point_likelihoods))
+    while run_start < sample_count:
+        role = starter_roles[run_start]
+        run_end = run_start + 1
+        while run_end < sample_count and starter_roles[run_end] == role:
+            run_end += 1
+
+        run_len = run_end - run_start
+        forced_let_count = max(0, run_len - legal_limit)
+        if forced_let_count > 0:
+            if legal_limit == 1:
+                let_indices.update(range(run_start, run_end - 1))
+            else:
+                prefix_indices = list(range(run_start, run_end - 1))
+                if prefix_indices:
+                    # Under the exact-starter assumption, overflow starts in a same-server run
+                    # are more likely to be early LET replays, while the later starters are the
+                    # legal serves that complete the turn. Bias the kept legal start toward the
+                    # latest strong prefix candidate instead of the strongest raw point score.
+                    latest_prefix_idx = prefix_indices[-1]
+                    best_prefix_score = max(float(point_likelihoods[idx]) for idx in prefix_indices)
+                    legal_candidates = [
+                        idx for idx in prefix_indices
+                        if float(point_likelihoods[idx]) >= (best_prefix_score - 1.25)
+                    ]
+                    best_legal_idx = max(legal_candidates or [latest_prefix_idx])
+                    let_indices.update(idx for idx in prefix_indices if idx != best_legal_idx)
+
+        run_start = run_end
+
+    return let_indices
 
 
 def _calc_wrist_velocity(
@@ -2170,6 +2249,7 @@ def _detect_player_sandwich_rallies_from_diagnostics(
         label: str,
         start_score: float,
         server_role: str,
+        extra_flags: Optional[Sequence[str]] = None,
     ) -> None:
         if end_idx <= start_idx or start_idx < 0 or end_idx >= sample_count:
             return
@@ -2195,6 +2275,8 @@ def _detect_player_sandwich_rallies_from_diagnostics(
         flags = ["player_sandwich", "rally_label_point"]
         if label == "let":
             flags = ["player_sandwich", "rally_label_let", "let_no_score"]
+        if extra_flags:
+            flags.extend(str(flag) for flag in extra_flags if flag)
         out.append(
             RallySegment(
                 t_start=seg_start_t,
@@ -2224,11 +2306,13 @@ def _detect_player_sandwich_rallies_from_diagnostics(
             reset_run_start_idx = None
         return None
 
-    def is_likely_let(candidate: PlayerRallyStartCandidate, start_idx: int, end_idx: int, stop_exclusive: int) -> bool:
+    def compute_local_let_signal(
+        candidate: PlayerRallyStartCandidate,
+        start_idx: int,
+        end_idx: int,
+        stop_exclusive: int,
+    ) -> Tuple[bool, float]:
         duration = float(ts[end_idx] - ts[start_idx])
-        if duration > let_max_sec:
-            return False
-
         if candidate.role == "A":
             receive_reach = reach_b
             receive_approach = approach_b
@@ -2250,12 +2334,31 @@ def _detect_player_sandwich_rallies_from_diagnostics(
             0.75 * window_max(receive_motion, start_idx, let_max_sec, stop_exclusive=stop_exclusive),
         )
         quiet_after = window_mean(shared_activity, end_idx, let_quiet_window_sec, stop_exclusive=stop_exclusive)
-        return bool(
+        duration_support = float(np.clip((let_max_sec - duration) / max(let_max_sec - 0.35, 1e-6), 0.0, 1.0))
+        reach_support = float(np.clip((receive_reach_peak - 0.30) / 0.55, 0.0, 1.0))
+        approach_support = float(np.clip((receive_approach_peak - 0.08) / 0.36, 0.0, 1.0))
+        quiet_support = float(np.clip((0.30 - quiet_after) / 0.30, 0.0, 1.0))
+        return_suppression = float(np.clip((0.42 - receive_return_peak) / 0.42, 0.0, 1.0))
+        let_score = float(
+            np.clip(
+                (0.22 * duration_support)
+                + (0.22 * reach_support)
+                + (0.18 * approach_support)
+                + (0.18 * quiet_support)
+                + (0.20 * return_suppression),
+                0.0,
+                1.0,
+            )
+        )
+        is_let = bool(
+            duration <= let_max_sec
+            and
             receive_reach_peak >= 0.40
             and receive_approach_peak >= 0.14
             and receive_return_peak <= 0.32
             and quiet_after <= 0.22
         )
+        return is_let, let_score
 
     start_candidates = _select_player_sandwich_start_candidates(
         diagnostics,
@@ -2265,7 +2368,7 @@ def _detect_player_sandwich_rallies_from_diagnostics(
     if not start_candidates:
         return []
 
-    segments: List[RallySegment] = []
+    provisional_records: List[Dict[str, object]] = []
     for idx, candidate in enumerate(start_candidates):
         start_idx = int(candidate.sample_idx)
         if start_idx >= sample_count - 1:
@@ -2294,14 +2397,84 @@ def _detect_player_sandwich_rallies_from_diagnostics(
         if preliminary_end_idx <= start_idx:
             continue
 
-        label = "let" if is_likely_let(candidate, start_idx, preliminary_end_idx, stop_exclusive) else "point"
+        local_let, local_let_score = compute_local_let_signal(candidate, start_idx, preliminary_end_idx, stop_exclusive)
+        duration_sec = float(ts[preliminary_end_idx] - ts[start_idx])
+        active_window = live_pair[start_idx : preliminary_end_idx + 1]
+        active_peak = float(active_window.max()) if active_window.size else 0.0
+        active_mean = float(active_window.mean()) if active_window.size else 0.0
+        point_likelihood = max(
+            0.0,
+            float(
+                duration_sec
+                + (1.25 * active_peak)
+                + (0.70 * active_mean)
+                + (0.55 * float(candidate.live_peak_score))
+                + (0.40 * float(candidate.receiver_peak_score))
+                + (0.25 * float(candidate.server_peak_score))
+                - (2.50 * float(local_let_score))
+            ),
+        )
+        provisional_records.append(
+            {
+                "candidate": candidate,
+                "start_idx": start_idx,
+                "end_idx": preliminary_end_idx,
+                "duration_sec": duration_sec,
+                "local_let": bool(local_let),
+                "local_let_score": float(local_let_score),
+                "point_likelihood": float(point_likelihood),
+            }
+        )
+
+    if not provisional_records:
+        return []
+
+    starter_roles = [str(record["candidate"].role) for record in provisional_records]  # type: ignore[union-attr]
+    point_likelihoods = [float(record["point_likelihood"]) for record in provisional_records]
+    serve_mode = _infer_player_serve_mode_from_starter_roles(starter_roles)
+    legal_limit = 2 if serve_mode == "double" else 1
+    forced_let_indices = _infer_forced_let_indices_from_starter_roles(
+        starter_roles,
+        point_likelihoods,
+        serve_mode=serve_mode,
+    )
+
+    overflow_run_indices: Set[int] = set()
+    run_start = 0
+    while run_start < len(starter_roles):
+        role = starter_roles[run_start]
+        run_end = run_start + 1
+        while run_end < len(starter_roles) and starter_roles[run_end] == role:
+            run_end += 1
+        if (run_end - run_start) > legal_limit:
+            overflow_run_indices.update(range(run_start, run_end))
+        run_start = run_end
+
+    segments: List[RallySegment] = []
+    for idx, record in enumerate(provisional_records):
+        candidate = record["candidate"]  # type: ignore[assignment]
+        assert isinstance(candidate, PlayerRallyStartCandidate)
+        label = "point"
+        extra_flags: List[str] = []
+        if idx in forced_let_indices:
+            label = "let"
+            extra_flags.extend(
+                [
+                    "let_inferred_forced_serve_order",
+                    f"let_inferred_serve_mode_{serve_mode}",
+                ]
+            )
+        elif idx not in overflow_run_indices and bool(record["local_let"]):
+            label = "let"
+            extra_flags.append("let_inferred_local_abort")
         append_segment(
             segments,
-            start_idx=start_idx,
-            end_idx=preliminary_end_idx,
+            start_idx=int(record["start_idx"]),
+            end_idx=int(record["end_idx"]),
             label=label,
             start_score=float(candidate.score),
             server_role=str(candidate.role),
+            extra_flags=extra_flags,
         )
 
     return segments

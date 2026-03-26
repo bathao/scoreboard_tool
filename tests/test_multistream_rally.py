@@ -6,6 +6,8 @@ from backend.ai_multistream_rally import (
     _dedupe_player_sandwich_start_candidates,
     _detect_player_sandwich_rallies,
     _detect_player_sandwich_rallies_from_diagnostics,
+    _infer_forced_let_indices_from_starter_roles,
+    _infer_player_serve_mode_from_starter_roles,
     _merge_player_start_candidates,
     PlayerStateMachineDiagnostics,
     PlayerRallyStartCandidate,
@@ -1326,4 +1328,90 @@ def test_build_draft_player_mode_disables_ball_streams(monkeypatch):
     assert "ball_signal_none" in draft.points[0].flags
     assert draft.points[0].starter_role == "B"
     assert draft.analysis_metadata["detector_mode"] == "player"
+    assert draft.to_dict()["summary"]["total_rallies"] == 1
+
+
+def test_infer_player_serve_mode_prefers_double_for_set4_like_role_sequence():
+    starter_roles = [
+        "B", "B",
+        "A", "A",
+        "B", "B",
+        "A", "A",
+        "B", "B", "B", "B",
+        "A", "A",
+        "B", "B",
+        "A", "A",
+        "B", "B", "B",
+        "A", "A",
+    ]
+
+    assert _infer_player_serve_mode_from_starter_roles(starter_roles) == "double"
+
+
+def test_infer_forced_let_indices_double_mode_prefers_latest_strong_prefix_point():
+    starter_roles = ["B", "B", "B", "B", "A", "A", "B", "B", "B"]
+    point_likelihoods = [0.20, 0.74, 0.31, 0.92, 0.55, 0.58, 0.26, 0.81, 0.95]
+
+    let_indices = _infer_forced_let_indices_from_starter_roles(
+        starter_roles,
+        point_likelihoods,
+        serve_mode="double",
+    )
+
+    assert let_indices == {0, 1, 6}
+
+
+def test_build_draft_excludes_let_segments_from_points(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0],
+            table_energies=[0.1, 0.1, 0.1, 0.1],
+            ball_energies=[0.0, 0.0, 0.0, 0.0],
+            player_a_energies=[0.0, 0.2, 0.1, 0.0],
+            player_b_energies=[0.0, 0.2, 0.1, 0.0],
+            player_energies=[0.0, 0.2, 0.1, 0.0],
+            fused_energies=[0.1, 0.2, 0.1, 0.1],
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        assert mode == "player"
+        return [
+            RallySegment(
+                t_start=0.5,
+                t_end=0.9,
+                confidence=0.62,
+                flags=["player_sandwich", "rally_label_let", "let_no_score"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=1.2,
+                t_end=2.8,
+                confidence=0.85,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+    )
+
+    assert len(draft.points) == 1
+    assert draft.points[0].id == "pt_0001"
+    assert draft.points[0].starter_role == "B"
+    assert draft.points[0].t_start == 1.2
+    assert draft.analysis_metadata["excluded_let_count"] == 1
+    assert len(draft.analysis_metadata["excluded_let_starts"]) == 1
+    assert draft.analysis_metadata["excluded_let_starts"][0]["t_start"] == 0.5
     assert draft.to_dict()["summary"]["total_rallies"] == 1

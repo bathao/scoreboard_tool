@@ -66,6 +66,7 @@ def build_draft(
 
     v_path = Path(video_path).resolve()
     points: List[DraftPointEvent] = []
+    excluded_let_starts: List[dict] = []
     for i, seg in enumerate(segments, start=1):
         flags = list(seg.flags)
         if mode == "fused":
@@ -82,15 +83,27 @@ def build_draft(
             flags.append("table_ball_refined")
         flags.append(f"player_signal_{signals.player_signal_source}")
         flags.append(f"ball_signal_{signals.ball_signal_source}")
+        starter_role = str(seg.server_role) if getattr(seg, "server_role", None) in {"A", "B"} else None
+        normalized_flags = sorted(set(flags))
+        if "let_no_score" in normalized_flags or "rally_label_let" in normalized_flags:
+            excluded_let_starts.append(
+                {
+                    "t_start": float(seg.t_start),
+                    "t_end": float(seg.t_end),
+                    "starter_role": starter_role,
+                    "flags": normalized_flags,
+                }
+            )
+            continue
         points.append(
             DraftPointEvent(
-                id=f"pt_{i:04d}",
+                id=f"pt_{len(points) + 1:04d}",
                 t_start=float(seg.t_start),
                 t_end=float(seg.t_end),
-                starter_role=(str(seg.server_role) if getattr(seg, "server_role", None) in {"A", "B"} else None),
+                starter_role=starter_role,
                 winner="unknown",
                 confidence=float(seg.confidence),
-                flags=sorted(set(flags)),
+                flags=normalized_flags,
                 source="ai",
             )
         )
@@ -113,6 +126,8 @@ def build_draft(
             "player_signal_source": signals.player_signal_source,
             "ball_signal_source": signals.ball_signal_source,
             "stride": max(1, int(stride)),
+            "excluded_let_count": len(excluded_let_starts),
+            "excluded_let_starts": excluded_let_starts,
         },
     )
 
