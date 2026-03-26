@@ -766,33 +766,33 @@ This is the user-facing flow the full system must eventually support:
 - `[todo]` the default workflow stays local and single-video-at-a-time
 
 ## Best Next Small Tasks
-1. `[done]` lock the independent `YOLO player` starter detector as accepted on checked `set1`, `set2`, `set3`, `set4`
-   - scope:
-     - `starter = rally + let`
-   - accepted counts:
-     - `set1 = 15`
-     - `set2 = 19`
-     - `set3 = 18`
-     - `set4 = 23`
-   - latest pushed checkpoint:
-     - commit `5e94835`
-     - `Detect accurate starters for all 4 sets (server + let)`
+1. `[done]` lock the independent `YOLO player` `starter + LET` baseline on checked `set1`, `set2`, `set3`, `set4`
+   - accepted current results:
+     - `set1 = 14 rallies`, `LET = 1`
+     - `set2 = 19 rallies`, `LET = 0`
+     - `set3 = 18 rallies`, `LET = 0`
+     - `set4 = 20 rallies`, `LET = 3`
+   - latest kept drafts:
+     - `matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json`
+     - `matches/Vinh_set2_stage1_player_independent_sandwich_with_starter_role.json`
+     - `matches/Vinh_set3_stage1_player_independent_sandwich_with_starter_role.json`
+     - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
    - latest targeted regression:
-     - `31 passed, 1 warning`
-2. `[doing]` treat the current starter detector as frozen guardrail while implementing `LET` subtraction
+     - `33 passed, 1 warning`
+2. `[done]` export `starter_role` and infer `LET` from the reviewed player-path starter sequence
+   - serving-law constraints are allowed as the global rule
+   - no timestamp-specific hardcoding is allowed
+   - `LET` localization still depends on general timing / pose evidence inside each same-server run
+3. `[done]` repair the `set3` false `LET` issue at the `starter_role` layer
+   - root cause:
+     - wrong `starter_role` created a fake `BBB | A | BB` shape
+   - current fix:
+     - conservative `double-serve` role-singleton repair runs before `LET` inference
+   - accepted repaired `set3` serve pattern:
+     - `BB | AA | BB | AA | BB | AA | BB | AA | BB`
+4. `[doing]` keep the accepted `starter + LET` baseline frozen while redefining `active` strictly between consecutive accepted starts
    - do not retune `table / ROI-first`
    - do not retune `ball tracking V0`
-   - do not reopen accepted `set1..4` starter boundaries without new operator evidence
-3. `[doing]` infer `serve mode` from the accepted `starter_role` sequence on the reviewed `set1..4` suite
-   - compare `double-serve` vs `single-serve` fit on the whole starter sequence
-   - use the chosen serve mode to determine the legal max same-server run length
-4. `[doing]` convert same-server runs into mandatory `LET` counts under the current serve mode
-   - `double-serve mode`:
-     - forced `LET count = max(0, run_len - 2)`
-   - `single-serve mode`:
-     - forced `LET count = max(0, run_len - 1)`
-5. `[todo]` add the next-pass `LET` localizer and compute:
-   - `total rallies = total starts - total LET`
-   - use pose / timing evidence only to choose which starter(s) inside a forced run are the actual `LET`
-6. `[todo]` only after start and `LET` logic are stable, redefine `active` strictly between consecutive detected starts
-7. `[todo]` return to 3-detector fusion only after the `player` detector is trustworthy at the `start-first` stage
+   - do not reopen accepted `set1..4` starter boundaries or `LET` labels without new operator evidence
+5. `[todo]` move downstream point / winner / score logic onto the frozen rally list from task `#1`
+6. `[todo]` return to 3-detector fusion only after the `player` detector remains trustworthy beyond the `start-first` stage

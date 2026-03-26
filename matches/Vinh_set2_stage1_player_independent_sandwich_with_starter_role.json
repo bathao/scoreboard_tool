@@ -1,27 +1,27 @@
 {
   "schema_version": "draft_match_v1",
   "sport": "table_tennis",
-  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set4.mp4",
+  "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set2.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-03-26T13:25:59.526126+00:00",
+  "created_at": "2026-03-26T13:58:13.668853+00:00",
   "roi": {
-    "x": 874,
-    "y": 753,
-    "w": 700,
-    "h": 219,
-    "confidence": 0.16472840309143066,
+    "x": 864,
+    "y": 756,
+    "w": 698,
+    "h": 217,
+    "confidence": 0.18243521451950073,
     "method": "yolo+blue+rect+edge+center+consensus+topshrink",
-    "notes": "score=0.699; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
+    "notes": "score=0.682; target_center=(0.52,0.62); hsv=(80, 30, 20)-(145, 255, 255); final_expand_top=0.02"
   },
   "points": [
     {
       "id": "pt_0001",
-      "t_start": 3.1364667415618896,
-      "t_end": 7.540866851806641,
+      "t_start": 2.1688332557678223,
+      "t_end": 5.505499839782715,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8895294678211212,
+      "confidence": 0.8575821769237518,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -34,11 +34,11 @@
     },
     {
       "id": "pt_0002",
-      "t_start": 13.012999534606934,
-      "t_end": 18.81879997253418,
+      "t_start": 8.575233459472656,
+      "t_end": 19.08573341369629,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8665648663043976,
+      "confidence": 0.7863300740718842,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -51,11 +51,11 @@
     },
     {
       "id": "pt_0003",
-      "t_start": 25.19183349609375,
-      "t_end": 33.466766357421875,
+      "t_start": 19.11910057067871,
+      "t_end": 26.459766387939453,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8031295418739318,
+      "confidence": 0.8239501053094864,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -68,11 +68,11 @@
     },
     {
       "id": "pt_0004",
-      "t_start": 33.5001335144043,
-      "t_end": 43.309932708740234,
+      "t_start": 26.493133544921875,
+      "t_end": 34.36766815185547,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8483739590644837,
+      "confidence": 0.8398013913631439,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -85,11 +85,11 @@
     },
     {
       "id": "pt_0005",
-      "t_start": 52.819435119628906,
-      "t_end": 67.36730194091797,
+      "t_start": 34.401031494140625,
+      "t_end": 38.73870086669922,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8624211263656615,
+      "confidence": 0.8331080269813537,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -102,11 +102,11 @@
     },
     {
       "id": "pt_0006",
-      "t_start": 79.57949829101562,
-      "t_end": 88.22146606445312,
+      "t_start": 40.40703201293945,
+      "t_end": 49.28256607055664,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8303252375125885,
+      "confidence": 0.8487988126277923,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -119,11 +119,11 @@
     },
     {
       "id": "pt_0007",
-      "t_start": 88.25483703613281,
-      "t_end": 99.29920196533203,
+      "t_start": 54.387664794921875,
+      "t_end": 70.06999969482422,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8426908826828003,
+      "confidence": 0.821678449511528,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -136,11 +136,11 @@
     },
     {
       "id": "pt_0008",
-      "t_start": 99.33256530761719,
-      "t_end": 106.53976440429688,
+      "t_start": 70.10336303710938,
+      "t_end": 81.91516876220703,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8735195207595825,
+      "confidence": 0.8299960386753082,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -153,11 +153,11 @@
     },
     {
       "id": "pt_0009",
-      "t_start": 123.02290344238281,
-      "t_end": 129.86306762695312,
+      "t_start": 81.94853210449219,
+      "t_end": 89.4894027709961,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8328529000282288,
+      "confidence": 0.815076162815094,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -170,11 +170,11 @@
     },
     {
       "id": "pt_0010",
-      "t_start": 132.76596069335938,
-      "t_end": 141.54139709472656,
+      "t_start": 89.52276611328125,
+      "t_end": 95.99590301513672,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.795901318192482,
+      "confidence": 0.8309062683582306,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -187,11 +187,11 @@
     },
     {
       "id": "pt_0011",
-      "t_start": 141.57476806640625,
-      "t_end": 152.65249633789062,
+      "t_start": 110.04326629638672,
+      "t_end": 114.88143157958984,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8374813139438629,
+      "confidence": 0.864372341632843,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -204,11 +204,11 @@
     },
     {
       "id": "pt_0012",
-      "t_start": 152.6858673095703,
-      "t_end": 157.25709533691406,
+      "t_start": 121.62149810791016,
+      "t_end": 135.735595703125,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8620201802253723,
+      "confidence": 0.8281147247552871,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -221,11 +221,11 @@
     },
     {
       "id": "pt_0013",
-      "t_start": 165.49867248535156,
-      "t_end": 168.36819458007812,
+      "t_start": 135.7689666748047,
+      "t_end": 139.2724609375,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8518927586078643,
+      "confidence": 0.8554486501216888,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -238,11 +238,11 @@
     },
     {
       "id": "pt_0014",
-      "t_start": 177.84432983398438,
-      "t_end": 186.0525360107422,
+      "t_start": 147.14700317382812,
+      "t_end": 155.88906860351562,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8017923420667648,
+      "confidence": 0.7639714121818543,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -255,11 +255,11 @@
     },
     {
       "id": "pt_0015",
-      "t_start": 186.08590698242188,
-      "t_end": 196.06253051757812,
+      "t_start": 155.9224395751953,
+      "t_end": 171.37120056152344,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8320537471771241,
+      "confidence": 0.8379931926727295,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -272,11 +272,11 @@
     },
     {
       "id": "pt_0016",
-      "t_start": 196.0959014892578,
-      "t_end": 205.67213439941406,
+      "t_start": 171.40457153320312,
+      "t_end": 183.41656494140625,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8699993658065795,
+      "confidence": 0.8246397441625596,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -289,11 +289,11 @@
     },
     {
       "id": "pt_0017",
-      "t_start": 220.8206024169922,
-      "t_end": 228.66177368164062,
+      "t_start": 183.44993591308594,
+      "t_end": 191.3578338623047,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8113202440738677,
+      "confidence": 0.8032504338026047,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -306,11 +306,11 @@
     },
     {
       "id": "pt_0018",
-      "t_start": 228.69512939453125,
-      "t_end": 239.839599609375,
+      "t_start": 191.39120483398438,
+      "t_end": 197.9644317626953,
       "starter_role": "B",
       "winner": "unknown",
-      "confidence": 0.8032991158962248,
+      "confidence": 0.8286628639698028,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -323,28 +323,11 @@
     },
     {
       "id": "pt_0019",
-      "t_start": 239.8729705810547,
-      "t_end": 249.24899291992188,
+      "t_start": 200.1999969482422,
+      "t_end": 205.0381622314453,
       "starter_role": "A",
       "winner": "unknown",
-      "confidence": 0.8501691502332687,
-      "flags": [
-        "ball_signal_none",
-        "player_only",
-        "player_sandwich",
-        "player_signal_role_tracker",
-        "rally_label_point"
-      ],
-      "source": "ai",
-      "corrections": []
-    },
-    {
-      "id": "pt_0020",
-      "t_start": 256.2560119628906,
-      "t_end": 264.7644958496094,
-      "starter_role": "A",
-      "winner": "unknown",
-      "confidence": 0.787210372686386,
+      "confidence": 0.8731225752830505,
       "flags": [
         "ball_signal_none",
         "player_only",
@@ -357,11 +340,11 @@
     }
   ],
   "summary": {
-    "total_rallies": 20,
-    "scoring_rallies": 20,
+    "total_rallies": 19,
+    "scoring_rallies": 19,
     "non_scoring_rallies": 0,
     "winner_known_rallies": 0,
-    "winner_unknown_rallies": 20
+    "winner_unknown_rallies": 19
   },
   "analysis_metadata": {
     "detector_mode": "player",
@@ -369,54 +352,8 @@
     "player_signal_source": "role_tracker",
     "ball_signal_source": "none",
     "stride": 2,
-    "excluded_let_count": 3,
-    "excluded_let_starts": [
-      {
-        "t_start": 111.77833557128906,
-        "t_end": 115.01490020751953,
-        "starter_role": "B",
-        "flags": [
-          "ball_signal_none",
-          "let_inferred_forced_serve_order",
-          "let_inferred_serve_mode_double",
-          "let_no_score",
-          "player_only",
-          "player_sandwich",
-          "player_signal_role_tracker",
-          "rally_label_let"
-        ]
-      },
-      {
-        "t_start": 115.04826354980469,
-        "t_end": 122.98953247070312,
-        "starter_role": "B",
-        "flags": [
-          "ball_signal_none",
-          "let_inferred_forced_serve_order",
-          "let_inferred_serve_mode_double",
-          "let_no_score",
-          "player_only",
-          "player_sandwich",
-          "player_signal_role_tracker",
-          "rally_label_let"
-        ]
-      },
-      {
-        "t_start": 216.51629638671875,
-        "t_end": 220.7872314453125,
-        "starter_role": "B",
-        "flags": [
-          "ball_signal_none",
-          "let_inferred_forced_serve_order",
-          "let_inferred_serve_mode_double",
-          "let_no_score",
-          "player_only",
-          "player_sandwich",
-          "player_signal_role_tracker",
-          "rally_label_let"
-        ]
-      }
-    ]
+    "excluded_let_count": 0,
+    "excluded_let_starts": []
   },
   "score_validation": {}
 }

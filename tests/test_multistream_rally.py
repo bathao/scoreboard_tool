@@ -9,6 +9,7 @@ from backend.ai_multistream_rally import (
     _infer_forced_let_indices_from_starter_roles,
     _infer_player_serve_mode_from_starter_roles,
     _merge_player_start_candidates,
+    _repair_double_serve_role_singletons,
     PlayerStateMachineDiagnostics,
     PlayerRallyStartCandidate,
     _build_role_energy_series,
@@ -1359,6 +1360,51 @@ def test_infer_forced_let_indices_double_mode_prefers_latest_strong_prefix_point
     )
 
     assert let_indices == {0, 1, 6}
+
+
+def test_repair_double_serve_role_singletons_flips_suspicious_run_edge():
+    def make_candidate(timestamp: float, role: str) -> PlayerRallyStartCandidate:
+        return PlayerRallyStartCandidate(
+            sample_idx=int(timestamp * 10),
+            timestamp=timestamp,
+            role=role,
+            score=0.72,
+            prep_score=0.84,
+            launch_score=0.40,
+            opponent_ready_score=0.58,
+            dominance_ratio=1.40,
+            episode_start_sample_idx=int(timestamp * 10),
+            episode_end_sample_idx=int(timestamp * 10) + 2,
+            episode_peak_sample_idx=int(timestamp * 10) + 1,
+            episode_peak_score=0.80,
+            crouch_score=0.90,
+            reach_score=0.60,
+            serve_score=0.32,
+            upper_body_score=0.30,
+            footwork_score=0.28,
+            ready_pair_score=0.56,
+            pre_ready_mean=0.44,
+            pre_live_peak=0.92,
+            server_action_score=0.38,
+            server_peak_score=0.50,
+            server_growth_score=0.10,
+            server_peak_delay_sec=0.08,
+            receiver_peak_score=0.66,
+            live_peak_score=0.62,
+        )
+
+    candidates = [
+        make_candidate(2.0, "B"),
+        make_candidate(10.0, "B"),
+        make_candidate(18.0, "B"),
+        make_candidate(26.0, "A"),
+        make_candidate(34.0, "B"),
+        make_candidate(42.0, "B"),
+    ]
+
+    repaired = _repair_double_serve_role_singletons(candidates)
+
+    assert [candidate.role for candidate in repaired] == ["B", "B", "A", "A", "B", "B"]
 
 
 def test_build_draft_excludes_let_segments_from_points(monkeypatch):

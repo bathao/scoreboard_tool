@@ -373,6 +373,72 @@ def _infer_forced_let_indices_from_starter_roles(
     return let_indices
 
 
+def _repair_double_serve_role_singletons(
+    candidates: Sequence[PlayerRallyStartCandidate],
+) -> List[PlayerRallyStartCandidate]:
+    if len(candidates) < 5:
+        return list(candidates)
+
+    repaired = list(candidates)
+
+    def is_suspicious_edge(candidate: PlayerRallyStartCandidate) -> bool:
+        return bool(
+            candidate.pre_live_peak >= 0.80
+            and candidate.launch_score <= 0.52
+            and candidate.server_peak_score <= 0.55
+            and candidate.server_growth_score <= 0.12
+            and candidate.receiver_peak_score >= 0.55
+            and candidate.live_peak_score <= 0.80
+        )
+
+    while True:
+        roles = [candidate.role for candidate in repaired]
+        if _infer_player_serve_mode_from_starter_roles(roles) != "double":
+            break
+
+        runs: List[Tuple[str, int, int]] = []
+        run_start = 0
+        while run_start < len(repaired):
+            role = repaired[run_start].role
+            run_end = run_start + 1
+            while run_end < len(repaired) and repaired[run_end].role == role:
+                run_end += 1
+            runs.append((role, run_start, run_end))
+            run_start = run_end
+
+        flipped = False
+        for idx in range(len(runs) - 2):
+            left_role, left_start, left_end = runs[idx]
+            mid_role, mid_start, mid_end = runs[idx + 1]
+            right_role, right_start, right_end = runs[idx + 2]
+            left_len = left_end - left_start
+            mid_len = mid_end - mid_start
+            right_len = right_end - right_start
+            if left_role != right_role or left_role == mid_role or mid_len != 1:
+                continue
+
+            flip_idx: Optional[int] = None
+            if left_len == 3 and right_len == 2:
+                flip_idx = left_end - 1
+            elif left_len == 2 and right_len == 3:
+                flip_idx = right_start
+            else:
+                continue
+
+            candidate = repaired[flip_idx]
+            if not is_suspicious_edge(candidate):
+                continue
+
+            repaired[flip_idx] = replace(candidate, role=str(mid_role))
+            flipped = True
+            break
+
+        if not flipped:
+            break
+
+    return repaired
+
+
 def _calc_wrist_velocity(
     curr_kpts: np.ndarray,
     prev_kpts: np.ndarray | None,
@@ -2152,7 +2218,8 @@ def _select_player_sandwich_start_candidates(
     confirmed_candidates = [candidate for candidate in enriched_candidates if start_is_confirmed(candidate)]
     if not confirmed_candidates:
         return []
-    return _dedupe_player_sandwich_start_candidates(diagnostics.timestamps, confirmed_candidates)
+    deduped_candidates = _dedupe_player_sandwich_start_candidates(diagnostics.timestamps, confirmed_candidates)
+    return _repair_double_serve_role_singletons(deduped_candidates)
 
 
 def _detect_player_sandwich_rallies_from_diagnostics(
