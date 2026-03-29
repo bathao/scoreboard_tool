@@ -120,6 +120,8 @@ This is the temporary action plan for the experimental `YOLO player` rally path.
     - `debug_report/Vinh_set4_rally_clips_endpoint_v4/`
   - current state:
     - implementation is in progress
+    - `v4` is rejected as a regression because many endpoints drift back toward the next starter
+    - revert the working baseline to the earlier `v3-style dead-reset` endpoint logic before the next review round
     - not accepted yet
     - waiting for the next operator feedback round before freezing endpoint behavior
 - `[doing]` move downstream point / winner / score logic onto the new `active_start / active_end` contract only after the endpoint layer is stable enough
@@ -955,6 +957,8 @@ This section defines the next refinement layer after `Active Window Spec`.
 Current status:
 - `[doing]` endpoint refinement is under active tuning on `set4`
 - `[doing]` the current implementation is intentionally provisional and must be reviewed through exported rally clips
+- `[rejected]` the `v4` future-exchange guard experiment regressed endpoint quality by pulling many rallies back toward the next starter
+- `[doing]` the active fallback baseline is the earlier `v3-style` `dead_reset_run_start` logic while waiting for the next feedback round
 - `[blocked]` do not treat current `t_end` as frozen or production-accepted yet
 - `[doing]` wait for operator feedback on the latest `set4` clip export before promoting this endpoint logic
 

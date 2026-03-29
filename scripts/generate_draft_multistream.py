@@ -233,7 +233,6 @@ def _refine_endpoint_from_signals(
     interval_live = live_pair[start_idx : upper_idx + 1]
     interval_reset = reset_pair[start_idx : upper_idx + 1]
     interval_shared = shared_activity[start_idx : upper_idx + 1]
-    interval_duration = float(max(0.0, safe_upper - safe_start))
     combined_live = np.maximum.reduce(
         [
             (0.44 * interval_ball) + (0.34 * interval_table) + (0.22 * interval_live),
@@ -249,14 +248,6 @@ def _refine_endpoint_from_signals(
     )
     exchange_mask = _fill_short_false_gaps(exchange_mask, max_gap_samples=1)
     prior_exchange_peak = np.maximum.accumulate(np.where(exchange_mask, combined_live, 0.0))
-    strong_exchange_mask = (
-        ((interval_ball >= 0.22) & ((interval_table >= 0.12) | (interval_live >= 0.14)))
-        | ((interval_ball >= 0.14) & (interval_live >= 0.26) & (interval_table >= 0.10))
-        | ((combined_live >= 0.32) & (interval_ball >= 0.10) & (interval_live >= 0.20))
-    )
-    strong_exchange_mask = _fill_short_false_gaps(strong_exchange_mask, max_gap_samples=1)
-    future_exchange_peak = np.maximum.accumulate(np.where(strong_exchange_mask[::-1], combined_live[::-1], 0.0))[::-1]
-    future_ball_peak = np.maximum.accumulate(interval_ball[::-1])[::-1]
 
     dead_reset_mask = (
         (interval_ball <= 0.08)
@@ -269,9 +260,7 @@ def _refine_endpoint_from_signals(
     )
     dead_reset_mask = _fill_short_false_gaps(dead_reset_mask, max_gap_samples=1)
     earliest_dead_time = safe_start + min(1.05, 0.45 * max(0.0, safe_upper - safe_start))
-    future_guard_t = safe_upper - min(0.95, max(0.55, 0.18 * interval_duration))
-    future_guard_idx = int(np.searchsorted(interval_times, future_guard_t, side="left")) - 1
-    terminal_dead_runs: list[tuple[int, int, int]] = []
+    early_dead_runs: list[tuple[int, int, int]] = []
     run_start = None
     for idx_local, is_dead in enumerate(dead_reset_mask):
         if is_dead and run_start is None:
@@ -281,34 +270,18 @@ def _refine_endpoint_from_signals(
             run_end = idx_local - 1
             dead_start_t = float(interval_times[run_start])
             has_exchange_before = bool(run_start > 0 and prior_exchange_peak[run_start - 1] >= 0.26)
-            future_idx = run_end + 1
-            if future_idx <= future_guard_idx:
-                future_exchange = float(future_exchange_peak[future_idx]) if future_idx < len(future_exchange_peak) else 0.0
-                future_ball = float(future_ball_peak[future_idx]) if future_idx < len(future_ball_peak) else 0.0
-            else:
-                future_exchange = 0.0
-                future_ball = 0.0
-            is_terminal = future_exchange < 0.24 or future_ball < 0.10
-            if dead_start_t >= earliest_dead_time and has_exchange_before and is_terminal:
-                terminal_dead_runs.append((run_start, run_end, run_end - run_start + 1))
+            if dead_start_t >= earliest_dead_time and has_exchange_before:
+                early_dead_runs.append((run_start, run_end, run_end - run_start + 1))
             run_start = None
     if run_start is not None:
         run_end = len(dead_reset_mask) - 1
         dead_start_t = float(interval_times[run_start])
         has_exchange_before = bool(run_start > 0 and prior_exchange_peak[run_start - 1] >= 0.26)
-        future_idx = run_end + 1
-        if future_idx <= future_guard_idx:
-            future_exchange = float(future_exchange_peak[future_idx]) if future_idx < len(future_exchange_peak) else 0.0
-            future_ball = float(future_ball_peak[future_idx]) if future_idx < len(future_ball_peak) else 0.0
-        else:
-            future_exchange = 0.0
-            future_ball = 0.0
-        is_terminal = future_exchange < 0.24 or future_ball < 0.10
-        if dead_start_t >= earliest_dead_time and has_exchange_before and is_terminal:
-            terminal_dead_runs.append((run_start, run_end, run_end - run_start + 1))
+        if dead_start_t >= earliest_dead_time and has_exchange_before:
+            early_dead_runs.append((run_start, run_end, run_end - run_start + 1))
 
-    if terminal_dead_runs:
-        dead_start_local, dead_end_local, dead_len = terminal_dead_runs[0]
+    if early_dead_runs:
+        dead_start_local, dead_end_local, dead_len = early_dead_runs[0]
         dead_start_t = float(interval_times[dead_start_local])
         if dead_start_t > safe_start + 0.10:
             refined_end = float(np.clip(dead_start_t, safe_start + 0.01, baseline_end))
