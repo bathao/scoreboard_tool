@@ -28,7 +28,16 @@ class DraftPointEvent:
     id: str
     t_start: float
     t_end: float
+    active_start: Optional[float] = None
+    active_end: Optional[float] = None
+    search_upper_bound: Optional[float] = None
     starter_role: Optional[str] = None
+    preceding_let_count: int = 0
+    preceding_let_starts: List[float] = field(default_factory=list)
+    service_attempt_index: int = 1
+    boundary_mode: Optional[str] = None
+    endpoint_mode: Optional[str] = None
+    endpoint_confidence: float = 0.0
     winner: DraftWinner = "unknown"
     confidence: float = 0.0
     flags: List[str] = field(default_factory=list)
@@ -59,7 +68,16 @@ class DraftPointEvent:
             id=str(d["id"]),
             t_start=float(d["t_start"]),
             t_end=float(d["t_end"]),
+            active_start=(None if d.get("active_start") is None else float(d.get("active_start"))),
+            active_end=(None if d.get("active_end") is None else float(d.get("active_end"))),
+            search_upper_bound=(None if d.get("search_upper_bound") is None else float(d.get("search_upper_bound"))),
             starter_role=(None if d.get("starter_role") in (None, "") else str(d.get("starter_role"))),
+            preceding_let_count=int(d.get("preceding_let_count", 0)),
+            preceding_let_starts=[float(x) for x in (d.get("preceding_let_starts", []) or [])],
+            service_attempt_index=int(d.get("service_attempt_index", 1)),
+            boundary_mode=(None if d.get("boundary_mode") in (None, "") else str(d.get("boundary_mode"))),
+            endpoint_mode=(None if d.get("endpoint_mode") in (None, "") else str(d.get("endpoint_mode"))),
+            endpoint_confidence=float(d.get("endpoint_confidence", 0.0)),
             winner=str(d.get("winner", "unknown")),  # type: ignore
             confidence=float(d.get("confidence", 0.0)),
             flags=list(d.get("flags", [])),

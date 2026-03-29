@@ -55,7 +55,16 @@ def test_draft_point_event_roundtrip_preserves_starter_role():
         id="pt_0001",
         t_start=1.0,
         t_end=2.0,
+        active_start=1.0,
+        active_end=5.0,
+        search_upper_bound=4.5,
         starter_role="B",
+        preceding_let_count=2,
+        preceding_let_starts=[0.4, 0.8],
+        service_attempt_index=3,
+        boundary_mode="next_start_exclusive",
+        endpoint_mode="last_live_island",
+        endpoint_confidence=0.77,
         winner="unknown",
         confidence=0.8,
         flags=["player_only"],
@@ -63,4 +72,13 @@ def test_draft_point_event_roundtrip_preserves_starter_role():
 
     restored = DraftPointEvent.from_dict(point.to_dict())
 
+    assert restored.active_start == 1.0
+    assert restored.active_end == 5.0
+    assert restored.search_upper_bound == 4.5
     assert restored.starter_role == "B"
+    assert restored.preceding_let_count == 2
+    assert restored.preceding_let_starts == [0.4, 0.8]
+    assert restored.service_attempt_index == 3
+    assert restored.boundary_mode == "next_start_exclusive"
+    assert restored.endpoint_mode == "last_live_island"
+    assert restored.endpoint_confidence == 0.77

@@ -59,28 +59,25 @@ This is the temporary action plan for the experimental `YOLO player` rally path.
 - `[deferred]` do not spend the current cycle on fusion-rule tuning or `Qwen` boundary/split tuning until the `player` detector is materially stronger
 
 ### Step 1. Detect rally starts from images
-- `[doing]` detect every `Toss & Serve` start image independently from player behavior
-- `[doing]` use those start images to estimate:
+- `[done]` detect every `Toss & Serve` start image independently from player behavior
+- `[done]` use those start images to estimate:
   - `total rally starts + total LET starts`
-- `[doing]` improve the start detector until start-state detection is visually obvious and effectively exact on checked debug windows
-- `[doing]` treat this as the current priority over full-rally `active/end` state-machine tuning
+- `[done]` improve the start detector until start-state detection is visually obvious and effectively exact on checked debug windows
+- `[done]` use start-state quality as the first priority before returning to `active/end` logic
 - `[done]` current checked regression suite `set1..4` is now operator-accepted for starter detection in the independent `YOLO player` path
   - scope:
     - `starter = rally + let`
   - accepted counts:
-    - `set1 = 15`
-    - `set2 = 19`
-    - `set3 = 18`
-    - `set4 = 23`
-  - latest pushed checkpoint:
-    - commit `5e94835`
-    - `Detect accurate starters for all 4 sets (server + let)`
+    - `set1 = 15 starters`
+    - `set2 = 19 starters`
+    - `set3 = 18 starters`
+    - `set4 = 23 starters`
   - latest targeted regression:
-    - `31 passed, 1 warning`
+    - `33 passed, 1 warning`
 
 ### Step 2. Detect `LET` and subtract it
-- `[todo]` detect `LET` only after the start-image detector is stable enough
-- `[todo]` infer `serve mode` before localizing `LET`
+- `[done]` detect `LET` only after the start-image detector is stable enough
+- `[done]` infer `serve mode` before localizing `LET`
   - use the accepted `starter_role` sequence as the primary signal
   - infer:
     - `double-serve mode` when the game is likely still before `10-10`
@@ -88,19 +85,44 @@ This is the temporary action plan for the experimental `YOLO player` rally path.
   - preferred read:
     - `AA -> BB -> AA -> BB` patterns support `double-serve mode`
     - `A -> B -> A -> B` patterns support `single-serve mode`
-- `[todo]` derive mandatory `LET` counts from same-server run length, assuming starter detection is already exact
+- `[done]` derive mandatory `LET` counts from same-server run length, assuming starter detection is already exact
   - if `double-serve mode` is active:
     - a same-server run of length `L` implies `max(0, L - 2)` mandatory `LET`
   - if `single-serve mode` is active:
     - a same-server run of length `L` implies `max(0, L - 1)` mandatory `LET`
-- `[todo]` use local post-start vision / timing cues only to localize which starter(s) inside a forced run are the actual `LET`
+- `[done]` use local post-start vision / timing cues only to localize which starter(s) inside a forced run are the actual `LET`
   - do not use those cues to re-open the starter list itself
-- `[todo]` compute:
+- `[done]` compute:
   - `total rallies = total starts - total LET`
-- `[todo]` keep `active` bounded strictly between:
-  - one detected start
-  - and the next detected start
-- `[todo]` do not allow a free-running long `active` state outside that bounded interval
+  - accepted current results:
+    - `set1 = 14 rallies`, `LET = 1`
+    - `set2 = 19 rallies`, `LET = 0`
+    - `set3 = 18 rallies`, `LET = 0`
+    - `set4 = 20 rallies`, `LET = 3`
+  - important note:
+    - `set3` required conservative `starter_role` repair before `LET` inference
+
+### Step 3. Define `active` windows from accepted starts
+- `[done]` keep `active` bounded strictly between:
+  - one accepted start
+  - and the next accepted start
+- `[done]` do not allow a free-running long `active` state outside that bounded interval
+- `[done]` treat the current `active` interval as a rally ownership window, not yet an exact live-ball window
+- `[done]` attach preceding `LET` attempts to the next accepted rally, not the previous one
+- `[done]` write the current `Active Window Spec` in this file
+- `[done]` implement the `active window` layer in code
+- `[doing]` refine `rally_end / t_end` inside each bounded rally window before winner / score work
+  - current tuning focus:
+    - bounded `set4` endpoint detection
+    - prioritize `ball + table ROI + player reset / upright / casual` cues
+    - keep the accepted `starter + LET` baseline frozen while tuning endpoint quality
+  - latest operator-review artifact:
+    - `debug_report/Vinh_set4_rally_clips_endpoint_v4/`
+  - current state:
+    - implementation is in progress
+    - not accepted yet
+    - waiting for the next operator feedback round before freezing endpoint behavior
+- `[doing]` move downstream point / winner / score logic onto the new `active_start / active_end` contract only after the endpoint layer is stable enough
 
 ## Artifact Flow
 This is the simplest way to read the project plan.
@@ -195,11 +217,11 @@ This section answers a different question:
   3. use `table` and `ball` outputs only as fixed comparison references while debugging `player`
   4. make rally-algorithm changes only in the independent `YOLO player` path before resuming fusion work
 - Temporary current-cycle note for the `player` detector:
-  - stop treating the failed long-`active` state machine as the current optimization target
-  - first optimize `Toss & Serve` start-image detection
-  - use `start_count = rally_count + let_count`
-  - then add `LET` subtraction as the next pass
-  - bound any later `active` state between consecutive detected starts only
+  - `Toss & Serve` start-image detection is no longer the current blocker
+  - `LET` subtraction is now accepted on the reviewed `set1..4` suite
+  - keep the accepted `starter + LET` baseline frozen
+  - the next active task is building `active` windows from accepted starts
+  - do not reopen accepted starter or `LET` labels without new operator evidence
 - Important correction:
   - do not optimize only for `rally count`
   - Stage 1 should optimize for:
@@ -210,9 +232,14 @@ This section answers a different question:
 - Use this checklist:
   1. `[done]` keep the current `table / ROI-first` draft export as the working production baseline
   2. `[done]` independent `Table ROI / table-first` rally detection already exists and is the checked reference detector for Stage 1
-  3. `[doing]` run `1 set -> rally draft` with the independent `multistream / YOLO player-signal` path
+  3. `[done]` run reviewed `set1..4 -> rally draft` with the independent `multistream / YOLO player-signal` path
+     - current accepted reviewed outputs include:
+       - `matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json`
+       - `matches/Vinh_set2_stage1_player_independent_sandwich_with_starter_role.json`
+       - `matches/Vinh_set3_stage1_player_independent_sandwich_with_starter_role.json`
+       - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
   4. `[done]` benchmark `1 set -> rally draft` with the independent standalone `ball-only / ball tracking online` path on `set1`, `set2`, `set3`, `set4`
-  5. `[doing]` compare the 3 independent set-level drafts against manual review or GT, using `table / ROI-first` and `ball-only` as fixed references while `player` is being debugged
+  5. `[doing]` keep `table / ROI-first` and `ball-only` as fixed references while the accepted `player` `starter + LET` baseline moves downstream into `active` windows
   6. `[deferred]` define the fusion / validation rule that merges the 3 rally lists into one final rally list only after the independent `player` path is trustworthy enough
   7. `[todo]` benchmark the fused rally list against the independent paths
   8. `[todo]` fix root-cause failures at the owning layer of the weakest path
@@ -270,8 +297,8 @@ This section answers a different question:
   - do not move to winner work while Stage 1 still has major rally-boundary uncertainty
 - Use this checklist:
   1. `[todo]` define or improve the first winner-candidate path from player / pose / YOLO-derived signals if benchmark data shows it helps
-  2. `[doing]` use `Ollama local` as refinement / second-opinion on weak or unresolved rallies
-  3. `[doing]` benchmark local `Qwen3-VL + Qwen3` review passes on debug clips before trusting them for correction
+  2. `[deferred]` use `Ollama local` as refinement / second-opinion on weak or unresolved rallies only after the rally-window layer is stable
+  3. `[deferred]` benchmark local `Qwen3-VL + Qwen3` review passes on debug clips before trusting them for correction
   4. `[todo]` assign decision status for each rally:
      - auto-apply
      - review
@@ -413,11 +440,11 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[deferred]` isolate and fix the root cause of `set1 1:34 -> 1:47`
 - `[done]` independent `Table ROI / table-first` path already exists and is the checked Stage 1 reference detector
 - `[done]` benchmark the independent `multistream / YOLO player-signal` path on `set1`, `set2`, `set3`, `set4`
-  - current benchmark counts are:
-    - `set1`: historical pre-`v9` benchmark `13`
-    - `set2`: `17`
-    - `set3`: `13`
-    - `set4`: `22`
+  - current accepted reviewed `starter + LET` results are:
+    - `set1`: `14 rallies`, `LET = 1`
+    - `set2`: `19 rallies`, `LET = 0`
+    - `set3`: `18 rallies`, `LET = 0`
+    - `set4`: `20 rallies`, `LET = 3`
 - `[done]` benchmark the independent standalone `ball-only v7` path on `set1`, `set2`, `set3`, `set4`
   - current benchmark counts are:
     - `set1`: `18`
@@ -428,16 +455,13 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
   - do not treat this as a promoted final baseline yet
 - `[doing]` debug and improve the independent `multistream / YOLO player-signal` path
   - current read:
-    - latest `set1` start-first snapshot `sandwich_v9` now reports `12`
-    - `set1` is still under-detecting and is waiting for manual image review on the saved `12` starts
-    - `set2`: under-count at `17`
-    - `set3`: under-count at `13`
-    - `set4`: over-count at `22`
+    - the reviewed `starter + LET` baseline is now accepted on checked `set1..4`
+    - the current bottleneck is no longer starter detection
+    - the next bottleneck is building reliable `active` windows from accepted starts
   - current goal:
-    - first make `player` a usable independent `start-image` detector
-    - use detected starts to estimate `rally + let`
-    - then add `LET` subtraction
-    - only after that return to full player-rally segmentation and 3-detector fusion
+    - keep the accepted `starter + LET` baseline frozen
+    - implement the `active window` layer
+    - only after that move downstream to winner / point / score work
 - `[deferred]` define the fusion / validation rule that merges the 3 detector outputs into one final rally list
 - `[deferred]` benchmark `Qwen3-VL + Qwen3` review passes on `set4` again only after the independent `player` detector is in a healthier state
 - `[todo]` add the focused regression test for that failure
@@ -533,17 +557,29 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 
 ### In Progress
 - `[doing]` debug the independent `multistream / YOLO player-signal` rally detector:
-  - current temporary scope is narrowed to `Toss & Serve` start-image detection
-  - compare `player` start candidates against visually obvious serve-start frames
-  - confirm that the detected starts cover `rally + let`
-  - keep the current checked review artifact at:
-    - `debug_report/Vinh_set1_rally_start_candidates_v9_review/`
-  - keep the current checked JSON snapshot at:
-    - `matches/Vinh_set1_stage1_player_independent_sandwich_v9.json`
-  - do not trust the previous long-`active` state-machine behavior as the working direction
+  - current accepted player-path baseline is:
+    - `set1 = 14 rallies`, `LET = 1`
+    - `set2 = 19 rallies`, `LET = 0`
+    - `set3 = 18 rallies`, `LET = 0`
+    - `set4 = 20 rallies`, `LET = 3`
+  - current immediate scope is no longer `Toss & Serve` start-image tuning
+  - current immediate scope is:
+    - freeze accepted `starter + LET`
+    - preserve accepted `starter_role`
+    - build `active` windows from accepted starts
+  - do not re-open accepted starter or `LET` labels without new operator evidence
 - `[doing]` keep `table / ROI-first` and standalone `ball-only` as fixed comparison references while the current algorithm work stays inside the independent `player` path
 
 ### Remaining Work
+- `[done]` implement the `active window` layer from the accepted `starter + LET` baseline
+  - current output now carries:
+    - `active_start`
+    - `active_end`
+    - `preceding_let_count`
+    - `preceding_let_starts`
+    - `service_attempt_index`
+    - `boundary_mode`
+- `[doing]` move downstream winner / point / score logic onto the new `active` contract
 - `[deferred]` temporarily ignore the `set1` bug around `1:34 -> 1:47`
   - do not treat it as fixed
   - bring it back before promoting a new baseline
@@ -591,7 +627,7 @@ Follow these stages in order. If all stages pass, the project reaches `v1 done`.
 - `[done]` the current architecture already has a natural place for review gating in validation, not in rendering
 
 ### In Progress
-- `[doing]` define the minimal low-confidence correction flow around one rally winner
+- `[todo]` define the minimal low-confidence correction flow around one rally winner after the rally-window layer is stable
 
 ### Remaining Work
 - `[todo]` define the authoritative correction payload:
@@ -790,9 +826,224 @@ This is the user-facing flow the full system must eventually support:
      - conservative `double-serve` role-singleton repair runs before `LET` inference
    - accepted repaired `set3` serve pattern:
      - `BB | AA | BB | AA | BB | AA | BB | AA | BB`
-4. `[doing]` keep the accepted `starter + LET` baseline frozen while redefining `active` strictly between consecutive accepted starts
+4. `[done]` keep the accepted `starter + LET` baseline frozen while redefining `active` strictly between consecutive accepted starts
    - do not retune `table / ROI-first`
    - do not retune `ball tracking V0`
    - do not reopen accepted `set1..4` starter boundaries or `LET` labels without new operator evidence
-5. `[todo]` move downstream point / winner / score logic onto the frozen rally list from task `#1`
+5. `[doing]` move downstream point / winner / score logic onto the frozen rally list from task `#1`
 6. `[todo]` return to 3-detector fusion only after the `player` detector remains trustworthy beyond the `start-first` stage
+
+## Active Window Spec
+This section defines the next downstream layer to build on top of the accepted `starter + LET` baseline.
+
+### Goal
+- Convert the accepted rally starts into non-overlapping rally ownership windows.
+- Preserve the current accepted rally counts exactly.
+- Keep this layer separate from:
+  - starter detection
+  - `LET` detection
+  - winner inference
+  - exact point-end detection
+
+### Definitions
+- `starter`
+  - every start found by the current player-path detector before `LET` subtraction
+- `accepted_start`
+  - a start that remains after excluding `LET`
+- `let_start`
+  - a detected start that is classified as `LET`
+  - it must not create its own rally window
+- `active window`
+  - the time interval owned by one accepted rally for downstream reasoning
+  - this is an ownership window, not yet an exact live-ball window
+
+### Core Rules
+1. Every `accepted_start` creates exactly one rally window.
+2. Every `let_start` is attached to the next accepted rally, not the previous one.
+3. Rally windows must not overlap.
+4. This layer must not change:
+   - accepted rally count
+   - accepted rally timestamps
+   - accepted `starter_role`
+5. Boundary definition is currently structural, not visual:
+   - `active_start = accepted_start[i].t_start`
+   - `active_end = accepted_start[i+1].t_start` when the next accepted rally exists
+   - otherwise `active_end = video_end`
+
+### Construction Algorithm
+1. Sort all detected starts by time.
+2. Separate them into:
+   - accepted starts
+   - excluded `LET` starts
+3. For each accepted rally `i`:
+   - set `t_start = accepted_start[i].t_start`
+   - set `active_start = accepted_start[i].t_start`
+   - if `i + 1` exists:
+     - set `active_end = accepted_start[i+1].t_start`
+     - set `boundary_mode = next_start_exclusive`
+   - otherwise:
+     - set `active_end = video_end`
+     - set `boundary_mode = video_end_open_tail`
+4. Collect every `let_start` that falls after the previous accepted rally and before the current accepted rally.
+5. Attach those `LET` attempts to the current accepted rally as preceding service attempts.
+
+### LET Attachment Rule
+- If one or more `LET` attempts happen before an accepted rally, they belong to the same service turn as that accepted rally.
+- Required metadata for each rally:
+  - `preceding_let_count`
+  - `preceding_let_starts`
+  - `service_attempt_index`
+- Definition:
+  - `preceding_let_count = len(preceding_let_starts)`
+  - `service_attempt_index = preceding_let_count + 1`
+
+### Example
+- If:
+  - `01:51.778` is `LET`
+  - `01:55.048` is `LET`
+  - `02:03.023` is the accepted rally start
+- Then the rally at `02:03.023` should carry:
+  - `preceding_let_count = 2`
+  - `preceding_let_starts = [111.778, 115.048]`
+  - `service_attempt_index = 3`
+
+### Proposed Rally Output Fields
+- `rally_id`
+- `t_start`
+- `active_start`
+- `active_end`
+- `starter_role`
+- `preceding_let_count`
+- `preceding_let_starts`
+- `service_attempt_index`
+- `boundary_mode`
+- `source_flags`
+
+### Non-Goals For This Layer
+- do not infer winner yet
+- do not infer exact point-end yet
+- do not reopen accepted `starter` or `LET` decisions
+- do not add clip-specific exceptions
+- do not let `LET` create standalone point records
+
+### Edge Cases
+- First rally:
+  - starts exactly at the first accepted start
+- Last rally:
+  - ends at `video_end`
+  - must carry `boundary_mode = video_end_open_tail`
+- Multiple consecutive `LET` attempts:
+  - all attach to the next accepted rally
+- Long dead time between rallies:
+  - still remains inside the current ownership window
+  - later layers may refine live-only sub-intervals if needed
+
+### Acceptance Criteria
+- Number of active windows must equal accepted rally count:
+  - `set1 = 14`
+  - `set2 = 19`
+  - `set3 = 18`
+  - `set4 = 20`
+- No active windows overlap.
+- Every excluded `LET` start is attached to the next accepted rally.
+- `starter_role` is preserved for every accepted rally.
+- This layer does not change counts or accepted rally timestamps.
+
+## Endpoint Detection Spec
+This section defines the next refinement layer after `Active Window Spec`.
+
+Current status:
+- `[doing]` endpoint refinement is under active tuning on `set4`
+- `[doing]` the current implementation is intentionally provisional and must be reviewed through exported rally clips
+- `[blocked]` do not treat current `t_end` as frozen or production-accepted yet
+- `[doing]` wait for operator feedback on the latest `set4` clip export before promoting this endpoint logic
+
+### Goal
+- Refine the rally endpoint inside each accepted rally window.
+- Do not use the next rally start itself as the final endpoint.
+- Use the next service turn only as a hard upper bound for endpoint search.
+
+### Key Distinction
+- `t_start`
+  - accepted rally starter time
+- `search_upper_bound`
+  - the latest allowed time for endpoint search
+  - not the final endpoint itself
+- `rally_end`
+  - the refined endpoint of the current rally
+  - should normally happen before the next service turn begins
+
+### Search Upper Bound Rule
+For rally `i`, define:
+- if there is a next accepted rally and it has one or more preceding `LET` attempts:
+  - `search_upper_bound = first preceding LET start of rally i+1`
+- else if there is a next accepted rally:
+  - `search_upper_bound = accepted_start[i+1]`
+- else:
+  - `search_upper_bound = video_end`
+
+This avoids treating the next accepted rally start as if it were the true end of the previous rally.
+
+### Main Signals To Use
+Inside the interval:
+- `[t_start, search_upper_bound)`
+
+compute a per-frame or per-sample `live score` using:
+- `ROI / table motion`
+- `ball activity / ball track support`
+- optional merged `live_pair` support if it helps later
+
+Current intended emphasis:
+- use `ROI + ball` as the primary endpoint evidence
+- keep player-only cues as secondary support only if needed
+
+### Endpoint Algorithm
+1. Build a combined `live score` inside the bounded search interval.
+2. Detect contiguous `live islands` where rally activity is still real.
+3. Find the last stable `live island` before the next service turn.
+4. Refine endpoint as one of:
+   - the end of the last stable `live island`
+   - or the start of a stable dead/reset run immediately after it
+5. Apply only a small conservative buffer if needed to avoid cutting the last contact too early.
+
+### Practical Interpretation
+- The next rally start gives a safe right boundary for search.
+- The actual rally endpoint should be the last real table-tennis activity before:
+  - dead/reset time
+  - ball retrieval time
+  - serve preparation for the next turn
+
+### Non-Goals For This Layer
+- do not change accepted rally starts
+- do not change accepted `LET` decisions
+- do not infer winner yet
+- do not add clip-specific endpoint hacks
+
+### Proposed Output Extension
+Each accepted rally should eventually carry:
+- `search_upper_bound`
+- `rally_end`
+- `endpoint_mode`
+- `endpoint_confidence`
+
+Suggested meanings:
+- `search_upper_bound`
+  - the structural ceiling derived from the next accepted turn
+- `rally_end`
+  - the refined endpoint found inside the bounded interval
+- `endpoint_mode`
+  - for example:
+    - `last_live_island`
+    - `dead_run_start`
+    - `fallback_upper_bound`
+- `endpoint_confidence`
+  - confidence in the endpoint refinement itself
+
+### Acceptance Criteria
+- Every rally end must satisfy:
+  - `t_start <= rally_end <= search_upper_bound`
+- The endpoint refinement must not change:
+  - rally count
+  - accepted rally starts
+  - accepted `LET` labels
+- On reviewed clips, endpoint should visually align with the last real rally activity, not drift all the way to the next starter by default.

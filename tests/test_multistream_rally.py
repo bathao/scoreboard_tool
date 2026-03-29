@@ -1283,7 +1283,7 @@ def test_build_draft_ball_mode_disables_player_streams(monkeypatch):
     assert draft.to_dict()["summary"]["total_rallies"] == 1
 
 
-def test_build_draft_player_mode_disables_ball_streams(monkeypatch):
+def test_build_draft_player_mode_allows_ball_streams_for_endpoint_refinement(monkeypatch):
     captured = {}
 
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
@@ -1321,12 +1321,12 @@ def test_build_draft_player_mode_disables_ball_streams(monkeypatch):
     )
 
     assert captured["player_signal_source"] == "role_tracker"
-    assert captured["ball_signal_source"] == "none"
+    assert captured["ball_signal_source"] == "classical"
     assert captured["ball_tracking_profile"] == "support"
     assert len(draft.points) == 1
     assert "player_only" in draft.points[0].flags
     assert "player_signal_role_tracker" in draft.points[0].flags
-    assert "ball_signal_none" in draft.points[0].flags
+    assert "ball_signal_classical" in draft.points[0].flags
     assert draft.points[0].starter_role == "B"
     assert draft.analysis_metadata["detector_mode"] == "player"
     assert draft.to_dict()["summary"]["total_rallies"] == 1
@@ -1457,7 +1457,274 @@ def test_build_draft_excludes_let_segments_from_points(monkeypatch):
     assert draft.points[0].id == "pt_0001"
     assert draft.points[0].starter_role == "B"
     assert draft.points[0].t_start == 1.2
+    assert draft.points[0].active_start == 1.2
+    assert draft.points[0].active_end == 3.0
+    assert draft.points[0].search_upper_bound == 3.0
+    assert draft.points[0].preceding_let_count == 1
+    assert draft.points[0].preceding_let_starts == [0.5]
+    assert draft.points[0].service_attempt_index == 2
+    assert draft.points[0].boundary_mode == "video_end_open_tail"
+    assert draft.points[0].endpoint_mode in {"detector_end_clamped", "last_exchange_support", "dead_reset_run_start"}
+    assert 0.0 <= draft.points[0].endpoint_confidence <= 1.0
     assert draft.analysis_metadata["excluded_let_count"] == 1
     assert len(draft.analysis_metadata["excluded_let_starts"]) == 1
     assert draft.analysis_metadata["excluded_let_starts"][0]["t_start"] == 0.5
+    assert draft.analysis_metadata["active_window_mode"] == "accepted_start_to_next_accepted_start"
+    assert draft.analysis_metadata["endpoint_refine_mode"] == "roi_plus_ball_bounded_search"
+    assert draft.analysis_metadata["unattached_trailing_let_count"] == 0
     assert draft.to_dict()["summary"]["total_rallies"] == 1
+
+
+def test_build_draft_attaches_multiple_preceding_lets_and_active_windows(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            table_energies=[0.1] * 8,
+            ball_energies=[0.0] * 8,
+            player_a_energies=[0.0] * 8,
+            player_b_energies=[0.0] * 8,
+            player_energies=[0.0] * 8,
+            fused_energies=[0.1] * 8,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        assert mode == "player"
+        return [
+            RallySegment(
+                t_start=0.5,
+                t_end=0.9,
+                confidence=0.60,
+                flags=["player_sandwich", "rally_label_let", "let_no_score"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=1.0,
+                t_end=1.3,
+                confidence=0.61,
+                flags=["player_sandwich", "rally_label_let", "let_no_score"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=2.0,
+                t_end=3.4,
+                confidence=0.84,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=5.0,
+                t_end=6.2,
+                confidence=0.88,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].t_start == 2.0
+    assert draft.points[0].starter_role == "B"
+    assert draft.points[0].active_start == 2.0
+    assert draft.points[0].active_end == 5.0
+    assert draft.points[0].search_upper_bound == 5.0
+    assert draft.points[0].preceding_let_count == 2
+    assert draft.points[0].preceding_let_starts == [0.5, 1.0]
+    assert draft.points[0].service_attempt_index == 3
+    assert draft.points[0].boundary_mode == "next_start_exclusive"
+    assert draft.points[1].t_start == 5.0
+    assert draft.points[1].starter_role == "A"
+    assert draft.points[1].active_start == 5.0
+    assert draft.points[1].active_end == 7.0
+    assert draft.points[1].search_upper_bound == 7.0
+    assert draft.points[1].preceding_let_count == 0
+    assert draft.points[1].preceding_let_starts == []
+    assert draft.points[1].service_attempt_index == 1
+    assert draft.points[1].boundary_mode == "video_end_open_tail"
+    assert draft.analysis_metadata["excluded_let_count"] == 2
+    assert draft.analysis_metadata["unattached_trailing_let_count"] == 0
+
+
+def test_build_draft_refines_endpoint_before_search_upper_bound(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            table_energies=[0.0, 0.9, 0.85, 0.10, 0.05, 0.02, 0.01],
+            ball_energies=[0.0, 0.85, 0.80, 0.08, 0.03, 0.01, 0.0],
+            player_a_energies=[0.0] * 7,
+            player_b_energies=[0.0] * 7,
+            player_energies=[0.0] * 7,
+            fused_energies=[0.0] * 7,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        return [
+            RallySegment(
+                t_start=1.0,
+                t_end=5.2,
+                confidence=0.82,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=6.0,
+                t_end=6.5,
+                confidence=0.70,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].search_upper_bound == 6.0
+    assert draft.points[0].t_end < 6.0
+    assert draft.points[0].endpoint_mode in {"last_exchange_support", "dead_reset_run_start"}
+
+
+def test_build_draft_endpoint_prefers_dead_reset_run_over_lingering_table_motion(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            table_energies=[0.0, 0.92, 0.88, 0.36, 0.34, 0.30, 0.27, 0.22, 0.18],
+            ball_energies=[0.0, 0.86, 0.82, 0.05, 0.03, 0.02, 0.01, 0.0, 0.0],
+            player_a_energies=[0.05, 0.54, 0.50, 0.28, 0.30, 0.26, 0.22, 0.18, 0.12],
+            player_b_energies=[0.05, 0.48, 0.46, 0.24, 0.26, 0.23, 0.19, 0.16, 0.10],
+            player_energies=[0.05, 0.54, 0.50, 0.28, 0.30, 0.26, 0.22, 0.18, 0.12],
+            fused_energies=[0.0] * 9,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+            player_a_crouch_scores=[0.82, 0.84, 0.78, 0.14, 0.12, 0.10, 0.08, 0.08, 0.08],
+            player_b_crouch_scores=[0.80, 0.82, 0.76, 0.16, 0.13, 0.10, 0.08, 0.08, 0.08],
+            player_a_serve_scores=[0.04, 0.12, 0.08, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            player_b_serve_scores=[0.04, 0.10, 0.06, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            player_a_upper_body_scores=[0.10, 0.62, 0.56, 0.10, 0.08, 0.06, 0.05, 0.05, 0.05],
+            player_b_upper_body_scores=[0.10, 0.56, 0.52, 0.10, 0.08, 0.06, 0.05, 0.05, 0.05],
+            player_a_footwork_scores=[0.10, 0.58, 0.52, 0.09, 0.08, 0.06, 0.05, 0.05, 0.05],
+            player_b_footwork_scores=[0.10, 0.54, 0.50, 0.09, 0.08, 0.06, 0.05, 0.05, 0.05],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        return [
+            RallySegment(
+                t_start=1.0,
+                t_end=7.2,
+                confidence=0.84,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=8.0,
+                t_end=8.5,
+                confidence=0.70,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].search_upper_bound == 8.0
+    assert draft.points[0].t_end <= 5.0
+    assert draft.points[0].endpoint_mode == "dead_reset_run_start"
+
+
+def test_build_draft_endpoint_ignores_early_false_reset_when_exchange_resumes(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            table_energies=[0.0, 0.82, 0.78, 0.12, 0.70, 0.72, 0.14, 0.08, 0.04, 0.02],
+            ball_energies=[0.0, 0.74, 0.68, 0.05, 0.62, 0.64, 0.06, 0.02, 0.01, 0.0],
+            player_a_energies=[0.05, 0.48, 0.44, 0.12, 0.40, 0.42, 0.16, 0.12, 0.10, 0.08],
+            player_b_energies=[0.05, 0.44, 0.42, 0.12, 0.38, 0.40, 0.15, 0.12, 0.10, 0.08],
+            player_energies=[0.05, 0.48, 0.44, 0.12, 0.40, 0.42, 0.16, 0.12, 0.10, 0.08],
+            fused_energies=[0.0] * 10,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+            player_a_crouch_scores=[0.84, 0.86, 0.80, 0.14, 0.70, 0.68, 0.10, 0.08, 0.08, 0.08],
+            player_b_crouch_scores=[0.82, 0.84, 0.78, 0.14, 0.68, 0.66, 0.10, 0.08, 0.08, 0.08],
+            player_a_serve_scores=[0.06, 0.12, 0.08, 0.02, 0.04, 0.04, 0.02, 0.02, 0.02, 0.02],
+            player_b_serve_scores=[0.06, 0.10, 0.06, 0.02, 0.04, 0.04, 0.02, 0.02, 0.02, 0.02],
+            player_a_upper_body_scores=[0.10, 0.54, 0.50, 0.08, 0.46, 0.48, 0.08, 0.05, 0.05, 0.05],
+            player_b_upper_body_scores=[0.10, 0.50, 0.46, 0.08, 0.44, 0.46, 0.08, 0.05, 0.05, 0.05],
+            player_a_footwork_scores=[0.10, 0.50, 0.46, 0.08, 0.42, 0.44, 0.08, 0.05, 0.05, 0.05],
+            player_b_footwork_scores=[0.10, 0.48, 0.44, 0.08, 0.40, 0.42, 0.08, 0.05, 0.05, 0.05],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        return [
+            RallySegment(
+                t_start=1.0,
+                t_end=8.2,
+                confidence=0.82,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+            RallySegment(
+                t_start=9.0,
+                t_end=9.5,
+                confidence=0.70,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].search_upper_bound == 9.0
+    assert draft.points[0].t_end >= 6.0
+    assert draft.points[0].endpoint_mode == "dead_reset_run_start"
