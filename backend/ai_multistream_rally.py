@@ -43,6 +43,10 @@ class MultiStreamSignals:
     player_b_reach_scores: List[float] = field(default_factory=list)
     player_a_net_approach_scores: List[float] = field(default_factory=list)
     player_b_net_approach_scores: List[float] = field(default_factory=list)
+    player_a_face_hidden_scores: List[float] = field(default_factory=list)
+    player_b_face_hidden_scores: List[float] = field(default_factory=list)
+    player_a_face_touch_scores: List[float] = field(default_factory=list)
+    player_b_face_touch_scores: List[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,10 @@ class RoleTrackerSeries:
     player_b_reach_scores: List[float]
     player_a_net_approach_scores: List[float]
     player_b_net_approach_scores: List[float]
+    player_a_face_hidden_scores: List[float]
+    player_b_face_hidden_scores: List[float]
+    player_a_face_touch_scores: List[float]
+    player_b_face_touch_scores: List[float]
 
 
 @dataclass(frozen=True)
@@ -715,6 +723,84 @@ def _calc_role_net_approach_raw(
     return float(toward_net)
 
 
+def _calc_role_face_hidden_raw(
+    curr_obs: TrackletObservation,
+    _prev_obs: Optional[TrackletObservation],
+    *,
+    gap_frames: int = 1,
+) -> float:
+    _ = gap_frames
+    box_w = max(1.0, float(curr_obs.box[2] - curr_obs.box[0]))
+    box_h = max(1.0, float(curr_obs.box[3] - curr_obs.box[1]))
+    shoulders = _mean_valid_keypoint(curr_obs.keypoints, (5, 6))
+    hips = _mean_valid_keypoint(curr_obs.keypoints, (11, 12))
+    if shoulders is None or hips is None:
+        return 0.0
+
+    face_pts = [_mean_valid_keypoint(curr_obs.keypoints, (idx,)) for idx in (0, 1, 2)]
+    visible_face_pts = sum(1 for pt in face_pts if pt is not None)
+    missing_face = 1.0 - (float(visible_face_pts) / 3.0)
+
+    nose = face_pts[0]
+    head_down = 0.0
+    if nose is not None:
+        head_down = float(np.clip((float(nose[1]) - float(shoulders[1])) / (0.22 * box_h), 0.0, 1.0))
+
+    shoulder_left = _mean_valid_keypoint(curr_obs.keypoints, (5,))
+    shoulder_right = _mean_valid_keypoint(curr_obs.keypoints, (6,))
+    hip_left = _mean_valid_keypoint(curr_obs.keypoints, (11,))
+    hip_right = _mean_valid_keypoint(curr_obs.keypoints, (12,))
+
+    profile_turn = 0.0
+    if shoulder_left is not None and shoulder_right is not None and hip_left is not None and hip_right is not None:
+        shoulder_span = abs(float(shoulder_left[0]) - float(shoulder_right[0])) / box_w
+        hip_span = abs(float(hip_left[0]) - float(hip_right[0])) / box_w
+        # A strongly collapsed shoulder/hip span is a better proxy for "turned away"
+        # than missing face keypoints on this footage, where the pose model often still
+        # hallucinates nose/eye points after the player has already disengaged.
+        profile_turn = float(
+            np.clip(
+                1.0 - max(shoulder_span / 0.24, hip_span / 0.20),
+                0.0,
+                1.0,
+            )
+        )
+
+    face_hidden = (0.72 * missing_face) + (0.28 * head_down)
+    return float(np.clip(max(face_hidden, profile_turn), 0.0, 1.0))
+
+
+def _calc_role_face_touch_raw(
+    curr_obs: TrackletObservation,
+    _prev_obs: Optional[TrackletObservation],
+    *,
+    gap_frames: int = 1,
+) -> float:
+    _ = gap_frames
+    box_h = max(1.0, float(curr_obs.box[3] - curr_obs.box[1]))
+    nose = _mean_valid_keypoint(curr_obs.keypoints, (0,))
+    if nose is None:
+        eyes = _mean_valid_keypoint(curr_obs.keypoints, (1, 2))
+        nose = eyes
+    if nose is None:
+        shoulders = _mean_valid_keypoint(curr_obs.keypoints, (5, 6))
+        if shoulders is None:
+            return 0.0
+        nose = np.array([float(shoulders[0]), float(shoulders[1] - (0.16 * box_h))], dtype=np.float32)
+
+    best = 0.0
+    for wrist_idx in (9, 10):
+        if wrist_idx >= len(curr_obs.keypoints):
+            continue
+        wx, wy = curr_obs.keypoints[wrist_idx]
+        if wx <= 0 or wy <= 0:
+            continue
+        dist = float(np.linalg.norm(np.array([float(wx), float(wy)], dtype=np.float32) - nose) / box_h)
+        touch = float(np.clip(1.0 - (dist / 0.26), 0.0, 1.0))
+        best = max(best, touch)
+    return float(best)
+
+
 def _is_player_near_table(box_xyxy: np.ndarray, roi: TableROI, margin_px: int) -> bool:
     x1, _y1, x2, _y2 = [float(v) for v in box_xyxy]
     tx, _ty, tw, _th = roi.as_tuple()
@@ -1036,6 +1122,42 @@ def _collect_role_tracker_energies(
         occluded_hold_samples=role_hold_samples,
         occluded_decay=0.68,
     )
+    player_a_face_hidden = _build_role_feature_series(
+        frame_indices,
+        tracking_result.role_frames,
+        tracking_result.role_state_frames,
+        role="A",
+        feature_fn=lambda obs, prev, gap_frames=1: _calc_role_face_hidden_raw(obs, prev, gap_frames=gap_frames),
+        occluded_hold_samples=max(1, role_hold_samples - 1),
+        occluded_decay=0.55,
+    )
+    player_b_face_hidden = _build_role_feature_series(
+        frame_indices,
+        tracking_result.role_frames,
+        tracking_result.role_state_frames,
+        role="B",
+        feature_fn=lambda obs, prev, gap_frames=1: _calc_role_face_hidden_raw(obs, prev, gap_frames=gap_frames),
+        occluded_hold_samples=max(1, role_hold_samples - 1),
+        occluded_decay=0.55,
+    )
+    player_a_face_touch = _build_role_feature_series(
+        frame_indices,
+        tracking_result.role_frames,
+        tracking_result.role_state_frames,
+        role="A",
+        feature_fn=lambda obs, prev, gap_frames=1: _calc_role_face_touch_raw(obs, prev, gap_frames=gap_frames),
+        occluded_hold_samples=max(1, role_hold_samples - 1),
+        occluded_decay=0.58,
+    )
+    player_b_face_touch = _build_role_feature_series(
+        frame_indices,
+        tracking_result.role_frames,
+        tracking_result.role_state_frames,
+        role="B",
+        feature_fn=lambda obs, prev, gap_frames=1: _calc_role_face_touch_raw(obs, prev, gap_frames=gap_frames),
+        occluded_hold_samples=max(1, role_hold_samples - 1),
+        occluded_decay=0.58,
+    )
     return RoleTrackerSeries(
         timestamps=timestamps,
         table_energies=table_energies,
@@ -1053,6 +1175,10 @@ def _collect_role_tracker_energies(
         player_b_reach_scores=player_b_reach,
         player_a_net_approach_scores=player_a_net_approach,
         player_b_net_approach_scores=player_b_net_approach,
+        player_a_face_hidden_scores=player_a_face_hidden,
+        player_b_face_hidden_scores=player_b_face_hidden,
+        player_a_face_touch_scores=player_a_face_touch,
+        player_b_face_touch_scores=player_b_face_touch,
     )
 
 
@@ -2940,6 +3066,10 @@ def extract_multistream_signals(
         player_b_reach_scores = [0.0 for _ in timestamps]
         player_a_net_approach_scores = [0.0 for _ in timestamps]
         player_b_net_approach_scores = [0.0 for _ in timestamps]
+        player_a_face_hidden_scores = [0.0 for _ in timestamps]
+        player_b_face_hidden_scores = [0.0 for _ in timestamps]
+        player_a_face_touch_scores = [0.0 for _ in timestamps]
+        player_b_face_touch_scores = [0.0 for _ in timestamps]
     else:
         person_model = YOLO(str(pose_w_path))
         cap = cv2.VideoCapture(str(v_path))
@@ -2974,6 +3104,10 @@ def extract_multistream_signals(
             player_b_reach_scores = role_series.player_b_reach_scores
             player_a_net_approach_scores = role_series.player_a_net_approach_scores
             player_b_net_approach_scores = role_series.player_b_net_approach_scores
+            player_a_face_hidden_scores = role_series.player_a_face_hidden_scores
+            player_b_face_hidden_scores = role_series.player_b_face_hidden_scores
+            player_a_face_touch_scores = role_series.player_a_face_touch_scores
+            player_b_face_touch_scores = role_series.player_b_face_touch_scores
         else:
             timestamps, table_energies, player_a_energies, player_b_energies = _collect_nearest_two_energies(
                 cap,
@@ -2996,6 +3130,10 @@ def extract_multistream_signals(
             player_b_reach_scores = [0.0 for _ in timestamps]
             player_a_net_approach_scores = [0.0 for _ in timestamps]
             player_b_net_approach_scores = [0.0 for _ in timestamps]
+            player_a_face_hidden_scores = [0.0 for _ in timestamps]
+            player_b_face_hidden_scores = [0.0 for _ in timestamps]
+            player_a_face_touch_scores = [0.0 for _ in timestamps]
+            player_b_face_touch_scores = [0.0 for _ in timestamps]
 
     if player_signal_source != "none":
         cap.release()
@@ -3027,6 +3165,10 @@ def extract_multistream_signals(
             player_b_reach_scores = player_b_reach_scores[1 : 1 + aligned_len]
             player_a_net_approach_scores = player_a_net_approach_scores[1 : 1 + aligned_len]
             player_b_net_approach_scores = player_b_net_approach_scores[1 : 1 + aligned_len]
+            player_a_face_hidden_scores = player_a_face_hidden_scores[1 : 1 + aligned_len]
+            player_b_face_hidden_scores = player_b_face_hidden_scores[1 : 1 + aligned_len]
+            player_a_face_touch_scores = player_a_face_touch_scores[1 : 1 + aligned_len]
+            player_b_face_touch_scores = player_b_face_touch_scores[1 : 1 + aligned_len]
         elif timestamps:
             timestamps = timestamps[1:]
             table_energies = table_energies[1:]
@@ -3044,6 +3186,10 @@ def extract_multistream_signals(
             player_b_reach_scores = player_b_reach_scores[1:]
             player_a_net_approach_scores = player_a_net_approach_scores[1:]
             player_b_net_approach_scores = player_b_net_approach_scores[1:]
+            player_a_face_hidden_scores = player_a_face_hidden_scores[1:]
+            player_b_face_hidden_scores = player_b_face_hidden_scores[1:]
+            player_a_face_touch_scores = player_a_face_touch_scores[1:]
+            player_b_face_touch_scores = player_b_face_touch_scores[1:]
 
     if ball_signal_source == "classical":
         ball_signals = extract_ball_motion_energies(
@@ -3072,6 +3218,10 @@ def extract_multistream_signals(
         player_b_reach_scores = player_b_reach_scores[:aligned_len]
         player_a_net_approach_scores = player_a_net_approach_scores[:aligned_len]
         player_b_net_approach_scores = player_b_net_approach_scores[:aligned_len]
+        player_a_face_hidden_scores = player_a_face_hidden_scores[:aligned_len]
+        player_b_face_hidden_scores = player_b_face_hidden_scores[:aligned_len]
+        player_a_face_touch_scores = player_a_face_touch_scores[:aligned_len]
+        player_b_face_touch_scores = player_b_face_touch_scores[:aligned_len]
         ball_energies = ball_signals.energies[:aligned_len]
     else:
         ball_energies = [0.0 for _ in timestamps]
@@ -3115,6 +3265,10 @@ def extract_multistream_signals(
         player_b_reach_scores=player_b_reach_scores,
         player_a_net_approach_scores=player_a_net_approach_scores,
         player_b_net_approach_scores=player_b_net_approach_scores,
+        player_a_face_hidden_scores=player_a_face_hidden_scores,
+        player_b_face_hidden_scores=player_b_face_hidden_scores,
+        player_a_face_touch_scores=player_a_face_touch_scores,
+        player_b_face_touch_scores=player_b_face_touch_scores,
     )
 
 

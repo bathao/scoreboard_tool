@@ -6,6 +6,7 @@ from backend.ai_multistream_rally import (
     _dedupe_player_sandwich_start_candidates,
     _detect_player_sandwich_rallies,
     _detect_player_sandwich_rallies_from_diagnostics,
+    _calc_role_face_hidden_raw,
     _infer_forced_let_indices_from_starter_roles,
     _infer_player_serve_mode_from_starter_roles,
     _merge_player_start_candidates,
@@ -35,6 +36,36 @@ def _obs(frame_idx: int, *, cx: float, cy: float, wrist_shift: float = 0.0) -> T
         frame_idx=frame_idx,
         box=box,
         center=(cx, cy),
+        keypoints=keypoints,
+        confidence=0.95,
+    )
+
+
+def _obs_with_pose(
+    frame_idx: int,
+    *,
+    box,
+    nose,
+    left_eye,
+    right_eye,
+    left_shoulder,
+    right_shoulder,
+    left_hip,
+    right_hip,
+) -> TrackletObservation:
+    keypoints = np.zeros((17, 2), dtype=np.float32)
+    keypoints[0] = nose
+    keypoints[1] = left_eye
+    keypoints[2] = right_eye
+    keypoints[5] = left_shoulder
+    keypoints[6] = right_shoulder
+    keypoints[11] = left_hip
+    keypoints[12] = right_hip
+    x1, y1, x2, y2 = box
+    return TrackletObservation(
+        frame_idx=frame_idx,
+        box=box,
+        center=((x1 + x2) / 2.0, (y1 + y2) / 2.0),
         keypoints=keypoints,
         confidence=0.95,
     )
@@ -140,6 +171,34 @@ def test_role_energy_series_short_occlusion_keeps_decay_signal():
     assert energies[1] > 0.0
     assert energies[2] > 0.0
     assert energies[2] < energies[1]
+
+
+def test_face_hidden_raw_uses_profile_turn_when_face_keypoints_still_visible():
+    profile_obs = _obs_with_pose(
+        0,
+        box=(100, 100, 200, 320),
+        nose=(151, 132),
+        left_eye=(153, 128),
+        right_eye=(149, 128),
+        left_shoulder=(154, 170),
+        right_shoulder=(148, 171),
+        left_hip=(153, 248),
+        right_hip=(149, 249),
+    )
+    frontal_obs = _obs_with_pose(
+        0,
+        box=(100, 100, 200, 320),
+        nose=(150, 132),
+        left_eye=(156, 128),
+        right_eye=(144, 128),
+        left_shoulder=(170, 170),
+        right_shoulder=(130, 171),
+        left_hip=(166, 248),
+        right_hip=(134, 249),
+    )
+
+    assert _calc_role_face_hidden_raw(profile_obs, None) >= 0.75
+    assert _calc_role_face_hidden_raw(frontal_obs, None) <= 0.15
 
 
 def test_role_refine_splits_long_table_segment_on_quiet_gap():
@@ -1669,3 +1728,122 @@ def test_build_draft_endpoint_prefers_dead_reset_run_over_lingering_table_motion
     assert draft.points[0].t_end <= 5.0
     assert draft.points[0].endpoint_mode == "dead_reset_run_start"
 
+
+def test_build_draft_endpoint_scores_dead_runs_and_skips_false_reset_resume(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            table_energies=[0.0, 0.82, 0.78, 0.12, 0.70, 0.72, 0.14, 0.08, 0.04, 0.02],
+            ball_energies=[0.0, 0.74, 0.68, 0.05, 0.62, 0.64, 0.06, 0.02, 0.01, 0.0],
+            player_a_energies=[0.05, 0.48, 0.44, 0.12, 0.40, 0.42, 0.16, 0.12, 0.10, 0.08],
+            player_b_energies=[0.05, 0.44, 0.42, 0.12, 0.38, 0.40, 0.15, 0.12, 0.10, 0.08],
+            player_energies=[0.05, 0.48, 0.44, 0.12, 0.40, 0.42, 0.16, 0.12, 0.10, 0.08],
+            fused_energies=[0.0] * 10,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+            player_a_crouch_scores=[0.84, 0.86, 0.80, 0.14, 0.70, 0.68, 0.10, 0.08, 0.08, 0.08],
+            player_b_crouch_scores=[0.82, 0.84, 0.78, 0.14, 0.68, 0.66, 0.10, 0.08, 0.08, 0.08],
+            player_a_serve_scores=[0.06, 0.12, 0.08, 0.02, 0.04, 0.04, 0.02, 0.02, 0.02, 0.02],
+            player_b_serve_scores=[0.06, 0.10, 0.06, 0.02, 0.04, 0.04, 0.02, 0.02, 0.02, 0.02],
+            player_a_upper_body_scores=[0.10, 0.54, 0.50, 0.08, 0.46, 0.48, 0.08, 0.05, 0.05, 0.05],
+            player_b_upper_body_scores=[0.10, 0.50, 0.46, 0.08, 0.44, 0.46, 0.08, 0.05, 0.05, 0.05],
+            player_a_footwork_scores=[0.10, 0.50, 0.46, 0.08, 0.42, 0.44, 0.08, 0.05, 0.05, 0.05],
+            player_b_footwork_scores=[0.10, 0.48, 0.44, 0.08, 0.40, 0.42, 0.08, 0.05, 0.05, 0.05],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        return [
+            RallySegment(
+                t_start=1.0,
+                t_end=8.2,
+                confidence=0.82,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+            RallySegment(
+                t_start=9.0,
+                t_end=9.5,
+                confidence=0.70,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].search_upper_bound == 9.0
+    assert draft.points[0].t_end >= 5.0
+    assert draft.points[0].endpoint_mode in {"dead_reset_run_start", "last_exchange_support"}
+
+
+def test_build_draft_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            table_energies=[0.0, 0.82, 0.76, 0.34, 0.30, 0.22, 0.16, 0.10, 0.06],
+            ball_energies=[0.0, 0.76, 0.70, 0.08, 0.05, 0.03, 0.02, 0.01, 0.0],
+            player_a_energies=[0.05, 0.46, 0.44, 0.54, 0.58, 0.44, 0.28, 0.16, 0.08],
+            player_b_energies=[0.05, 0.44, 0.42, 0.10, 0.08, 0.06, 0.05, 0.04, 0.03],
+            player_energies=[0.05, 0.46, 0.44, 0.54, 0.58, 0.44, 0.28, 0.16, 0.08],
+            fused_energies=[0.0] * 9,
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+            player_a_crouch_scores=[0.82, 0.84, 0.80, 0.12, 0.10, 0.08, 0.08, 0.08, 0.08],
+            player_b_crouch_scores=[0.80, 0.82, 0.78, 0.12, 0.10, 0.08, 0.08, 0.08, 0.08],
+            player_a_serve_scores=[0.04, 0.10, 0.06, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            player_b_serve_scores=[0.04, 0.10, 0.06, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            player_a_upper_body_scores=[0.10, 0.52, 0.48, 0.12, 0.10, 0.08, 0.06, 0.05, 0.05],
+            player_b_upper_body_scores=[0.10, 0.50, 0.46, 0.08, 0.06, 0.05, 0.05, 0.05, 0.05],
+            player_a_footwork_scores=[0.10, 0.50, 0.46, 0.14, 0.12, 0.08, 0.06, 0.05, 0.05],
+            player_b_footwork_scores=[0.10, 0.48, 0.44, 0.08, 0.06, 0.05, 0.05, 0.05, 0.05],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        return [
+            RallySegment(
+                t_start=1.0,
+                t_end=7.2,
+                confidence=0.84,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="B",
+            ),
+            RallySegment(
+                t_start=8.0,
+                t_end=8.5,
+                confidence=0.70,
+                flags=["player_sandwich", "rally_label_point"],
+                server_role="A",
+            ),
+        ]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+        mode="player",
+        player_signal_source="role_tracker",
+        ball_signal_source="classical",
+    )
+
+    assert len(draft.points) == 2
+    assert draft.points[0].search_upper_bound == 8.0
+    assert draft.points[0].t_end <= 5.0
+    assert draft.points[0].endpoint_mode == "dead_reset_run_start"

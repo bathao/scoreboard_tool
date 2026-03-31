@@ -157,6 +157,10 @@ def _build_endpoint_support_series(signals) -> dict[str, np.ndarray]:
     upper_b = _signal_array(list(signals.player_b_upper_body_scores), sample_count)
     foot_a = _signal_array(list(signals.player_a_footwork_scores), sample_count)
     foot_b = _signal_array(list(signals.player_b_footwork_scores), sample_count)
+    face_hidden_a = _signal_array(list(getattr(signals, "player_a_face_hidden_scores", [])), sample_count)
+    face_hidden_b = _signal_array(list(getattr(signals, "player_b_face_hidden_scores", [])), sample_count)
+    face_touch_a = _signal_array(list(getattr(signals, "player_a_face_touch_scores", [])), sample_count)
+    face_touch_b = _signal_array(list(getattr(signals, "player_b_face_touch_scores", [])), sample_count)
 
     competitive_a = np.maximum.reduce(
         [
@@ -173,6 +177,8 @@ def _build_endpoint_support_series(signals) -> dict[str, np.ndarray]:
         ]
     )
     live_pair = np.maximum(competitive_a, competitive_b)
+    interaction_pair = np.sqrt(np.clip(competitive_a, 0.0, None) * np.clip(competitive_b, 0.0, None))
+    one_sided_motion = np.clip(live_pair - interaction_pair, 0.0, 1.0)
 
     stand_a = np.clip((1.0 - crouch_a) * (1.0 - (0.35 * np.maximum(upper_a, foot_a))), 0.0, 1.0)
     stand_b = np.clip((1.0 - crouch_b) * (1.0 - (0.35 * np.maximum(upper_b, foot_b))), 0.0, 1.0)
@@ -190,13 +196,27 @@ def _build_endpoint_support_series(signals) -> dict[str, np.ndarray]:
     casual_pair = np.minimum(casual_a, casual_b)
     reset_pair = np.maximum(stand_pair, 0.92 * casual_pair)
     shared_activity = np.maximum.reduce([motion_a, motion_b, upper_a, upper_b, foot_a, foot_b])
+    terminal_body_a = np.maximum.reduce([face_hidden_a, 0.92 * face_touch_a, 0.35 * casual_a])
+    terminal_body_b = np.maximum.reduce([face_hidden_b, 0.92 * face_touch_b, 0.35 * casual_b])
+    partner_reset_a = np.maximum(casual_b, stand_b)
+    partner_reset_b = np.maximum(casual_a, stand_a)
+    terminal_body_pair = np.maximum.reduce(
+        [
+            np.minimum(terminal_body_a, terminal_body_b),
+            np.minimum(terminal_body_a, partner_reset_a),
+            np.minimum(terminal_body_b, partner_reset_b),
+        ]
+    )
 
     return {
         "table_norm": table_norm,
         "ball_norm": ball_norm,
         "live_pair": live_pair,
+        "interaction_pair": interaction_pair,
+        "one_sided_motion": one_sided_motion,
         "reset_pair": reset_pair,
         "shared_activity": shared_activity,
+        "terminal_body_pair": terminal_body_pair,
     }
 
 
@@ -205,8 +225,11 @@ def _refine_endpoint_from_signals(
     table_norm: np.ndarray,
     ball_norm: np.ndarray,
     live_pair: np.ndarray,
+    interaction_pair: np.ndarray,
+    one_sided_motion: np.ndarray,
     reset_pair: np.ndarray,
     shared_activity: np.ndarray,
+    terminal_body_pair: np.ndarray,
     *,
     t_start: float,
     detector_end: float,
@@ -230,9 +253,15 @@ def _refine_endpoint_from_signals(
         return baseline_end, "detector_end_clamped", 0.15
 
     interval_times = timestamps[start_idx : upper_idx + 1]
+    sample_dt = float(np.median(np.diff(interval_times))) if interval_times.size > 1 else (1.0 / 30.0)
     interval_live = live_pair[start_idx : upper_idx + 1]
+    interval_interaction = interaction_pair[start_idx : upper_idx + 1]
+    interval_one_sided = one_sided_motion[start_idx : upper_idx + 1]
     interval_reset = reset_pair[start_idx : upper_idx + 1]
     interval_shared = shared_activity[start_idx : upper_idx + 1]
+    interval_terminal_body = terminal_body_pair[start_idx : upper_idx + 1]
+    interaction_discount = np.clip(1.0 - (0.60 * interval_terminal_body), 0.35, 1.0)
+    effective_interaction = interval_interaction * interaction_discount
     combined_live = np.maximum.reduce(
         [
             (0.44 * interval_ball) + (0.34 * interval_table) + (0.22 * interval_live),
@@ -240,67 +269,472 @@ def _refine_endpoint_from_signals(
             np.minimum(interval_live * 1.08, np.maximum(interval_ball, 0.70 * interval_table)),
         ]
     )
+    no_ball = np.clip(1.0 - interval_ball, 0.0, 1.0)
+    no_live = np.clip(1.0 - interval_live, 0.0, 1.0)
+    no_table = np.clip(1.0 - interval_table, 0.0, 1.0)
+    terminal_reset_score = np.maximum.reduce(
+        [
+            (0.42 * no_ball) + (0.24 * interval_reset) + (0.16 * no_live) + (0.18 * (1.0 - interval_interaction)),
+            (0.36 * no_ball) + (0.22 * interval_reset) + (0.16 * no_table) + (0.16 * (1.0 - effective_interaction)) + (0.10 * interval_one_sided),
+            (0.36 * no_ball) + (0.20 * interval_reset) + (0.12 * no_live) + (0.16 * no_table) + (0.16 * (1.0 - effective_interaction)),
+            (0.26 * no_ball) + (0.20 * interval_reset) + (0.12 * no_live) + (0.12 * no_table) + (0.12 * (1.0 - effective_interaction)) + (0.18 * interval_terminal_body),
+        ]
+    )
 
     exchange_mask = (
-        ((interval_ball >= 0.18) & ((interval_table >= 0.16) | (interval_live >= 0.16)))
-        | ((interval_live >= 0.26) & (interval_ball >= 0.10))
-        | ((combined_live >= 0.28) & (interval_ball >= 0.08))
+        ((interval_ball >= 0.18) & ((interval_table >= 0.16) | (effective_interaction >= 0.12) | ((interval_live >= 0.24) & (interval_reset <= 0.62))))
+        | ((effective_interaction >= 0.16) & (interval_live >= 0.24) & (interval_ball >= 0.08))
+        | ((combined_live >= 0.32) & (interval_ball >= 0.12) & (effective_interaction >= 0.10))
     )
     exchange_mask = _fill_short_false_gaps(exchange_mask, max_gap_samples=1)
-    prior_exchange_peak = np.maximum.accumulate(np.where(exchange_mask, combined_live, 0.0))
+    competitive_exchange_mask = (
+        ((interval_ball >= 0.20) & (effective_interaction >= 0.12) & (interval_live >= 0.22) & (interval_reset <= 0.68))
+        | ((combined_live >= 0.38) & (interval_ball >= 0.18) & (effective_interaction >= 0.16) & (interval_reset <= 0.64))
+        | ((interval_ball >= 0.50) & (effective_interaction >= 0.08) & (interval_table >= 0.16) & (interval_reset <= 0.68))
+    )
+    competitive_exchange_mask = _fill_short_false_gaps(competitive_exchange_mask, max_gap_samples=1)
+    terminal_body_mask = ((interval_terminal_body >= 0.34) & (interval_reset >= 0.44))
+    terminal_body_mask = _fill_short_false_gaps(terminal_body_mask, max_gap_samples=1)
+    prior_exchange_peak = np.maximum.accumulate(np.where(competitive_exchange_mask, combined_live, 0.0))
 
     dead_reset_mask = (
-        (interval_ball <= 0.08)
+        (interval_ball <= 0.24)
         & (
-            ((interval_reset >= 0.58) & (interval_live <= 0.28))
-            | ((interval_table <= 0.16) & (interval_live <= 0.24))
-            | ((interval_reset >= 0.70) & (interval_shared <= 0.42))
-            | ((interval_reset >= 0.56) & (interval_live <= 0.22) & (interval_shared >= 0.24))
+            ((terminal_reset_score >= 0.62) & (effective_interaction <= 0.16))
+            | ((interval_ball <= 0.16) & (interval_reset >= 0.60) & (effective_interaction <= 0.16))
+            | ((interval_ball <= 0.30) & (interval_reset >= 0.52) & (effective_interaction <= 0.10) & (interval_one_sided >= 0.12))
+            | ((interval_ball <= 0.22) & (interval_reset >= 0.66) & (interval_one_sided >= 0.18))
+            | ((interval_reset >= 0.74) & (interval_shared <= 0.52) & (effective_interaction <= 0.20))
+            | ((interval_terminal_body >= 0.46) & (interval_reset >= 0.40) & (effective_interaction <= 0.24) & (combined_live <= 0.62))
         )
     )
-    dead_reset_mask = _fill_short_false_gaps(dead_reset_mask, max_gap_samples=1)
-    earliest_dead_time = safe_start + min(1.05, 0.45 * max(0.0, safe_upper - safe_start))
-    early_dead_runs: list[tuple[int, int, int]] = []
-    run_start = None
-    for idx_local, is_dead in enumerate(dead_reset_mask):
-        if is_dead and run_start is None:
-            run_start = idx_local
-            continue
-        if (not is_dead) and run_start is not None:
-            run_end = idx_local - 1
-            dead_start_t = float(interval_times[run_start])
-            has_exchange_before = bool(run_start > 0 and prior_exchange_peak[run_start - 1] >= 0.26)
-            if dead_start_t >= earliest_dead_time and has_exchange_before:
-                early_dead_runs.append((run_start, run_end, run_end - run_start + 1))
-            run_start = None
-    if run_start is not None:
-        run_end = len(dead_reset_mask) - 1
-        dead_start_t = float(interval_times[run_start])
-        has_exchange_before = bool(run_start > 0 and prior_exchange_peak[run_start - 1] >= 0.26)
-        if dead_start_t >= earliest_dead_time and has_exchange_before:
-            early_dead_runs.append((run_start, run_end, run_end - run_start + 1))
+    dead_gap_samples = max(1, int(round(0.20 / max(sample_dt, 1e-6))))
+    dead_reset_mask = _fill_short_false_gaps(dead_reset_mask, max_gap_samples=dead_gap_samples)
+    interval_duration = float(max(1e-6, safe_upper - safe_start))
+    earliest_dead_time = safe_start + min(1.05, 0.45 * interval_duration)
+    future_guard_t = safe_upper - min(0.95, max(0.55, 0.18 * interval_duration))
+    future_guard_idx = int(np.searchsorted(interval_times, future_guard_t, side="left")) - 1
+    def extract_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+        runs: list[tuple[int, int]] = []
+        run_start_idx: int | None = None
+        for idx_local, value in enumerate(mask):
+            if value and run_start_idx is None:
+                run_start_idx = idx_local
+                continue
+            if (not value) and run_start_idx is not None:
+                runs.append((run_start_idx, idx_local - 1))
+                run_start_idx = None
+        if run_start_idx is not None:
+            runs.append((run_start_idx, len(mask) - 1))
+        return runs
 
-    if early_dead_runs:
-        dead_start_local, dead_end_local, dead_len = early_dead_runs[0]
-        dead_start_t = float(interval_times[dead_start_local])
-        if dead_start_t > safe_start + 0.10:
-            refined_end = float(np.clip(dead_start_t, safe_start + 0.01, baseline_end))
-            endpoint_confidence = float(
-                np.clip(
-                    0.42
-                    + (0.07 * dead_len)
-                    + (0.18 * float(interval_reset[dead_start_local]))
-                    + (0.12 * float(1.0 - interval_ball[dead_start_local])),
-                    0.28,
-                    0.95,
+    def run_duration_sec(run_start_idx: int, run_end_idx: int) -> float:
+        return float(interval_times[run_end_idx] - interval_times[run_start_idx] + sample_dt)
+
+    competitive_runs = extract_runs(competitive_exchange_mask)
+    exchange_runs = extract_runs(exchange_mask)
+    dead_runs = extract_runs(dead_reset_mask)
+    terminal_body_runs = extract_runs(terminal_body_mask)
+
+    def run_mean(arr: np.ndarray, run_start_idx: int, run_end_idx: int) -> float:
+        return float(np.mean(arr[run_start_idx : run_end_idx + 1]))
+
+    def run_peak(arr: np.ndarray, run_start_idx: int, run_end_idx: int) -> float:
+        return float(np.max(arr[run_start_idx : run_end_idx + 1]))
+
+    def is_weak_tail_fragment(run_start_idx: int, run_end_idx: int) -> bool:
+        run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
+        mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
+        mean_interaction = run_mean(interval_interaction, run_start_idx, run_end_idx)
+        mean_reset = run_mean(interval_reset, run_start_idx, run_end_idx)
+        peak_interaction = run_peak(interval_interaction, run_start_idx, run_end_idx)
+        term_start = float(terminal_reset_score[run_start_idx])
+        micro_fragment = bool(run_duration_value <= max(0.12, 3.5 * sample_dt))
+        return bool(
+            run_duration_value <= max(1.15, 36.0 * sample_dt)
+            and mean_reset >= 0.50
+            and (
+                mean_interaction <= 0.34
+                or (
+                    micro_fragment
+                    and term_start >= 0.50
+                    and mean_reset >= 0.40
+                    and peak_interaction <= 0.65
                 )
             )
-            return refined_end, "dead_reset_run_start", endpoint_confidence
+            and (
+                mean_table <= 0.28
+                or term_start >= 0.64
+                or (micro_fragment and term_start >= 0.50)
+            )
+        )
 
-    if np.any(exchange_mask):
-        last_live_local = int(np.flatnonzero(exchange_mask)[-1])
-        refined_end = float(np.clip(float(interval_times[last_live_local]), safe_start + 0.01, baseline_end))
-        endpoint_confidence = float(np.clip(0.25 + (0.65 * combined_live[last_live_local]), 0.20, 0.90))
+    first_viable_dead_start_local: int | None = None
+    for dead_start_local, _dead_end_local in dead_runs:
+        dead_start_t = float(interval_times[dead_start_local])
+        if dead_start_t >= earliest_dead_time:
+            first_viable_dead_start_local = dead_start_local
+            break
+
+    if competitive_runs and dead_runs and terminal_body_runs:
+        for body_start_local, body_end_local in terminal_body_runs:
+            body_start_t = float(interval_times[body_start_local])
+            if body_start_t < earliest_dead_time:
+                continue
+            if body_start_local > future_guard_idx:
+                break
+            if body_start_t >= baseline_end - max(0.20, 4.0 * sample_dt):
+                continue
+            if first_viable_dead_start_local is not None and body_start_local >= first_viable_dead_start_local:
+                continue
+
+            body_peak = run_peak(interval_terminal_body, body_start_local, body_end_local)
+            if body_peak < 0.58:
+                continue
+
+            prior_peak = float(prior_exchange_peak[body_start_local - 1]) if body_start_local > 0 else 0.0
+            if prior_peak < 0.40:
+                continue
+
+            if (
+                effective_interaction[body_start_local] > 0.34
+                and interval_one_sided[body_start_local] < 0.24
+            ):
+                continue
+
+            if combined_live[body_start_local] > 0.80 and interval_reset[body_start_local] < 0.32:
+                continue
+
+            next_dead_after_body: tuple[int, int] | None = None
+            for dead_start_local, dead_end_local in dead_runs:
+                if dead_start_local > body_start_local:
+                    next_dead_after_body = (dead_start_local, dead_end_local)
+                    break
+            if next_dead_after_body is None:
+                continue
+
+            next_dead_start_local, _ = next_dead_after_body
+            next_dead_start_t = float(interval_times[next_dead_start_local])
+            if next_dead_start_t - body_start_t < max(1.10, 0.11 * interval_duration):
+                continue
+
+            weak_tail_only = True
+            for run_start_local, run_end_local in competitive_runs:
+                if run_end_local <= body_start_local:
+                    continue
+                if run_start_local >= next_dead_start_local:
+                    break
+                tail_run_start = max(run_start_local, body_start_local)
+                if not is_weak_tail_fragment(tail_run_start, run_end_local):
+                    weak_tail_only = False
+                    break
+
+            if weak_tail_only:
+                refined_end = float(np.clip(body_start_t, safe_start + 0.01, baseline_end))
+                endpoint_confidence = float(
+                    np.clip(
+                        0.44
+                        + (0.16 * body_peak)
+                        + (0.10 * float(interval_reset[body_start_local]))
+                        + (0.10 * min(1.0, (next_dead_start_t - body_start_t) / max(1.10, 0.11 * interval_duration))),
+                        0.34,
+                        0.94,
+                    )
+                )
+                return refined_end, "terminal_body_split_start", endpoint_confidence
+
+    if competitive_runs:
+        primary_start_local, primary_end_local = competitive_runs[0]
+        primary_duration = run_duration_sec(primary_start_local, primary_end_local)
+        if primary_duration >= max(0.75, 6.0 * sample_dt):
+            next_dead_after_primary: tuple[int, int] | None = None
+            for dead_start_local, dead_end_local in dead_runs:
+                if dead_start_local > primary_end_local:
+                    next_dead_after_primary = (dead_start_local, dead_end_local)
+                    break
+
+            if next_dead_after_primary is not None:
+                primary_end_t = float(interval_times[primary_end_local])
+                next_dead_start_local, _ = next_dead_after_primary
+                next_dead_start_t = float(interval_times[next_dead_start_local])
+                long_tail_after_primary = bool(
+                    next_dead_start_t - primary_end_t >= max(1.80, 0.18 * interval_duration)
+                )
+                if long_tail_after_primary:
+                    seed_run: tuple[int, int] | None = None
+                    seed_search_lead_sec = max(0.35, 10.0 * sample_dt)
+                    seed_start_floor_t = primary_end_t - max(0.25, 7.0 * sample_dt)
+                    for body_start_local, body_end_local in terminal_body_runs:
+                        body_start_t = float(interval_times[body_start_local])
+                        if body_start_t < seed_start_floor_t:
+                            continue
+                        if body_start_t - primary_end_t > seed_search_lead_sec:
+                            break
+                        if run_duration_sec(body_start_local, body_end_local) < max(0.20, 4.0 * sample_dt):
+                            continue
+                        seed_run = (body_start_local, body_end_local)
+                        break
+
+                    if seed_run is not None:
+                        weak_tail_only = True
+                        for run_start_local, run_end_local in competitive_runs[1:]:
+                            if run_start_local < seed_run[0]:
+                                continue
+                            if run_start_local >= next_dead_start_local:
+                                break
+                            if not is_weak_tail_fragment(run_start_local, run_end_local):
+                                weak_tail_only = False
+                                break
+                        if weak_tail_only:
+                            seed_start_t = float(interval_times[seed_run[0]])
+                            refined_end = float(
+                                np.clip(max(seed_start_t, seed_start_floor_t), safe_start + 0.01, baseline_end)
+                            )
+                            endpoint_confidence = float(
+                                np.clip(
+                                    0.48
+                                    + (0.12 * float(run_mean(interval_terminal_body, seed_run[0], seed_run[1])))
+                                    + (0.08 * float(run_mean(interval_reset, seed_run[0], seed_run[1])))
+                                    + (0.08 * min(1.0, (next_dead_start_t - primary_end_t) / max(1.80, 0.18 * interval_duration))),
+                                    0.36,
+                                    0.94,
+                                )
+                            )
+                            return refined_end, "terminal_body_seed_start", endpoint_confidence
+
+                cluster_runs: list[tuple[int, int]] = []
+                cluster_start_t: float | None = None
+                cluster_end_t: float | None = None
+                gap_limit_sec = max(0.40, 12.0 * sample_dt)
+                weak_span_min_sec = max(1.00, 0.11 * interval_duration)
+                weak_dead_gap_limit_sec = max(0.70, 16.0 * sample_dt)
+
+                prev_end_local = primary_end_local
+                for run_start_local, run_end_local in competitive_runs[1:]:
+                    if run_start_local >= next_dead_start_local:
+                        break
+                    gap_before_run = float(interval_times[run_start_local] - interval_times[prev_end_local])
+                    prev_end_local = run_end_local
+                    if gap_before_run > gap_limit_sec:
+                        cluster_runs = []
+                        break
+                    if not is_weak_tail_fragment(run_start_local, run_end_local):
+                        cluster_runs = []
+                        break
+                    cluster_runs.append((run_start_local, run_end_local))
+                    if cluster_start_t is None:
+                        cluster_start_t = float(interval_times[run_start_local])
+                    cluster_end_t = float(interval_times[run_end_local])
+
+                if cluster_runs and cluster_start_t is not None and cluster_end_t is not None:
+                    cluster_span = float(cluster_end_t - cluster_start_t + sample_dt)
+                    dead_gap_after_cluster = float(next_dead_start_t - cluster_end_t)
+                    if (
+                        cluster_span >= weak_span_min_sec
+                        and dead_gap_after_cluster <= weak_dead_gap_limit_sec
+                        and cluster_start_t > float(interval_times[primary_end_local])
+                    ):
+                        refined_end = float(
+                            np.clip(cluster_start_t, safe_start + 0.01, baseline_end)
+                        )
+                        endpoint_confidence = float(
+                            np.clip(
+                                0.46
+                                + (0.10 * min(1.0, cluster_span / max(weak_span_min_sec, 1e-6)))
+                                + (0.08 * float(1.0 - run_mean(interval_interaction, cluster_runs[0][0], cluster_runs[-1][1])))
+                                + (0.08 * float(run_mean(interval_reset, cluster_runs[0][0], cluster_runs[-1][1]))),
+                                0.34,
+                                0.92,
+                            )
+                        )
+                        return refined_end, "weak_tail_cluster_start", endpoint_confidence
+
+    resume_min_sec = max(0.28, 3.0 * sample_dt)
+    for dead_run_idx, (dead_start_local, dead_end_local) in enumerate(dead_runs):
+        dead_start_t = float(interval_times[dead_start_local])
+        dead_end_t = float(interval_times[dead_end_local])
+        if dead_start_t < earliest_dead_time:
+            continue
+        if dead_start_t <= safe_start + 0.10:
+            continue
+
+        prior_peak = float(prior_exchange_peak[dead_start_local - 1]) if dead_start_local > 0 else 0.0
+        if prior_peak < 0.30:
+            continue
+
+        min_dead_duration = max(0.09, 2.0 * sample_dt)
+        if terminal_reset_score[dead_start_local] < 0.82:
+            min_dead_duration = max(min_dead_duration, 0.15)
+        dead_duration_value = run_duration_sec(dead_start_local, dead_end_local)
+        if dead_duration_value < min_dead_duration:
+            bridged_dead = False
+            if (
+                dead_run_idx + 1 < len(dead_runs)
+                and dead_duration_value >= max(0.05, 1.5 * sample_dt)
+                and terminal_reset_score[dead_start_local] >= 0.76
+                and interval_ball[dead_start_local] <= 0.24
+                and interval_interaction[dead_start_local] <= 0.16
+            ):
+                next_dead_start_local, _ = dead_runs[dead_run_idx + 1]
+                next_dead_gap = float(interval_times[next_dead_start_local] - dead_end_t)
+                if next_dead_gap <= max(0.75, 8.0 * sample_dt):
+                    bridged_dead = True
+            if not bridged_dead:
+                continue
+
+        strong_dead = bool(
+            terminal_reset_score[dead_start_local] >= 0.80
+            and interval_ball[dead_start_local] <= 0.24
+            and interval_interaction[dead_start_local] <= 0.20
+        )
+        if strong_dead:
+            resume_horizon_sec = min(1.15, max(0.80, 0.11 * interval_duration))
+            resume_duration_sec = max(resume_min_sec, 0.38)
+            resume_peak_threshold = 0.44
+            resume_ball_peak_threshold = 0.24
+            resume_live_peak_threshold = 0.26
+            resume_interaction_peak_threshold = 0.20
+            resume_mean_interaction_threshold = 0.22
+            resume_mean_ball_threshold = 0.22
+            resume_reset_mean_threshold = 0.52
+        else:
+            resume_horizon_sec = min(1.75, max(1.05, 0.18 * interval_duration))
+            resume_duration_sec = resume_min_sec
+            resume_peak_threshold = 0.38
+            resume_ball_peak_threshold = 0.20
+            resume_live_peak_threshold = 0.22
+            resume_interaction_peak_threshold = 0.16
+            resume_mean_interaction_threshold = 0.16
+            resume_mean_ball_threshold = 0.14
+            resume_reset_mean_threshold = 0.62
+
+        resume_found = False
+        for run_start_local, run_end_local in competitive_runs:
+            if run_start_local <= dead_end_local:
+                continue
+            run_start_t = float(interval_times[run_start_local])
+            if run_start_t - dead_end_t > resume_horizon_sec:
+                break
+            if run_start_local > future_guard_idx:
+                break
+            future_peak = float(np.max(combined_live[run_start_local : run_end_local + 1]))
+            future_ball_peak = float(np.max(interval_ball[run_start_local : run_end_local + 1]))
+            future_live_peak = float(np.max(interval_live[run_start_local : run_end_local + 1]))
+            future_interaction_peak = float(np.max(interval_interaction[run_start_local : run_end_local + 1]))
+            future_ball_mean = float(np.mean(interval_ball[run_start_local : run_end_local + 1]))
+            future_interaction_mean = float(np.mean(interval_interaction[run_start_local : run_end_local + 1]))
+            future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
+            future_one_sided_mean = float(np.mean(interval_one_sided[run_start_local : run_end_local + 1]))
+            run_duration_value = run_duration_sec(run_start_local, run_end_local)
+            if (
+                run_duration_value <= max(0.16, 2.5 * sample_dt)
+                and future_interaction_mean <= 0.20
+                and future_ball_mean <= 0.32
+                and future_reset_mean >= 0.60
+                and future_one_sided_mean <= 0.22
+            ):
+                continue
+            if (
+                run_duration_value >= resume_duration_sec
+                and future_peak >= resume_peak_threshold
+                and future_ball_peak >= resume_ball_peak_threshold
+                and future_live_peak >= resume_live_peak_threshold
+                and future_interaction_peak >= resume_interaction_peak_threshold
+                and future_ball_mean >= resume_mean_ball_threshold
+                and future_interaction_mean >= resume_mean_interaction_threshold
+                and future_reset_mean <= resume_reset_mean_threshold
+            ):
+                resume_found = True
+                break
+
+        if not resume_found:
+            player_resume_horizon_sec = min(3.20, max(2.60, 0.30 * interval_duration))
+            hint_horizon_sec = max(0.75, 10.0 * sample_dt)
+            hint_count = 0
+            hint_total_duration = 0.0
+            for run_start_local, run_end_local in competitive_runs:
+                if run_start_local <= dead_end_local:
+                    continue
+                run_start_t = float(interval_times[run_start_local])
+                if run_start_t - dead_end_t > hint_horizon_sec:
+                    break
+                if run_start_local > future_guard_idx:
+                    break
+                future_ball_peak = float(np.max(interval_ball[run_start_local : run_end_local + 1]))
+                future_live_peak = float(np.max(interval_live[run_start_local : run_end_local + 1]))
+                future_interaction_peak = float(np.max(interval_interaction[run_start_local : run_end_local + 1]))
+                future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
+                run_duration_value = run_duration_sec(run_start_local, run_end_local)
+                if (
+                    run_duration_value >= max(0.08, 2.0 * sample_dt)
+                    and future_ball_peak >= 0.15
+                    and future_live_peak >= 0.20
+                    and future_interaction_peak >= 0.12
+                    and future_reset_mean <= 0.78
+                ):
+                    hint_count += 1
+                    hint_total_duration += run_duration_value
+
+            if hint_count < 1 and hint_total_duration < max(0.10, 3.0 * sample_dt):
+                hint_count = 0
+
+            if hint_count >= 1 or hint_total_duration >= max(0.10, 3.0 * sample_dt):
+                for run_start_local, run_end_local in competitive_runs:
+                    if run_start_local <= dead_end_local:
+                        continue
+                    run_start_t = float(interval_times[run_start_local])
+                    if run_start_t - dead_end_t > player_resume_horizon_sec:
+                        break
+                    if run_start_local > future_guard_idx:
+                        break
+                    future_ball_peak = float(np.max(interval_ball[run_start_local : run_end_local + 1]))
+                    future_live_peak = float(np.max(interval_live[run_start_local : run_end_local + 1]))
+                    future_interaction_peak = float(np.max(interval_interaction[run_start_local : run_end_local + 1]))
+                    future_interaction_mean = float(np.mean(interval_interaction[run_start_local : run_end_local + 1]))
+                    future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
+                    run_duration_value = run_duration_sec(run_start_local, run_end_local)
+                    intervening_dead_count = 0
+                    for next_dead_start_local, next_dead_end_local in dead_runs:
+                        if next_dead_start_local <= dead_end_local:
+                            continue
+                        if next_dead_end_local >= run_start_local:
+                            break
+                        intervening_dead_count += 1
+                    if (
+                        run_duration_value >= max(0.45, 7.0 * sample_dt)
+                        and future_ball_peak >= 0.15
+                        and future_live_peak >= 0.62
+                        and future_interaction_peak >= 0.40
+                        and future_interaction_mean >= 0.32
+                        and future_reset_mean <= 0.64
+                        and intervening_dead_count >= 1
+                    ):
+                        resume_found = True
+                        break
+        if resume_found:
+            continue
+
+        refined_end = float(np.clip(dead_start_t, safe_start + 0.01, safe_upper))
+        dead_len = dead_end_local - dead_start_local + 1
+        endpoint_confidence = float(
+            np.clip(
+                0.40
+                + (0.07 * dead_len)
+                + (0.18 * float(interval_reset[dead_start_local]))
+                + (0.12 * float(1.0 - interval_ball[dead_start_local]))
+                + (0.10 * prior_peak)
+                + (0.10 * float(terminal_reset_score[dead_start_local])),
+                0.28,
+                0.95,
+            )
+        )
+        return refined_end, "dead_reset_run_start", endpoint_confidence
+
+    fallback_runs = competitive_runs if competitive_runs else exchange_runs
+    if fallback_runs:
+        _, last_live_local = fallback_runs[-1]
+        refined_end = float(np.clip(float(interval_times[last_live_local]), safe_start + 0.01, safe_upper))
+        endpoint_confidence = float(np.clip(0.24 + (0.62 * combined_live[last_live_local]), 0.20, 0.88))
         return refined_end, "last_exchange_support", endpoint_confidence
 
     return baseline_end, "detector_end_clamped", 0.20
@@ -323,8 +757,11 @@ def _refine_points_with_endpoint_signals(
             support_series["table_norm"],
             support_series["ball_norm"],
             support_series["live_pair"],
+            support_series["interaction_pair"],
+            support_series["one_sided_motion"],
             support_series["reset_pair"],
             support_series["shared_activity"],
+            support_series["terminal_body_pair"],
             t_start=float(point.t_start),
             detector_end=float(point.t_end),
             search_upper_bound=float(search_upper_bound),

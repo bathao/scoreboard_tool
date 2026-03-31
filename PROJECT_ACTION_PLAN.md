@@ -956,11 +956,55 @@ This section defines the next refinement layer after `Active Window Spec`.
 
 Current status:
 - `[doing]` endpoint refinement is under active tuning on `set4`
-- `[doing]` the current implementation is intentionally provisional and must be reviewed through exported rally clips
+- `[doing]` the current implementation is still provisional and must be operator-reviewed through exported rally clips before being frozen
 - `[rejected]` the `v4` future-exchange guard experiment regressed endpoint quality by pulling many rallies back toward the next starter
-- `[doing]` the active fallback baseline is the earlier `v3-style` `dead_reset_run_start` logic while waiting for the next feedback round
-- `[blocked]` do not treat current `t_end` as frozen or production-accepted yet
-- `[doing]` wait for operator feedback on the latest `set4` clip export before promoting this endpoint logic
+- `[done]` the latest accepted checkpoint on `set4` now covers the first `10` rallies
+  - operator accepted `pt_0001 .. pt_0010` after the last review round
+  - current accepted `t_end` values for those `10` rallies are:
+    - `pt_0001 = 7.474`
+    - `pt_0002 = 15.949`
+    - `pt_0003 = 28.762`
+    - `pt_0004 = 37.237`
+    - `pt_0005 = 58.859`
+    - `pt_0006 = 82.449`
+    - `pt_0007 = 93.760`
+    - `pt_0008 = 102.536`
+    - `pt_0009 = 127.361`
+    - `pt_0010 = 135.469`
+- `[done]` the accepted first-10 checkpoint is already reflected in:
+  - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+- `[done]` the latest endpoint branch now goes beyond pure `ball + ROI + generic reset`
+  - `face_hidden`
+    - no longer depends only on missing face keypoints
+    - now also uses collapsed shoulder / hip span as a profile-turn proxy
+  - `face_touch`
+    - keeps lightweight `wipe face / casual recovery` support
+  - `terminal_body_pair`
+    - combines those terminal body-language cues with light casual support
+  - `dead_reset_run_start` and `last_exchange_support`
+    - can now extend up to `search_upper_bound` when future evidence shows the rally truly continued
+    - this was needed to recover early-cut cases like `pt_0008`
+- `[done]` what worked well in the accepted first-10 checkpoint:
+  - the tighter `END checklist` reduced the old drift toward the next starter
+  - `dead-state latch` plus stronger resume requirements helped collapse long false post-point tails
+  - the profile-turn upgrade to `face_hidden` materially improved `pt_0010`
+  - the late-extension path fixed the important `pt_0008` early-cut regression without breaking the accepted first `7` rallies
+- `[rejected]` what did not work well and should not be repeated blindly:
+  - pure threshold tuning on `ball / ROI / reset / resume`
+  - treating `weak tail cluster` suppression as the main fix by itself
+  - assuming missing face keypoints alone are enough to detect `turned away`
+  - any patch that improves one rally by pulling many endpoints back toward the next starter
+- `[doing]` what is still not good enough yet:
+  - only `pt_0001 .. pt_0010` are operator-accepted so far
+  - later `set4` rallies still need review and may still regress during future tuning
+  - endpoint behavior is not yet frozen for the whole set, only for the accepted first-10 checkpoint
+- `[doing]` local regression status is currently clean at this checkpoint:
+  - `tests/test_ai_contract.py = 3 passed, 1 warning`
+  - `tests/test_multistream_rally.py = 39 passed, 1 warning`
+- `[todo]` next resume point after this checkpoint:
+  - keep the accepted first `10` set4 endpoints stable
+  - continue review from later `set4` rallies only
+  - treat any regression on `pt_0001 .. pt_0010` as a blocker before promoting a later endpoint change
 
 ### Goal
 - Refine the rally endpoint inside each accepted rally window.
@@ -1000,6 +1044,113 @@ compute a per-frame or per-sample `live score` using:
 Current intended emphasis:
 - use `ROI + ball` as the primary endpoint evidence
 - keep player-only cues as secondary support only if needed
+
+### Current Working Algorithm
+The current in-progress endpoint scorer uses the following support streams:
+- `table_norm`
+- `ball_norm`
+- `live_pair`
+- `interaction_pair`
+- `one_sided_motion`
+- `reset_pair`
+- `shared_activity`
+- `terminal_body_pair`
+
+Current intended interpretation:
+- `interaction_pair`
+  - approximate two-sided competitive exchange
+- `one_sided_motion`
+  - motion that is not mirrored by the other player
+  - useful for spotting pickup / walk / casual movement
+- `reset_pair`
+  - pair-level upright / casual reset tendency
+- `terminal_body_pair`
+  - explicit terminal body-language cue
+  - meant to catch:
+    - turned away from table
+    - face wiping / casual recovery gesture
+    - pair-level disengagement before the next serve turn
+
+Current decision structure:
+1. Build `exchange_mask` and `competitive_exchange_mask`.
+2. Build `dead_reset_mask` from:
+   - low ball support
+   - high reset / low interaction
+   - one-sided motion patterns
+   - low shared activity
+   - new `terminal_body_pair` contribution
+3. Prefer the first stable `dead / reset` run after real exchange.
+4. Reject that candidate if competitive exchange truly resumes afterward.
+5. If post-point motion only forms a long weak tail cluster before a later dead run:
+   - try to suppress that cluster
+   - treat it as pseudo-exchange rather than real rally continuation
+6. Fall back to `last_exchange_support` only when no sufficiently stable dead/reset candidate survives.
+
+### Historical Diagnosis For `pt_0010`
+- The old failure mode was not primarily missing ball data.
+- The main problem was that post-point body motion was still being interpreted as competitive continuation.
+- In `pt_0010`, the older scorer over-trusted:
+  - generic motion
+  - crouch-biased interaction
+  - weak competitive fragments after the point was already visually dead
+- The accepted first-10 checkpoint fixed that case by:
+  - upgrading `face_hidden` to use profile-turn cues
+  - keeping `terminal_body_pair` in the endpoint scorer
+  - allowing safe late extension when later evidence proved the rally was still alive on other points
+
+### Failed Attempts Today
+- `[rejected]` pure `ball + ROI + generic reset` threshold tuning did not solve `pt_0010`
+  - multiple threshold-only tweaks were tried on:
+    - `dead_reset_mask`
+    - `resume` thresholds
+    - `strong_dead` vs `weak_dead`
+    - `dead-state latch`
+  - result:
+    - some rallies improved earlier in the set
+    - `pt_0010` still stayed materially too late
+- `[rejected]` the `weak tail cluster` suppression branch was added and is worth keeping as context, but it did not materially fix `pt_0010`
+  - intended behavior:
+    - collapse long weak post-point pseudo-exchange fragments before a later dead run
+  - actual result on `pt_0010`:
+    - not enough movement
+    - current accepted JSON still stayed at roughly `t_end = 136.770`
+- `[rejected]` repeated fine-tuning of `weak tail fragment` thresholds also failed to move `pt_0010`
+  - tried variants around:
+    - `mean_interaction`
+    - `peak_interaction`
+    - `mean_table`
+    - micro-fragment allowances
+  - actual result:
+    - source changed
+    - tests stayed green
+    - rerun output for `pt_0010` still did not change
+- `[rejected]` trying to treat the `pt_0010` tail as purely a `late weak cluster` is not sufficient by itself
+  - root cause appears deeper:
+    - the current `competitive` scoring still gives too much credit to generic motion while players are already disengaging from the point
+- `[keep in mind]` several of those failed attempts were still useful diagnostically
+  - they showed that:
+    - the blocker is not simply missing ball support
+    - the blocker is not only `resume` thresholds
+    - the blocker is not only `dead-run` duration
+    - the next real fix needs a new signal family, not more threshold churn
+
+### Do Not Repeat Blindly
+- do not keep retuning only:
+  - `resume_peak_threshold`
+  - `resume_mean_interaction_threshold`
+  - `resume_reset_mean_threshold`
+  - `strong_dead` / `weak_dead` splits
+- do not assume `weak tail cluster` alone will solve `pt_0010`
+- do not spend another round only nudging `ball/reset` thresholds without adding a stronger terminal body-language cue
+- if `pt_0010` still does not move after the new terminal-body rerun:
+  - inspect the new cue values directly first
+  - do not jump back to generic threshold tweaking
+
+### Exact Resume Point For Next Session
+1. keep the accepted `pt_0001 .. pt_0010` endpoints stable
+2. resume operator review from later `set4` rallies only
+3. if any later endpoint patch regresses `pt_0001 .. pt_0010`, reject it immediately
+4. continue exporting only the next small rally batch under review before exporting a full set again
 
 ### Endpoint Algorithm
 1. Build a combined `live score` inside the bounded search interval.
@@ -1051,3 +1202,97 @@ Suggested meanings:
   - accepted rally starts
   - accepted `LET` labels
 - On reviewed clips, endpoint should visually align with the last real rally activity, not drift all the way to the next starter by default.
+
+### END Review Checklist
+Use this checklist whenever reviewing or debugging one rally endpoint.
+
+#### Core Definition
+- `END` = the first frame of a stable `dead / reset` state after the last true live exchange.
+- `END` is not the next rally starter.
+- `END` is not the start of next-turn serve preparation.
+- `END` must stay inside:
+  - `[current accepted start, search_upper_bound]`
+
+#### Review Procedure
+1. identify the accepted `t_start` of the current rally
+2. identify the `search_upper_bound`
+3. locate the last true live exchange before the turn changes
+4. locate the first stable `dead / reset` run after that exchange
+5. check whether strong exchange resumes after that dead/reset run
+6. if exchange does not resume, mark the first frame of that dead/reset run as `END`
+
+#### Strong Positive END Evidence
+- the ball is clearly out, dead, or no longer on a plausible rally trajectory
+- the ball disappears for long enough after a real final exchange
+- both players stop reacting as if the rally is still alive
+- both players stand more upright / casual
+- one or both players turn away from the table
+- one or both players walk to retrieve the ball
+- one player wipes face, changes grip, touches face, or shows obvious between-point behavior
+- only reset / retrieval / next-turn preparation remains after that moment
+
+#### Pair-Level Reset Evidence
+- both players stop in a coordinated way
+- the competitive `shot-response-shot` pattern is gone
+- motion that remains is ordinary walking / retrieval / reset motion, not competitive exchange motion
+- gaze and posture no longer indicate immediate rally continuation
+
+#### Ball Cues That Support END
+- the ball exits the table area and does not return as a legal reply
+- the ball is lost by the tracker after a convincing last exchange
+- the ball bounces / travels away in a winner or out-ball pattern
+- the ball ends up on the floor or far from the table while both players switch to retrieval behavior
+
+#### Things That Are Not Enough By Themselves
+- the ball disappears for only a few frames
+- one player briefly stands taller
+- table ROI still has some motion
+- there is a short quiet gap but exchange resumes strongly afterward
+- one player slows down or adjusts footwork but remains in a competitive stance
+
+#### Hard Rejection Rule For False END
+- if strong exchange resumes after a candidate dead/reset run, that candidate is false
+- if the only activity after the candidate is:
+  - retrieval
+  - walking
+  - serve prep
+  - `LET` prep
+  then the candidate remains valid
+
+#### Common Valid END Cases
+- clean winner and the loser immediately resets
+- smash winner followed by obvious give-up posture from the opponent
+- the ball goes out and both players start retrieving it
+- edge / net contact that ends the point and is followed by stable reset
+- last rally of the set where no next starter exists but players clearly reset before `video_end`
+
+#### Common False END Cases
+- a temporary quiet pocket in the middle of the rally
+- tracker loses the ball briefly but both players are still in live stance
+- one player reaches awkwardly and the rally continues
+- serve-prep-like posture near the upper bound that actually belongs to the next turn
+- background / ROI motion being mistaken for continued live rally
+
+#### Visual Signs Of END Being Too Early
+- the ball still goes back and forth after the chosen endpoint
+- both players still react competitively after the chosen endpoint
+- at least one clear return happens after the chosen endpoint
+- the endpoint cuts before the last real exchange is finished
+
+#### Visual Signs Of END Being Too Late
+- the ball has already died much earlier
+- players are already retrieving the ball
+- players are already upright, casual, or turned away from the table
+- only dead time remains before the next starter
+- the chosen endpoint drifts close to `search_upper_bound` without real rally activity justifying it
+
+#### Practical Review Rule
+- prefer:
+  - `ball dead`
+  - `player reset`
+  - `no strong exchange resumes`
+- do not let:
+  - table motion alone
+  - next-turn serve preparation
+  - isolated brief ball loss
+  decide the endpoint by themselves
