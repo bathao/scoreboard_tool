@@ -15,16 +15,13 @@ Do not use this file as the long-term architecture spec.
 
 ## Current Status
 - Date:
-  - `2026-03-26`
+  - `2026-04-01`
 - Current production draft baseline:
   - `table / ROI-first`
 - Current tracker baseline:
-  - `v12 deferred seed bootstrap`
+  - endpoint refinement on top of the accepted `starter + LET + active window` player-path baseline
 - Current code state:
   - production draft path remains table-first
-  - current local work-cycle started from checkpoint:
-    - commit `e7ea372`
-    - `started changing rally detection algorithm in the independent YOLO player path`
   - current accepted independent `YOLO player` start + `LET` baseline on checked sets:
     - `set1 = 14 rallies`, `LET = 1`
     - `set2 = 19 rallies`, `LET = 0`
@@ -34,9 +31,32 @@ Do not use this file as the long-term architecture spec.
       - accepted on the reviewed `set1..4` suite only
       - `starter_role` is exported in the latest player-path drafts
       - `LET` is inferred after starter detection
-  - previous pushed starter-only checkpoint:
-    - commit `5e94835`
-    - `Detect accurate starters for all 4 sets (server + let)`
+  - latest pushed endpoint checkpoint:
+    - commit `0990559`
+    - `Stabilize first ten set4 endpoint reviews`
+  - current accepted `set4` endpoint checkpoint covers:
+    - full `pt_0001 .. pt_0020`
+    - accepted `t_end` list:
+      - `7.474`
+      - `15.949`
+      - `28.762`
+      - `37.237`
+      - `58.859`
+      - `82.449`
+      - `93.760`
+      - `102.536`
+      - `127.361`
+      - `135.469`
+      - `146.113`
+      - `156.990`
+      - `168.268`
+      - `180.080`
+      - `191.224`
+      - `202.402`
+      - `223.223`
+      - `232.766`
+      - `241.742`
+      - `260.093`
   - experimental multistream code now includes:
     - role-aware table refinement
     - standalone `player-only` draft mode for benchmark-only compare
@@ -58,18 +78,99 @@ Do not use this file as the long-term architecture spec.
     - keep `table / ROI-first` unchanged
     - keep `ball tracking V0` unchanged
     - change the rally algorithm only in the independent `YOLO player` path for now
+    - keep accepted `set4 pt_0001 .. pt_0010` endpoints frozen while tuning later points
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
   - latest targeted multistream + contract tests:
-    - `33 passed, 1 warning`
-  - tracker tests:
-    - `15 passed, 1 warning`
-  - latest previously confirmed full suite:
-    - `70 passed, 1 warning`
+    - `39 passed, 1 warning`
+  - latest contract tests:
+    - `3 passed, 1 warning`
   - note:
-    - targeted tests were re-run on `2026-03-26` with `.venv\Scripts\python.exe -m pytest`
+    - targeted tests were re-run on `2026-04-01` with `.venv\Scripts\python.exe -m pytest`
     - the warning remains a `.pytest_cache` permission warning inside the workspace
-    - no fresh full-suite rerun was completed after the current `starter + LET` local cycle
+    - no fresh full-suite rerun was completed after the current endpoint cycle
+
+## Work Log - `2026-04-01`
+### Experiments That Passed
+- `set4 endpoint accepted checkpoint for the full set`
+  - operator accepted the full `set4` rally boundary pass after iterative endpoint tuning
+  - accepted final `t_end` values are:
+    - `pt_0001 = 7.474`
+    - `pt_0002 = 15.949`
+    - `pt_0003 = 28.762`
+    - `pt_0004 = 37.237`
+    - `pt_0005 = 58.859`
+    - `pt_0006 = 82.449`
+    - `pt_0007 = 93.760`
+    - `pt_0008 = 102.536`
+    - `pt_0009 = 127.361`
+    - `pt_0010 = 135.469`
+    - `pt_0011 = 146.113`
+    - `pt_0012 = 156.990`
+    - `pt_0013 = 168.268`
+    - `pt_0014 = 180.080`
+    - `pt_0015 = 191.224`
+    - `pt_0016 = 202.402`
+    - `pt_0017 = 223.223`
+    - `pt_0018 = 232.766`
+    - `pt_0019 = 241.742`
+    - `pt_0020 = 260.093`
+  - latest kept draft:
+    - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+  - checkpoint committed and pushed:
+    - `0990559`
+    - `Stabilize first ten set4 endpoint reviews`
+- `open-tail endpoint guard fixed the last-rally early-cut issue`
+  - root case:
+    - `pt_0020` is the final rally in the set
+    - an early `dead-run` was being accepted even though strong late rally activity continued in the open tail
+  - current fix:
+    - add an `open-tail` rescue path so late strong live evidence can reject an early dead-run on the final rally
+    - restrict the final fallback to stronger late competitive runs instead of blindly taking the weakest last fragment
+  - result:
+    - `pt_0020` moved from the too-early `257.691` to the accepted `260.093`
+    - `pt_0001 .. pt_0019` remained unchanged
+- `terminal body-language cues materially improved endpoint quality`
+  - `face_hidden` was upgraded from pure missing-face logic to also use collapsed shoulder / hip span as a profile-turn proxy
+  - `face_touch` remained as a light `wipe face / casual recovery` cue
+  - `terminal_body_pair` remained useful as a pair-level disengagement cue
+  - this branch was especially important for fixing the long-running `pt_0010` endpoint issue
+- `accepted endpoint guardrail is now explicit`
+  - later endpoint experiments must not regress accepted `pt_0001 .. pt_0010`
+  - this rule is now the practical promotion blocker for later set4 endpoint changes
+
+### Experiments That Failed
+- `broad resume / reset threshold tuning after pt_0010`
+  - multiple branches tried to improve `pt_0012 / pt_0015`
+  - result:
+    - they did not materially improve those two points
+    - one branch regressed accepted points such as `pt_0003 / pt_0008`
+    - another branch pulled `pt_0008` back toward a worse endpoint again
+  - action taken:
+    - reject those branches
+    - restore workspace and latest `set4` JSON to the previously accepted checkpoint
+- `adding reach / net-approach support directly into terminal endpoint cues`
+  - hypothesis:
+    - `pickup / lunge / moving toward the ball` might help terminate `pt_0012 / pt_0015`
+  - result:
+    - did not improve `pt_0012`
+    - did not improve `pt_0015`
+    - regressed `pt_0002`
+  - action taken:
+    - reject and restore
+
+### Current Diagnosis
+- the reviewed `set4` endpoint pass is now good enough to freeze as the current downstream baseline
+- the next blocker is no longer `set4 endpoint`
+- the next blocker is downstream `winner / point / score` logic on top of the frozen rally list
+
+### Exact Resume Point
+- keep the current accepted `set4` JSON unchanged as the frozen downstream baseline
+- start moving downstream onto the accepted rally list:
+  - winner inference
+  - point flow
+  - score progression
+- avoid reopening `set4` endpoint unless new operator evidence appears
 
 ## Work Log - `2026-03-26`
 ### Experiments That Passed

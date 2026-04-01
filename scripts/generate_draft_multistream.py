@@ -234,6 +234,7 @@ def _refine_endpoint_from_signals(
     t_start: float,
     detector_end: float,
     search_upper_bound: float,
+    is_open_tail: bool = False,
 ) -> tuple[float, str, float]:
     safe_start = float(t_start)
     safe_upper = float(max(search_upper_bound, safe_start + 0.01))
@@ -621,8 +622,10 @@ def _refine_endpoint_from_signals(
             future_ball_peak = float(np.max(interval_ball[run_start_local : run_end_local + 1]))
             future_live_peak = float(np.max(interval_live[run_start_local : run_end_local + 1]))
             future_interaction_peak = float(np.max(interval_interaction[run_start_local : run_end_local + 1]))
+            future_effective_interaction_peak = float(np.max(effective_interaction[run_start_local : run_end_local + 1]))
             future_ball_mean = float(np.mean(interval_ball[run_start_local : run_end_local + 1]))
             future_interaction_mean = float(np.mean(interval_interaction[run_start_local : run_end_local + 1]))
+            future_effective_interaction_mean = float(np.mean(effective_interaction[run_start_local : run_end_local + 1]))
             future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
             future_one_sided_mean = float(np.mean(interval_one_sided[run_start_local : run_end_local + 1]))
             run_duration_value = run_duration_sec(run_start_local, run_end_local)
@@ -643,6 +646,14 @@ def _refine_endpoint_from_signals(
                 and future_ball_mean >= resume_mean_ball_threshold
                 and future_interaction_mean >= resume_mean_interaction_threshold
                 and future_reset_mean <= resume_reset_mean_threshold
+                and (
+                    (not is_open_tail)
+                    or dead_run_idx == 0
+                    or (
+                        future_effective_interaction_peak >= max(0.26, resume_interaction_peak_threshold)
+                        and future_effective_interaction_mean >= max(0.22, resume_mean_interaction_threshold)
+                    )
+                )
             ):
                 resume_found = True
                 break
@@ -711,6 +722,27 @@ def _refine_endpoint_from_signals(
                     ):
                         resume_found = True
                         break
+        if (not resume_found) and is_open_tail:
+            tail_resume_duration_min = 0.90
+            for run_start_local, run_end_local in competitive_runs:
+                if run_start_local <= dead_end_local:
+                    continue
+                run_start_t = float(interval_times[run_start_local])
+                future_ball_mean = float(np.mean(interval_ball[run_start_local : run_end_local + 1]))
+                future_live_peak = float(np.max(interval_live[run_start_local : run_end_local + 1]))
+                future_effective_interaction_mean = float(np.mean(effective_interaction[run_start_local : run_end_local + 1]))
+                future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
+                run_duration_value = run_duration_sec(run_start_local, run_end_local)
+                if (
+                    run_start_t - dead_end_t >= max(0.55, 8.0 * sample_dt)
+                    and run_duration_value >= tail_resume_duration_min
+                    and future_ball_mean >= 0.45
+                    and future_live_peak >= 0.55
+                    and future_effective_interaction_mean >= 0.18
+                    and future_reset_mean <= 0.58
+                ):
+                    resume_found = True
+                    break
         if resume_found:
             continue
 
@@ -732,7 +764,25 @@ def _refine_endpoint_from_signals(
 
     fallback_runs = competitive_runs if competitive_runs else exchange_runs
     if fallback_runs:
-        _, last_live_local = fallback_runs[-1]
+        selected_fallback_runs = fallback_runs
+        if is_open_tail and competitive_runs:
+            strong_open_tail_runs: list[tuple[int, int]] = []
+            for run_start_local, run_end_local in competitive_runs:
+                run_duration_value = run_duration_sec(run_start_local, run_end_local)
+                mean_effective_interaction = run_mean(effective_interaction, run_start_local, run_end_local)
+                mean_reset = run_mean(interval_reset, run_start_local, run_end_local)
+                peak_live = run_peak(interval_live, run_start_local, run_end_local)
+                if (
+                    run_duration_value >= max(0.10, 3.0 * sample_dt)
+                    and mean_effective_interaction >= 0.28
+                    and mean_reset <= 0.62
+                    and peak_live >= 0.45
+                ):
+                    strong_open_tail_runs.append((run_start_local, run_end_local))
+            if strong_open_tail_runs:
+                selected_fallback_runs = strong_open_tail_runs
+
+        _, last_live_local = selected_fallback_runs[-1]
         refined_end = float(np.clip(float(interval_times[last_live_local]), safe_start + 0.01, safe_upper))
         endpoint_confidence = float(np.clip(0.24 + (0.62 * combined_live[last_live_local]), 0.20, 0.88))
         return refined_end, "last_exchange_support", endpoint_confidence
@@ -765,6 +815,7 @@ def _refine_points_with_endpoint_signals(
             t_start=float(point.t_start),
             detector_end=float(point.t_end),
             search_upper_bound=float(search_upper_bound),
+            is_open_tail=(point.boundary_mode == "video_end_open_tail"),
         )
         point.t_end = float(refined_end)
         point.endpoint_mode = endpoint_mode

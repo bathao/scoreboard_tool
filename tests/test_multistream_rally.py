@@ -1847,3 +1847,67 @@ def test_build_draft_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
     assert draft.points[0].search_upper_bound == 8.0
     assert draft.points[0].t_end <= 5.0
     assert draft.points[0].endpoint_mode == "dead_reset_run_start"
+
+
+def test_refine_endpoint_reopens_open_tail_when_late_live_tail_is_strong():
+    timestamps = np.arange(0.0, 2.5, 0.1, dtype=np.float32)
+    table = np.full_like(timestamps, 0.08)
+    ball = np.full_like(timestamps, 0.04)
+    live = np.full_like(timestamps, 0.10)
+    interaction = np.full_like(timestamps, 0.04)
+    one_sided = np.full_like(timestamps, 0.08)
+    reset = np.full_like(timestamps, 0.62)
+    shared = np.full_like(timestamps, 0.12)
+    terminal = np.full_like(timestamps, 0.18)
+
+    # Early real rally.
+    early = (timestamps >= 0.2) & (timestamps <= 0.8)
+    table[early] = 0.70
+    ball[early] = 0.78
+    live[early] = 0.62
+    interaction[early] = 0.28
+    one_sided[early] = 0.18
+    reset[early] = 0.42
+    shared[early] = 0.68
+    terminal[early] = 0.16
+
+    # False dead pocket that should not terminate the last rally.
+    dead = (timestamps >= 0.9) & (timestamps <= 1.1)
+    table[dead] = 0.10
+    ball[dead] = 0.06
+    live[dead] = 0.22
+    interaction[dead] = 0.08
+    one_sided[dead] = 0.14
+    reset[dead] = 0.66
+    shared[dead] = 0.16
+    terminal[dead] = 0.24
+
+    # Strong late live tail near the open end of the clip.
+    late = (timestamps >= 1.4) & (timestamps <= 2.4)
+    table[late] = 0.26
+    ball[late] = 0.74
+    live[late] = 0.58
+    interaction[late] = 0.34
+    one_sided[late] = 0.16
+    reset[late] = 0.46
+    shared[late] = 0.60
+    terminal[late] = 0.18
+
+    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+        timestamps,
+        table,
+        ball,
+        live,
+        interaction,
+        one_sided,
+        reset,
+        shared,
+        terminal,
+        t_start=0.2,
+        detector_end=1.0,
+        search_upper_bound=2.4,
+        is_open_tail=True,
+    )
+
+    assert refined_end >= 2.0
+    assert endpoint_mode == "last_exchange_support"
