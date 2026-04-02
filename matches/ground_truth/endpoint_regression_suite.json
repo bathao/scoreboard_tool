@@ -1,0 +1,54 @@
+{
+  "version": "2026-04-02",
+  "notes": [
+    "set4_frozen_full is the required no-regression suite.",
+    "set1_reviewed_first6 is now frozen from the currently accepted reviewed set1 first-six batch and is also required."
+  ],
+  "suites": [
+    {
+      "name": "set4_frozen_full",
+      "enforcement": "required",
+      "video": "Vinh_set4.mp4",
+      "draft_json": "matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json",
+      "default_tolerance_sec": 0.05,
+      "points": [
+        { "id": "pt_0001", "t_end": 7.474133491516113, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0002", "t_end": 15.94926643371582, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0003", "t_end": 28.762065887451172, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0004", "t_end": 37.23720169067383, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0005", "t_end": 58.85879898071289, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0006", "t_end": 82.44903564453125, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0007", "t_end": 93.76033020019531, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0008", "t_end": 102.5357666015625, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0009", "t_end": 127.36056518554688, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0010", "t_end": 135.4686737060547, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0011", "t_end": 146.11264038085938, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0012", "t_end": 156.99017333984375, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0013", "t_end": 168.26809692382812, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0014", "t_end": 180.07989501953125, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0015", "t_end": 191.224365234375, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0016", "t_end": 202.40220642089844, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0017", "t_end": 223.22300720214844, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0018", "t_end": 232.765869140625, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0019", "t_end": 241.7415008544922, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0020", "t_end": 260.0931701660156, "endpoint_mode": "last_exchange_support" }
+      ]
+    },
+    {
+      "name": "set1_reviewed_first6",
+      "enforcement": "required",
+      "video": "Vinh_set1.mp4",
+      "draft_json": "matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json",
+      "source_review": "debug_report/Vinh_set1_suspect_points_current/rally_clips.csv",
+      "default_tolerance_sec": 0.35,
+      "points": [
+        { "id": "pt_0001", "t_end": 9.175833702087402, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0002", "t_end": 12.879533767700195, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0003", "t_end": 29.629600524902344, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0004", "t_end": 38.405033111572266, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0005", "t_end": 47.981266021728516, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0006", "t_end": 57.8577995300293, "endpoint_mode": "ball_only_false_tail_start" }
+      ]
+    }
+  ]
+}

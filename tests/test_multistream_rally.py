@@ -1911,3 +1911,283 @@ def test_refine_endpoint_reopens_open_tail_when_late_live_tail_is_strong():
 
     assert refined_end >= 2.0
     assert endpoint_mode == "last_exchange_support"
+
+
+def test_refine_endpoint_does_not_reopen_after_terminal_disengagement_ball_only_tail():
+    timestamps = np.arange(0.0, 1.8, 0.1, dtype=np.float32)
+    table = np.full_like(timestamps, 0.08)
+    ball = np.full_like(timestamps, 0.04)
+    live = np.full_like(timestamps, 0.10)
+    interaction = np.full_like(timestamps, 0.04)
+    one_sided = np.full_like(timestamps, 0.10)
+    reset = np.full_like(timestamps, 0.62)
+    shared = np.full_like(timestamps, 0.14)
+    terminal = np.full_like(timestamps, 0.18)
+
+    early = (timestamps >= 0.1) & (timestamps <= 0.6)
+    table[early] = 0.66
+    ball[early] = 0.84
+    live[early] = 0.58
+    interaction[early] = 0.28
+    one_sided[early] = 0.18
+    reset[early] = 0.42
+    shared[early] = 0.62
+
+    dead = (timestamps >= 0.9) & (timestamps <= 1.0)
+    table[dead] = 0.10
+    ball[dead] = 0.04
+    live[dead] = 0.18
+    interaction[dead] = 0.08
+    one_sided[dead] = 0.14
+    reset[dead] = 0.60
+    shared[dead] = 0.18
+    terminal[dead] = 0.42
+
+    late_tail = (timestamps >= 1.2) & (timestamps <= 1.6)
+    table[late_tail] = 0.05
+    ball[late_tail] = 0.78
+    live[late_tail] = 0.10
+    interaction[late_tail] = 0.01
+    one_sided[late_tail] = 0.15
+    reset[late_tail] = 0.76
+    shared[late_tail] = 0.20
+    terminal[late_tail] = 0.64
+
+    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+        timestamps,
+        table,
+        ball,
+        live,
+        interaction,
+        one_sided,
+        reset,
+        shared,
+        terminal,
+        t_start=0.1,
+        detector_end=1.5,
+        search_upper_bound=1.7,
+        is_open_tail=False,
+    )
+
+    assert refined_end <= 1.1
+    assert endpoint_mode in {"dead_reset_run_start", "last_exchange_support"}
+
+
+def test_refine_endpoint_terminal_body_split_accepts_long_gap_pseudo_resume():
+    timestamps = np.arange(0.0, 3.3, 0.1, dtype=np.float32)
+    table = np.full_like(timestamps, 0.08)
+    ball = np.full_like(timestamps, 0.04)
+    live = np.full_like(timestamps, 0.08)
+    interaction = np.full_like(timestamps, 0.04)
+    one_sided = np.full_like(timestamps, 0.10)
+    reset = np.full_like(timestamps, 0.62)
+    shared = np.full_like(timestamps, 0.14)
+    terminal = np.full_like(timestamps, 0.18)
+
+    early = (timestamps >= 0.1) & (timestamps <= 0.8)
+    table[early] = 0.66
+    ball[early] = 0.82
+    live[early] = 0.56
+    interaction[early] = 0.28
+    one_sided[early] = 0.16
+    reset[early] = 0.42
+    shared[early] = 0.60
+
+    body = (timestamps >= 1.2) & (timestamps <= 1.3)
+    table[body] = 0.06
+    ball[body] = 0.18
+    live[body] = 0.10
+    interaction[body] = 0.06
+    one_sided[body] = 0.05
+    reset[body] = 0.60
+    shared[body] = 0.18
+    terminal[body] = 0.70
+
+    pseudo = (timestamps >= 2.5) & (timestamps <= 2.8)
+    table[pseudo] = 0.12
+    ball[pseudo] = 0.92
+    live[pseudo] = 0.26
+    interaction[pseudo] = 0.14
+    one_sided[pseudo] = 0.10
+    reset[pseudo] = 0.60
+    shared[pseudo] = 0.42
+    terminal[pseudo] = 0.24
+
+    late_dead = (timestamps >= 2.9) & (timestamps <= 3.0)
+    table[late_dead] = 0.06
+    ball[late_dead] = 0.10
+    live[late_dead] = 0.08
+    interaction[late_dead] = 0.04
+    one_sided[late_dead] = 0.08
+    reset[late_dead] = 0.66
+    shared[late_dead] = 0.12
+    terminal[late_dead] = 0.30
+
+    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+        timestamps,
+        table,
+        ball,
+        live,
+        interaction,
+        one_sided,
+        reset,
+        shared,
+        terminal,
+        t_start=0.1,
+        detector_end=2.8,
+        search_upper_bound=3.2,
+        is_open_tail=False,
+    )
+
+    assert refined_end <= 1.81
+    assert endpoint_mode in {"terminal_body_split_start", "dead_reset_run_start"}
+
+
+def test_refine_endpoint_ball_only_false_tail_prefers_early_dead():
+    timestamps = np.arange(0.0, 3.4, 0.1, dtype=np.float32)
+    table = np.full_like(timestamps, 0.08)
+    ball = np.full_like(timestamps, 0.04)
+    live = np.full_like(timestamps, 0.08)
+    interaction = np.full_like(timestamps, 0.04)
+    one_sided = np.full_like(timestamps, 0.10)
+    reset = np.full_like(timestamps, 0.62)
+    shared = np.full_like(timestamps, 0.14)
+    terminal = np.full_like(timestamps, 0.18)
+
+    early = (timestamps >= 0.1) & (timestamps <= 0.8)
+    table[early] = 0.66
+    ball[early] = 0.84
+    live[early] = 0.58
+    interaction[early] = 0.28
+    one_sided[early] = 0.16
+    reset[early] = 0.42
+    shared[early] = 0.60
+
+    false_tail = (timestamps >= 1.2) & (timestamps <= 1.3)
+    table[false_tail] = 0.04
+    ball[false_tail] = 0.76
+    live[false_tail] = 0.10
+    interaction[false_tail] = 0.04
+    one_sided[false_tail] = 0.08
+    reset[false_tail] = 0.78
+    shared[false_tail] = 0.22
+    terminal[false_tail] = 0.72
+
+    pseudo = (timestamps >= 2.4) & (timestamps <= 2.7)
+    table[pseudo] = 0.12
+    ball[pseudo] = 0.92
+    live[pseudo] = 0.26
+    interaction[pseudo] = 0.14
+    one_sided[pseudo] = 0.10
+    reset[pseudo] = 0.60
+    shared[pseudo] = 0.42
+    terminal[pseudo] = 0.24
+
+    late_dead = (timestamps >= 2.8) & (timestamps <= 2.9)
+    table[late_dead] = 0.06
+    ball[late_dead] = 0.10
+    live[late_dead] = 0.08
+    interaction[late_dead] = 0.04
+    one_sided[late_dead] = 0.08
+    reset[late_dead] = 0.66
+    shared[late_dead] = 0.12
+    terminal[late_dead] = 0.30
+
+    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+        timestamps,
+        table,
+        ball,
+        live,
+        interaction,
+        one_sided,
+        reset,
+        shared,
+        terminal,
+        t_start=0.1,
+        detector_end=2.7,
+        search_upper_bound=3.1,
+        is_open_tail=False,
+    )
+
+    assert refined_end <= 1.4
+    assert endpoint_mode in {"ball_only_false_tail_start", "terminal_body_split_start"}
+
+
+def test_refine_endpoint_terminal_body_split_accepts_disengaged_table_dominant_tail():
+    timestamps = np.arange(0.0, 3.3, 0.1, dtype=np.float32)
+    table = np.full_like(timestamps, 0.08)
+    ball = np.full_like(timestamps, 0.04)
+    live = np.full_like(timestamps, 0.08)
+    interaction = np.full_like(timestamps, 0.04)
+    one_sided = np.full_like(timestamps, 0.10)
+    reset = np.full_like(timestamps, 0.62)
+    shared = np.full_like(timestamps, 0.14)
+    terminal = np.full_like(timestamps, 0.18)
+
+    early = (timestamps >= 0.1) & (timestamps <= 0.8)
+    table[early] = 0.66
+    ball[early] = 0.82
+    live[early] = 0.56
+    interaction[early] = 0.28
+    one_sided[early] = 0.16
+    reset[early] = 0.42
+    shared[early] = 0.60
+
+    body = (timestamps >= 1.2) & (timestamps <= 1.3)
+    table[body] = 0.78
+    ball[body] = 0.96
+    live[body] = 0.34
+    interaction[body] = 0.24
+    one_sided[body] = 0.10
+    reset[body] = 0.60
+    shared[body] = 0.58
+    terminal[body] = 0.70
+
+    tail1 = (timestamps >= 1.4) & (timestamps <= 1.8)
+    table[tail1] = 0.62
+    ball[tail1] = 0.90
+    live[tail1] = 0.34
+    interaction[tail1] = 0.22
+    one_sided[tail1] = 0.12
+    reset[tail1] = 0.61
+    shared[tail1] = 0.58
+    terminal[tail1] = 0.50
+
+    tail2 = (timestamps >= 1.9) & (timestamps <= 2.0)
+    table[tail2] = 0.08
+    ball[tail2] = 0.96
+    live[tail2] = 0.28
+    interaction[tail2] = 0.28
+    one_sided[tail2] = 0.08
+    reset[tail2] = 0.58
+    shared[tail2] = 0.56
+    terminal[tail2] = 0.26
+
+    late_dead = (timestamps >= 2.5) & (timestamps <= 2.6)
+    table[late_dead] = 0.06
+    ball[late_dead] = 0.10
+    live[late_dead] = 0.08
+    interaction[late_dead] = 0.04
+    one_sided[late_dead] = 0.08
+    reset[late_dead] = 0.66
+    shared[late_dead] = 0.12
+    terminal[late_dead] = 0.30
+
+    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+        timestamps,
+        table,
+        ball,
+        live,
+        interaction,
+        one_sided,
+        reset,
+        shared,
+        terminal,
+        t_start=0.1,
+        detector_end=2.0,
+        search_upper_bound=3.0,
+        is_open_tail=False,
+    )
+
+    assert refined_end <= 1.81
+    assert endpoint_mode in {"terminal_body_split_start", "dead_reset_run_start"}

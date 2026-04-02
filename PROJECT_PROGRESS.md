@@ -15,7 +15,7 @@ Do not use this file as the long-term architecture spec.
 
 ## Current Status
 - Date:
-  - `2026-04-01`
+  - `2026-04-03`
 - Current production draft baseline:
   - `table / ROI-first`
 - Current tracker baseline:
@@ -34,6 +34,12 @@ Do not use this file as the long-term architecture spec.
   - latest pushed endpoint checkpoint:
     - commit `0990559`
     - `Stabilize first ten set4 endpoint reviews`
+  - current endpoint regression suite:
+    - `matches/ground_truth/endpoint_regression_suite.json`
+    - `set4_frozen_full`
+      - required no-regression suite
+    - `set1_reviewed_first6`
+      - required no-regression suite from the accepted reviewed first-six batch
   - current accepted `set4` endpoint checkpoint covers:
     - full `pt_0001 .. pt_0020`
     - accepted `t_end` list:
@@ -78,17 +84,187 @@ Do not use this file as the long-term architecture spec.
     - keep `table / ROI-first` unchanged
     - keep `ball tracking V0` unchanged
     - change the rally algorithm only in the independent `YOLO player` path for now
-    - keep accepted `set4 pt_0001 .. pt_0010` endpoints frozen while tuning later points
+    - keep accepted `set4` endpoints frozen while tuning `set1`
   - role and ball paths remain experimental and are not promoted baselines yet
 - Current last confirmed test result:
   - latest targeted multistream + contract tests:
-    - `39 passed, 1 warning`
+    - `49 passed, 1 warning`
   - latest contract tests:
     - `3 passed, 1 warning`
   - note:
-    - targeted tests were re-run on `2026-04-01` with `.venv\Scripts\python.exe -m pytest`
+    - targeted tests were re-run on `2026-04-03` with `.venv\Scripts\python.exe -m pytest`
     - the warning remains a `.pytest_cache` permission warning inside the workspace
     - no fresh full-suite rerun was completed after the current endpoint cycle
+
+## Work Log - `2026-04-03`
+### Experiments That Passed
+- `set1 pt_0007 improved without regressing frozen suites`
+  - new current result:
+    - `pt_0007 = 69.336`
+    - `endpoint_mode = terminal_body_split_start`
+  - previous current value before this pass:
+    - `71.471`
+  - current interpretation:
+    - `pt_0007` is not another `ball-only false tail`
+    - it behaves more like an `inside-run terminal split`
+  - guardrails stayed green after the change:
+    - `set4_frozen_full = 20/20`
+    - `set1_reviewed_first6 = 6/6`
+- `endpoint regression guardrails stayed usable`
+  - current frozen machine-checkable suites remain:
+    - `set4_frozen_full`
+    - `set1_reviewed_first6`
+  - these are still the required keep/drop decision criteria before keeping any endpoint patch
+- `review batch for the next set1 expansion was produced`
+  - current batch under review:
+    - `debug_report/Vinh_set1_rally_clips_endpoint_pt7_10_current`
+  - current batch values are:
+    - `pt_0007 = 69.336`
+    - `pt_0008 = 74.808`
+    - `pt_0009 = 90.757`
+    - `pt_0010 = 95.662`
+
+### Experiments That Failed
+- `pt_0009 is still the main unresolved blocker in the current batch`
+  - operator feedback remains:
+    - `pt_0009` is still late by about `6s`
+  - current status:
+    - no accepted improvement yet
+    - current output remains:
+      - `pt_0009 = 90.757`
+      - `endpoint_mode = dead_reset_run_start`
+- `two quick trace attempts failed before the real pt_0009 analysis even started`
+  - first attempt:
+    - called `extract_multistream_signals()` with the wrong `mode` argument
+    - result:
+      - `TypeError`
+  - second attempt:
+    - used the wrong table-weight path
+    - result:
+      - `FileNotFoundError`
+- `the first full real-signal trace of pt_0009 was interrupted`
+  - after fixing the API call and weights path, a long full-signal trace for `pt_0009` was launched on real `set1` data
+  - result:
+    - the run took several minutes and was interrupted before completion
+    - no usable diagnostic artifact was saved from that attempt
+  - conclusion:
+    - `pt_0009` still needs a proper real-signal archetype trace
+    - do not guess the fix from thresholds alone
+
+### Current Diagnosis
+- `pt_0007` and `pt_0009` are different endpoint archetypes
+  - `pt_0007` responded to a narrow `terminal_body_split` style fix
+  - `pt_0009` still appears to be a separate case and should not be forced through the same rule blindly
+- `pt_0009` is now the highest-priority endpoint debug target
+  - do not widen current rules until its archetype is identified on real support series
+- `set4_frozen_full` and `set1_reviewed_first6` must continue to stay green
+  - these suites remain the hard stop before keeping any further patch
+
+### Exact Resume Point
+- first:
+  - rerun the real-signal `pt_0009` trace with the correct table weights:
+    - `weights/yolov8x_table.pt`
+- then:
+  - dump the real `competitive / dead / terminal` runs for `pt_0009`
+  - decide whether the next fix should be:
+    - `inside-run split`
+    - `post-body pseudo-live suppression`
+    - or a new narrow archetype
+- keep/drop rule:
+  - keep a patch only if:
+    - `set4_frozen_full` stays green
+    - `set1_reviewed_first6` stays green
+  - do not freeze `pt_0007 .. pt_0010` until the whole batch is reviewed
+  - do not do another blind threshold sweep
+  - do not repeat the long full trace without using the correct weights path and a long enough timeout
+
+## Work Log - `2026-04-02`
+### Experiments That Passed
+- `set1 first six endpoints are now frozen as a guardrail`
+  - accepted current `set1 pt_0001 .. pt_0006` values are now:
+    - `9.176`
+    - `12.880`
+    - `29.630`
+    - `38.405`
+    - `47.981`
+    - `57.858`
+  - accepted current endpoint modes are:
+    - `pt_0001 = dead_reset_run_start`
+    - `pt_0002 = dead_reset_run_start`
+    - `pt_0003 = dead_reset_run_start`
+    - `pt_0004 = dead_reset_run_start`
+    - `pt_0005 = dead_reset_run_start`
+    - `pt_0006 = ball_only_false_tail_start`
+  - `matches/ground_truth/endpoint_regression_suite.json` was updated so:
+    - `set1_reviewed_first6` is now `required`
+- `endpoint regression suite scaffolding now exists`
+  - added regression manifest:
+    - `matches/ground_truth/endpoint_regression_suite.json`
+  - added checker:
+    - `scripts/check_endpoint_regression.py`
+  - added pure comparison helper:
+    - `backend/endpoint_regression.py`
+  - added unit coverage:
+    - `tests/test_endpoint_regression.py`
+- `set4 frozen guardrail is now machine-checkable`
+  - current checker result:
+    - `set4_frozen_full` passes `20/20`
+    - `max_abs_diff = 0.000s`
+- `ball-only false-tail archetype is now separated from the general dead-reset path`
+  - added a narrow endpoint branch for:
+    - high ball
+    - very low table/live/effective interaction
+    - high reset
+    - high terminal-body
+    - weak long-gap pseudo-resume afterward
+  - current effect:
+    - `set1 pt_0006` now lands at the accepted `57.858`
+    - `set4_frozen_full` still passes `20/20`
+
+### Experiments That Failed
+- `trying to fix set1 pt_0006 by global endpoint rules still caused set4 regressions`
+  - broad and medium-scope endpoint tweaks could improve `set1 pt_0006`
+  - but the same tweaks regressed accepted `set4` points such as:
+    - `pt_0003`
+    - `pt_0015`
+    - `pt_0016`
+    - `pt_0017`
+    - `pt_0020`
+  - conclusion:
+    - stop global threshold tuning
+    - move to a mode-based endpoint engine with explicit regression checks
+- `reopened-after-early-dead terminal-body branch`
+  - a branch that allowed `terminal_body_split_start` to ignore an earlier viable dead-run if a later competitive run existed was tested
+  - result:
+    - it improved some synthetic behavior
+    - but it regressed frozen `set4` points such as:
+      - `pt_0003`
+      - `pt_0009`
+      - `pt_0015`
+      - `pt_0016`
+  - action taken:
+    - reject that branch
+    - return `terminal_body_split_start` to the stable behavior
+
+### Current Diagnosis
+- `set4_frozen_full` and `set1_reviewed_first6` are now both frozen no-regression suites
+- the next useful work is batch-wise `set1` expansion:
+  - review `pt_0007 .. pt_0010`
+  - then promote them into the suite
+- the current architecture direction is still correct:
+  - use archetype-specific endpoint branches
+  - keep guardrails machine-checkable
+  - avoid global threshold tuning
+
+### Exact Resume Point
+- run:
+  - `.venv\\Scripts\\python.exe scripts\\check_endpoint_regression.py`
+- expected current state:
+  - `set4_frozen_full` must stay green
+  - `set1_reviewed_first6` must also stay green
+- next implementation step:
+  - export and review `set1 pt_0007 .. pt_0010`
+  - only keep a patch if both frozen suites remain green
 
 ## Work Log - `2026-04-01`
 ### Experiments That Passed

@@ -309,6 +309,16 @@ def _refine_endpoint_from_signals(
             | ((interval_terminal_body >= 0.46) & (interval_reset >= 0.40) & (effective_interaction <= 0.24) & (combined_live <= 0.62))
         )
     )
+    ball_only_false_tail_mask = (
+        (interval_ball >= 0.52)
+        & (terminal_reset_score >= 0.66)
+        & (interval_table <= 0.08)
+        & (interval_live <= 0.14)
+        & (effective_interaction <= 0.06)
+        & (interval_reset >= 0.72)
+        & (interval_shared <= 0.30)
+        & (interval_terminal_body >= 0.58)
+    )
     dead_gap_samples = max(1, int(round(0.20 / max(sample_dt, 1e-6))))
     dead_reset_mask = _fill_short_false_gaps(dead_reset_mask, max_gap_samples=dead_gap_samples)
     interval_duration = float(max(1e-6, safe_upper - safe_start))
@@ -336,6 +346,9 @@ def _refine_endpoint_from_signals(
     exchange_runs = extract_runs(exchange_mask)
     dead_runs = extract_runs(dead_reset_mask)
     terminal_body_runs = extract_runs(terminal_body_mask)
+    ball_only_false_tail_runs = extract_runs(
+        _fill_short_false_gaps(ball_only_false_tail_mask, max_gap_samples=max(1, int(round(0.10 / max(sample_dt, 1e-6)))))
+    )
 
     def run_mean(arr: np.ndarray, run_start_idx: int, run_end_idx: int) -> float:
         return float(np.mean(arr[run_start_idx : run_end_idx + 1]))
@@ -367,6 +380,67 @@ def _refine_endpoint_from_signals(
                 mean_table <= 0.28
                 or term_start >= 0.64
                 or (micro_fragment and term_start >= 0.50)
+            )
+        )
+
+    def is_long_gap_pseudo_resume_fragment(
+        run_start_idx: int,
+        run_end_idx: int,
+        *,
+        anchor_t: float,
+    ) -> bool:
+        run_start_t = float(interval_times[run_start_idx])
+        quiet_gap_sec = run_start_t - anchor_t
+        if quiet_gap_sec < max(1.80, 0.18 * interval_duration):
+            return False
+        run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
+        mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
+        mean_live = run_mean(interval_live, run_start_idx, run_end_idx)
+        mean_effective_interaction = run_mean(effective_interaction, run_start_idx, run_end_idx)
+        mean_reset = run_mean(interval_reset, run_start_idx, run_end_idx)
+        mean_shared = run_mean(interval_shared, run_start_idx, run_end_idx)
+        return bool(
+            run_duration_value <= max(1.25, 38.0 * sample_dt)
+            and mean_table <= 0.16
+            and mean_live <= 0.34
+            and mean_effective_interaction <= 0.20
+            and mean_reset >= 0.56
+            and mean_shared <= 0.52
+        )
+
+    def is_post_body_disengaged_fragment(run_start_idx: int, run_end_idx: int) -> bool:
+        run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
+        mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
+        mean_live = run_mean(interval_live, run_start_idx, run_end_idx)
+        mean_interaction = run_mean(interval_interaction, run_start_idx, run_end_idx)
+        mean_effective_interaction = run_mean(effective_interaction, run_start_idx, run_end_idx)
+        mean_reset = run_mean(interval_reset, run_start_idx, run_end_idx)
+        mean_shared = run_mean(interval_shared, run_start_idx, run_end_idx)
+        mean_terminal_body = run_mean(interval_terminal_body, run_start_idx, run_end_idx)
+        peak_interaction = run_peak(interval_interaction, run_start_idx, run_end_idx)
+        micro_fragment = bool(run_duration_value <= max(0.18, 5.5 * sample_dt))
+        return bool(
+            run_duration_value <= max(1.50, 46.0 * sample_dt)
+            and (
+                (
+                    mean_effective_interaction <= 0.18
+                    and mean_reset >= 0.58
+                    and mean_terminal_body >= 0.45
+                    and mean_shared <= 0.64
+                )
+                or (
+                    micro_fragment
+                    and mean_live <= 0.30
+                    and peak_interaction <= 0.35
+                    and mean_table <= 0.20
+                    and mean_reset >= 0.40
+                )
+                or (
+                    mean_effective_interaction <= 0.10
+                    and mean_reset >= 0.60
+                    and mean_table <= 0.30
+                    and mean_shared <= 0.70
+                )
             )
         )
 
@@ -426,7 +500,15 @@ def _refine_endpoint_from_signals(
                 if run_start_local >= next_dead_start_local:
                     break
                 tail_run_start = max(run_start_local, body_start_local)
-                if not is_weak_tail_fragment(tail_run_start, run_end_local):
+                if (
+                    not is_weak_tail_fragment(tail_run_start, run_end_local)
+                    and not is_long_gap_pseudo_resume_fragment(
+                        tail_run_start,
+                        run_end_local,
+                        anchor_t=body_start_t,
+                    )
+                    and not is_post_body_disengaged_fragment(tail_run_start, run_end_local)
+                ):
                     weak_tail_only = False
                     break
 
@@ -443,6 +525,48 @@ def _refine_endpoint_from_signals(
                     )
                 )
                 return refined_end, "terminal_body_split_start", endpoint_confidence
+
+    if competitive_runs and ball_only_false_tail_runs:
+        for tail_start_local, tail_end_local in ball_only_false_tail_runs:
+            tail_start_t = float(interval_times[tail_start_local])
+            if tail_start_t < earliest_dead_time:
+                continue
+            if tail_start_local > future_guard_idx:
+                break
+
+            prior_peak = float(prior_exchange_peak[tail_start_local - 1]) if tail_start_local > 0 else 0.0
+            if prior_peak < 0.30:
+                continue
+
+            next_competitive_run: tuple[int, int] | None = None
+            for run_start_local, run_end_local in competitive_runs:
+                if run_start_local <= tail_end_local:
+                    continue
+                next_competitive_run = (run_start_local, run_end_local)
+                break
+
+            if next_competitive_run is None:
+                continue
+
+            if not is_long_gap_pseudo_resume_fragment(
+                next_competitive_run[0],
+                next_competitive_run[1],
+                anchor_t=tail_start_t,
+            ):
+                continue
+
+            refined_end = float(np.clip(tail_start_t, safe_start + 0.01, baseline_end))
+            endpoint_confidence = float(
+                np.clip(
+                    0.48
+                    + (0.12 * float(terminal_reset_score[tail_start_local]))
+                    + (0.10 * float(interval_terminal_body[tail_start_local]))
+                    + (0.08 * float(interval_reset[tail_start_local])),
+                    0.36,
+                    0.92,
+                )
+            )
+            return refined_end, "ball_only_false_tail_start", endpoint_confidence
 
     if competitive_runs:
         primary_start_local, primary_end_local = competitive_runs[0]
@@ -588,6 +712,10 @@ def _refine_endpoint_from_signals(
             and interval_ball[dead_start_local] <= 0.24
             and interval_interaction[dead_start_local] <= 0.20
         )
+        terminal_disengaged_dead = bool(
+            interval_terminal_body[dead_start_local] >= 0.34
+            and interval_reset[dead_start_local] >= 0.48
+        )
         if strong_dead:
             resume_horizon_sec = min(1.15, max(0.80, 0.11 * interval_duration))
             resume_duration_sec = max(resume_min_sec, 0.38)
@@ -624,11 +752,23 @@ def _refine_endpoint_from_signals(
             future_interaction_peak = float(np.max(interval_interaction[run_start_local : run_end_local + 1]))
             future_effective_interaction_peak = float(np.max(effective_interaction[run_start_local : run_end_local + 1]))
             future_ball_mean = float(np.mean(interval_ball[run_start_local : run_end_local + 1]))
+            future_table_mean = float(np.mean(interval_table[run_start_local : run_end_local + 1]))
             future_interaction_mean = float(np.mean(interval_interaction[run_start_local : run_end_local + 1]))
             future_effective_interaction_mean = float(np.mean(effective_interaction[run_start_local : run_end_local + 1]))
             future_reset_mean = float(np.mean(interval_reset[run_start_local : run_end_local + 1]))
             future_one_sided_mean = float(np.mean(interval_one_sided[run_start_local : run_end_local + 1]))
+            future_shared_mean = float(np.mean(interval_shared[run_start_local : run_end_local + 1]))
             run_duration_value = run_duration_sec(run_start_local, run_end_local)
+            if (
+                terminal_disengaged_dead
+                and run_duration_value >= max(0.30, 4.0 * sample_dt)
+                and future_ball_mean >= 0.34
+                and future_table_mean <= 0.18
+                and future_effective_interaction_mean <= 0.12
+                and future_shared_mean <= 0.34
+                and future_reset_mean >= 0.52
+            ):
+                continue
             if (
                 run_duration_value <= max(0.16, 2.5 * sample_dt)
                 and future_interaction_mean <= 0.20

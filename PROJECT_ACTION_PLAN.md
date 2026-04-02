@@ -37,6 +37,13 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Latest pushed checkpoint:
   - commit `0990559`
   - `Stabilize first ten set4 endpoint reviews`
+- Endpoint regression suite baseline:
+  - `set4_frozen_full` = required no-regression suite
+  - `set1_reviewed_first6` = required no-regression suite from the accepted reviewed first-six batch
+- Current open endpoint batch:
+  - `set1 pt_0007 .. pt_0010`
+- Current highest-priority suspect:
+  - `set1 pt_0009`
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -68,15 +75,21 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `232.766`
   - `241.742`
   - `260.093`
+- `[done]` endpoint regression manifest created:
+  - `matches/ground_truth/endpoint_regression_suite.json`
+- `[done]` endpoint regression checker created:
+  - `scripts/check_endpoint_regression.py`
 
 ## Doing
-- `[doing]` move downstream logic onto the frozen rally list:
-  - winner inference
-  - point flow
-  - score progression
-- `[doing]` keep the accepted `starter + LET + active + set4 endpoint` baseline frozen while starting downstream work
+- `[doing]` keep both `set4_frozen_full` and `set1_reviewed_first6` frozen while expanding `set1` endpoint review
+- `[doing]` use the new endpoint regression suite before every endpoint change
+- `[doing]` review and freeze `set1 pt_0007 .. pt_0010`
+- `[doing]` keep current improved `pt_0007` as a candidate, but do not freeze it until the whole `pt_0007 .. pt_0010` batch is reviewed
+- `[doing]` debug `set1 pt_0009` as the current main blocker in this batch
 
 ## Todo
+- `[todo]` expand the endpoint regression suite to later `set1` points after `pt_0007 .. pt_0010` are reviewed and frozen
+- `[todo]` rerun and review `set2 / set3` endpoint outputs after `set1` batches are frozen
 - `[todo]` define the first winner-candidate path on top of the frozen rally list
 - `[todo]` attach winner / point-state outputs to the current draft contract
 - `[todo]` begin score progression work on top of accepted rally windows
@@ -91,17 +104,18 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
 
 ## Blockers
-- `[blocked]` no major blocker inside `set4` endpoint at this checkpoint
-- `[blocked]` the next real blocker is that downstream `winner / score` logic has not been promoted yet
+- `[blocked]` downstream `winner / score` work stays paused until more of `set1` endpoint is frozen
 
 ## Rejected
 - `[rejected]` broad threshold tuning on `ball / ROI / reset / resume` as the main fix
 - `[rejected]` treating `weak tail cluster` suppression as the main fix by itself
 - `[rejected]` any patch that improves one rally by dragging many endpoints toward the next starter
 - `[rejected]` any patch that regresses accepted `set4` endpoints
+- `[rejected]` repeating full-signal blind threshold sweeps before first classifying the endpoint archetype
 
 ## Guardrails
 - Never reopen accepted `starter` or `LET` labels without new operator evidence.
 - Never accept an endpoint patch that regresses accepted `set4` rally boundaries.
 - Keep the accepted `set4` endpoint baseline frozen while moving downstream.
+- Run `scripts/check_endpoint_regression.py` after each endpoint patch.
 - Keep detailed experiment logs in `PROJECT_PROGRESS.md`, not here.
