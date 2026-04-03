@@ -1391,6 +1391,49 @@ def test_build_draft_player_mode_allows_ball_streams_for_endpoint_refinement(mon
     assert draft.to_dict()["summary"]["total_rallies"] == 1
 
 
+def test_build_draft_defaults_match_review_pipeline(monkeypatch):
+    captured = {}
+
+    def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
+        captured["player_signal_source"] = kwargs["player_signal_source"]
+        captured["ball_signal_source"] = kwargs["ball_signal_source"]
+        captured["ball_tracking_profile"] = kwargs["ball_tracking_profile"]
+        return MultiStreamSignals(
+            roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
+            timestamps=[0.0, 1.0, 2.0],
+            table_energies=[0.1, 0.1, 0.1],
+            ball_energies=[0.0, 0.0, 0.0],
+            player_a_energies=[0.0, 0.4, 0.2],
+            player_b_energies=[0.0, 0.3, 0.1],
+            player_energies=[0.0, 0.4, 0.2],
+            fused_energies=[0.1, 0.4, 0.2],
+            effective_fps=30.0,
+            player_signal_source=kwargs["player_signal_source"],
+            ball_signal_source=kwargs["ball_signal_source"],
+        )
+
+    def fake_detect_multistream_rallies(signals, *, mode):
+        captured["mode"] = mode
+        return [RallySegment(t_start=0.5, t_end=2.0, confidence=0.78, flags=["player_only"], server_role="B")]
+
+    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+
+    draft = generate_draft_multistream.build_draft(
+        "demo.mp4",
+        "weights/yolov8x_table.pt",
+    )
+
+    assert captured["mode"] == "player"
+    assert captured["player_signal_source"] == "role_tracker"
+    assert captured["ball_signal_source"] == "classical"
+    assert captured["ball_tracking_profile"] == "support"
+    assert draft.analysis_metadata["detector_mode"] == "player"
+    assert draft.analysis_metadata["player_signal_source"] == "role_tracker"
+    assert draft.analysis_metadata["ball_signal_source"] == "classical"
+
+
 def test_infer_player_serve_mode_prefers_double_for_set4_like_role_sequence():
     starter_roles = [
         "B", "B",

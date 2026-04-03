@@ -444,6 +444,33 @@ def _refine_endpoint_from_signals(
             )
         )
 
+    def is_post_body_pseudo_live_fragment(run_start_idx: int, run_end_idx: int) -> bool:
+        run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
+        mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
+        mean_live = run_mean(interval_live, run_start_idx, run_end_idx)
+        mean_interaction = run_mean(interval_interaction, run_start_idx, run_end_idx)
+        mean_effective_interaction = run_mean(effective_interaction, run_start_idx, run_end_idx)
+        mean_reset = run_mean(interval_reset, run_start_idx, run_end_idx)
+        mean_ball = run_mean(interval_ball, run_start_idx, run_end_idx)
+        peak_interaction = run_peak(interval_interaction, run_start_idx, run_end_idx)
+        return bool(
+            run_duration_value <= max(1.40, 42.0 * sample_dt)
+            and mean_ball >= 0.55
+            and (
+                (
+                    mean_table <= 0.12
+                    and mean_live >= 0.40
+                    and mean_effective_interaction <= 0.38
+                    and mean_interaction <= 0.48
+                )
+                or (
+                    mean_reset >= 0.56
+                    and mean_effective_interaction <= 0.30
+                    and peak_interaction <= 0.55
+                )
+            )
+        )
+
     first_viable_dead_start_local: int | None = None
     for dead_start_local, _dead_end_local in dead_runs:
         dead_start_t = float(interval_times[dead_start_local])
@@ -525,6 +552,80 @@ def _refine_endpoint_from_signals(
                     )
                 )
                 return refined_end, "terminal_body_split_start", endpoint_confidence
+
+    if competitive_runs and dead_runs and terminal_body_runs:
+        for body_start_local, body_end_local in terminal_body_runs:
+            body_start_t = float(interval_times[body_start_local])
+            if body_start_t < earliest_dead_time:
+                continue
+            if body_start_local > future_guard_idx:
+                break
+            if body_start_t >= baseline_end - max(0.20, 4.0 * sample_dt):
+                continue
+
+            body_duration_value = run_duration_sec(body_start_local, body_end_local)
+            body_mean_term = run_mean(interval_terminal_body, body_start_local, body_end_local)
+            body_mean_reset = run_mean(interval_reset, body_start_local, body_end_local)
+            body_mean_eff = run_mean(effective_interaction, body_start_local, body_end_local)
+            body_mean_ball = run_mean(interval_ball, body_start_local, body_end_local)
+            body_mean_table = run_mean(interval_table, body_start_local, body_end_local)
+            if body_duration_value < max(0.55, 16.0 * sample_dt):
+                continue
+            if body_mean_term < 0.34 or body_mean_reset < 0.60 or body_mean_eff > 0.10:
+                continue
+            if body_mean_ball < 0.60 or body_mean_table > 0.32:
+                continue
+
+            prior_peak = float(prior_exchange_peak[body_start_local - 1]) if body_start_local > 0 else 0.0
+            if prior_peak < 0.48:
+                continue
+
+            next_dead_after_body: tuple[int, int] | None = None
+            for dead_start_local, dead_end_local in dead_runs:
+                if dead_start_local > body_start_local:
+                    next_dead_after_body = (dead_start_local, dead_end_local)
+                    break
+            if next_dead_after_body is None:
+                continue
+
+            next_dead_start_local, _ = next_dead_after_body
+            next_dead_start_t = float(interval_times[next_dead_start_local])
+            if next_dead_start_t - body_start_t < max(1.15, 0.14 * interval_duration):
+                continue
+
+            saw_tail_run = False
+            saw_table_dominant_pseudo_tail = False
+            pseudo_tail_only = True
+            for run_start_local, run_end_local in competitive_runs:
+                if run_end_local <= body_start_local:
+                    continue
+                if run_start_local >= next_dead_start_local:
+                    break
+                tail_run_start = max(run_start_local, body_end_local + 1)
+                if tail_run_start > run_end_local:
+                    continue
+                saw_tail_run = True
+                tail_mean_table = run_mean(interval_table, tail_run_start, run_end_local)
+                if tail_mean_table >= 0.24:
+                    saw_table_dominant_pseudo_tail = True
+                if not is_post_body_pseudo_live_fragment(tail_run_start, run_end_local):
+                    pseudo_tail_only = False
+                    break
+
+            if saw_tail_run and pseudo_tail_only and saw_table_dominant_pseudo_tail:
+                refined_end = float(np.clip(body_start_t, safe_start + 0.01, baseline_end))
+                endpoint_confidence = float(
+                    np.clip(
+                        0.46
+                        + (0.10 * body_mean_term)
+                        + (0.12 * body_mean_reset)
+                        + (0.10 * min(1.0, body_duration_value / max(0.55, 16.0 * sample_dt)))
+                        + (0.08 * prior_peak),
+                        0.36,
+                        0.94,
+                    )
+                )
+                return refined_end, "post_body_pseudo_live_start", endpoint_confidence
 
     if competitive_runs and ball_only_false_tail_runs:
         for tail_start_local, tail_end_local in ball_only_false_tail_runs:
@@ -969,12 +1070,12 @@ def build_draft(
     pose_weights_path: str = "weights/yolov8x-pose.pt",
     best_of: int = 5,
     stride: int = 2,
-    mode: str = "fused",
+    mode: str = "player",
     player_margin_px: int = 220,
     player_fuse_gain: float = 1.0,
     player_signal_source: str = "role_tracker",
     ball_fuse_gain: float = 1.15,
-    ball_signal_source: str = "none",
+    ball_signal_source: str = "classical",
 ) -> DraftMatch:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required for multi-stream draft generation.")
@@ -1065,12 +1166,12 @@ def main() -> int:
     parser.add_argument("--out", required=True, help="Output draft JSON path")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default="fused")
+    parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default="player")
     parser.add_argument("--player-margin-px", type=int, default=220)
     parser.add_argument("--player-fuse-gain", type=float, default=1.0)
     parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two", "none"], default="role_tracker")
     parser.add_argument("--ball-fuse-gain", type=float, default=1.15)
-    parser.add_argument("--ball-signal-source", choices=["none", "classical"], default="none")
+    parser.add_argument("--ball-signal-source", choices=["none", "classical"], default="classical")
     args = parser.parse_args()
 
     draft = build_draft(
