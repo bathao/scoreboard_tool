@@ -226,7 +226,7 @@ Exit condition:
 
 ## Current Production Stance
 - The default production direction remains table-first.
-- `backend/ai_multistream_rally.py` and `scripts/generate_draft_multistream.py` are still experimental.
+- `backend/ai_multistream_rally.py` and `scripts/generate_rally_timeline.py` are still experimental.
 - For the current algorithm-change cycle:
   - keep `table / ROI-first` unchanged as the production reference
   - keep the current `ball tracking V0` implementation unchanged as bounded secondary evidence

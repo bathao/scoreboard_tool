@@ -4,7 +4,7 @@
   "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-04-02T18:41:57.360625+00:00",
+  "created_at": "2026-04-03T12:14:24.036510+00:00",
   "roi": {
     "x": 843,
     "y": 741,
@@ -228,7 +228,7 @@
     {
       "id": "pt_0009",
       "t_start": 81.58149719238281,
-      "t_end": 90.75733184814453,
+      "t_end": 85.68560028076172,
       "active_start": 81.58149719238281,
       "active_end": 92.25883483886719,
       "search_upper_bound": 92.25883483886719,
@@ -237,8 +237,8 @@
       "preceding_let_starts": [],
       "service_attempt_index": 1,
       "boundary_mode": "next_start_exclusive",
-      "endpoint_mode": "dead_reset_run_start",
-      "endpoint_confidence": 0.95,
+      "endpoint_mode": "post_body_pseudo_live_start",
+      "endpoint_confidence": 0.7576290100812911,
       "winner": "unknown",
       "confidence": 0.8411663889884949,
       "flags": [

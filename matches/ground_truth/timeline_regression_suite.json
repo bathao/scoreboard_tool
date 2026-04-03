@@ -9,7 +9,7 @@
       "name": "set4_frozen_full",
       "enforcement": "required",
       "video": "Vinh_set4.mp4",
-      "draft_json": "matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json",
+      "timeline_json": "matches/Vinh_set4_rally_timeline.json",
       "default_tolerance_sec": 0.05,
       "points": [
         { "id": "pt_0001", "t_end": 7.474133491516113, "endpoint_mode": "dead_reset_run_start" },
@@ -38,7 +38,7 @@
       "name": "set1_reviewed_first6",
       "enforcement": "required",
       "video": "Vinh_set1.mp4",
-      "draft_json": "matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json",
+      "timeline_json": "matches/Vinh_set1_rally_timeline.json",
       "source_review": "debug_report/Vinh_set1_suspect_points_current/rally_clips.csv",
       "default_tolerance_sec": 0.35,
       "points": [

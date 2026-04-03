@@ -18,18 +18,18 @@ def _suite_override_map(values: list[str]) -> dict[str, str]:
     overrides: dict[str, str] = {}
     for item in values:
         if "=" not in item:
-            raise ValueError(f"Invalid --draft override: {item}")
+            raise ValueError(f"Invalid --timeline override: {item}")
         name, path = item.split("=", 1)
         overrides[name.strip()] = path.strip()
     return overrides
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check endpoint regression targets against draft JSON files.")
+    parser = argparse.ArgumentParser(description="Check endpoint regression targets against rally timeline JSON files.")
     parser.add_argument(
         "--suite-file",
-        default="matches/ground_truth/endpoint_regression_suite.json",
-        help="Path to the endpoint regression suite JSON",
+        default="matches/ground_truth/timeline_regression_suite.json",
+        help="Path to the rally timeline regression suite JSON",
     )
     parser.add_argument(
         "--only",
@@ -38,10 +38,16 @@ def main() -> int:
         help="Run only the named suite (can be repeated)",
     )
     parser.add_argument(
+        "--timeline",
+        action="append",
+        default=[],
+        help="Override timeline path as suite_name=path (can be repeated)",
+    )
+    parser.add_argument(
         "--draft",
         action="append",
         default=[],
-        help="Override draft path as suite_name=path (can be repeated)",
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
 
@@ -49,7 +55,7 @@ def main() -> int:
     suite_manifest = _load_json(suite_file)
     suite_specs = list(suite_manifest.get("suites", []))
     only = set(args.only)
-    draft_overrides = _suite_override_map(args.draft)
+    timeline_overrides = _suite_override_map(args.timeline + args.draft)
 
     required_failed = False
     printed_any = False
@@ -60,15 +66,18 @@ def main() -> int:
             continue
         printed_any = True
 
-        draft_path = Path(draft_overrides.get(suite_name, suite_spec["draft_json"]))
-        if not draft_path.exists():
-            print(f"[{suite_name}] missing draft: {draft_path}")
+        default_timeline_path = suite_spec.get("timeline_json")
+        if default_timeline_path is None:
+            default_timeline_path = suite_spec["draft_json"]
+        timeline_path = Path(timeline_overrides.get(suite_name, default_timeline_path))
+        if not timeline_path.exists():
+            print(f"[{suite_name}] missing timeline: {timeline_path}")
             if suite_spec.get("enforcement", "report_only") == "required":
                 required_failed = True
             continue
 
-        draft = _load_json(draft_path)
-        result = compare_endpoint_suite(list(draft.get("points", [])), suite_spec)
+        timeline = _load_json(timeline_path)
+        result = compare_endpoint_suite(list(timeline.get("points", [])), suite_spec)
         print(
             f"[{suite_name}] "
             f"ok={result['ok']} "

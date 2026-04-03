@@ -627,6 +627,94 @@ def _refine_endpoint_from_signals(
                 )
                 return refined_end, "post_body_pseudo_live_start", endpoint_confidence
 
+    if competitive_runs and dead_runs and terminal_body_runs:
+        for body_start_local, body_end_local in terminal_body_runs:
+            body_start_t = float(interval_times[body_start_local])
+            if body_start_t < earliest_dead_time:
+                continue
+            if body_start_local > future_guard_idx:
+                break
+            if body_start_t >= baseline_end - max(0.20, 4.0 * sample_dt):
+                continue
+
+            body_duration_value = run_duration_sec(body_start_local, body_end_local)
+            body_mean_term = run_mean(interval_terminal_body, body_start_local, body_end_local)
+            body_mean_reset = run_mean(interval_reset, body_start_local, body_end_local)
+            body_mean_eff = run_mean(effective_interaction, body_start_local, body_end_local)
+            body_mean_ball = run_mean(interval_ball, body_start_local, body_end_local)
+            body_mean_table = run_mean(interval_table, body_start_local, body_end_local)
+            if body_duration_value < max(1.20, 32.0 * sample_dt):
+                continue
+            if body_mean_term < 0.34 or body_mean_reset < 0.60 or body_mean_eff > 0.08:
+                continue
+            if body_mean_ball > 0.28 or body_mean_table > 0.14:
+                continue
+
+            prior_peak = float(prior_exchange_peak[body_start_local - 1]) if body_start_local > 0 else 0.0
+            if prior_peak < 0.48:
+                continue
+
+            next_dead_after_body: tuple[int, int] | None = None
+            for dead_start_local, dead_end_local in dead_runs:
+                if dead_start_local > body_start_local:
+                    next_dead_after_body = (dead_start_local, dead_end_local)
+                    break
+            if next_dead_after_body is None:
+                continue
+
+            next_dead_start_local, _ = next_dead_after_body
+            next_dead_start_t = float(interval_times[next_dead_start_local])
+            if next_dead_start_t - body_start_t < max(1.60, 0.18 * interval_duration):
+                continue
+
+            saw_tail_run = False
+            pseudo_tail_only = True
+            for run_start_local, run_end_local in competitive_runs:
+                if run_end_local <= body_start_local:
+                    continue
+                if run_start_local >= next_dead_start_local:
+                    break
+                tail_run_start = max(run_start_local, body_end_local + 1)
+                if tail_run_start > run_end_local:
+                    continue
+                saw_tail_run = True
+                tail_duration_value = run_duration_sec(tail_run_start, run_end_local)
+                tail_mean_table = run_mean(interval_table, tail_run_start, run_end_local)
+                tail_mean_ball = run_mean(interval_ball, tail_run_start, run_end_local)
+                tail_mean_eff = run_mean(effective_interaction, tail_run_start, run_end_local)
+                if not (
+                    is_weak_tail_fragment(tail_run_start, run_end_local)
+                    or is_post_body_disengaged_fragment(tail_run_start, run_end_local)
+                    or (
+                        tail_duration_value <= max(0.12, 4.0 * sample_dt)
+                        and tail_mean_table <= 0.18
+                        and tail_mean_ball <= 0.32
+                    )
+                    or (
+                        tail_duration_value <= max(0.45, 14.0 * sample_dt)
+                        and tail_mean_table <= 0.12
+                        and tail_mean_eff <= 0.18
+                        and tail_mean_ball <= 0.45
+                    )
+                ):
+                    pseudo_tail_only = False
+                    break
+
+            if saw_tail_run and pseudo_tail_only:
+                refined_end = float(np.clip(body_start_t, safe_start + 0.01, baseline_end))
+                endpoint_confidence = float(
+                    np.clip(
+                        0.48
+                        + (0.10 * body_mean_term)
+                        + (0.12 * body_mean_reset)
+                        + (0.10 * min(1.0, body_duration_value / max(1.20, 32.0 * sample_dt)))
+                        + (0.08 * prior_peak),
+                        0.38,
+                        0.95,
+                    )
+                )
+                return refined_end, "post_dead_plateau_start", endpoint_confidence
+
     if competitive_runs and ball_only_false_tail_runs:
         for tail_start_local, tail_end_local in ball_only_false_tail_runs:
             tail_start_t = float(interval_times[tail_start_local])
@@ -984,6 +1072,50 @@ def _refine_endpoint_from_signals(
                 ):
                     resume_found = True
                     break
+        if (not resume_found) and is_open_tail:
+            cluster_horizon_sec = min(2.35, max(1.55, 0.26 * interval_duration))
+            gap_limit_sec = max(0.62, 18.0 * sample_dt)
+            cluster_runs: list[tuple[int, int]] = []
+            prev_end_local = dead_end_local
+            for run_start_local, run_end_local in competitive_runs:
+                if run_start_local <= dead_end_local:
+                    continue
+                run_start_t = float(interval_times[run_start_local])
+                if run_start_t - dead_end_t > cluster_horizon_sec:
+                    break
+                if run_start_local > future_guard_idx:
+                    break
+                gap_before_run = float(interval_times[run_start_local] - interval_times[prev_end_local])
+                if gap_before_run > gap_limit_sec:
+                    break
+                cluster_runs.append((run_start_local, run_end_local))
+                prev_end_local = run_end_local
+
+            if cluster_runs:
+                cluster_start_local = cluster_runs[0][0]
+                cluster_end_local = cluster_runs[-1][1]
+                cluster_total_duration = float(
+                    sum(run_duration_sec(run_start_local, run_end_local) for run_start_local, run_end_local in cluster_runs)
+                )
+                cluster_span = float(interval_times[cluster_end_local] - interval_times[cluster_start_local] + sample_dt)
+                cluster_ball_peak = run_peak(interval_ball, cluster_start_local, cluster_end_local)
+                cluster_table_peak = run_peak(interval_table, cluster_start_local, cluster_end_local)
+                cluster_live_peak = run_peak(interval_live, cluster_start_local, cluster_end_local)
+                cluster_effective_interaction_peak = run_peak(effective_interaction, cluster_start_local, cluster_end_local)
+                cluster_effective_interaction_mean = run_mean(effective_interaction, cluster_start_local, cluster_end_local)
+                cluster_reset_mean = run_mean(interval_reset, cluster_start_local, cluster_end_local)
+                if (
+                    len(cluster_runs) >= 3
+                    and cluster_total_duration >= max(0.34, 7.0 * sample_dt)
+                    and cluster_span >= max(0.80, 18.0 * sample_dt)
+                    and cluster_ball_peak >= 0.24
+                    and cluster_table_peak >= 0.70
+                    and cluster_live_peak >= 0.58
+                    and cluster_effective_interaction_peak >= 0.42
+                    and cluster_effective_interaction_mean >= 0.22
+                    and cluster_reset_mean <= 0.60
+                ):
+                    resume_found = True
         if resume_found:
             continue
 
@@ -1078,7 +1210,7 @@ def build_draft(
     ball_signal_source: str = "classical",
 ) -> DraftMatch:
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU is required for multi-stream draft generation.")
+        raise RuntimeError("CUDA GPU is required for multi-stream rally timeline generation.")
 
     if best_of <= 0 or best_of % 2 == 0:
         raise ValueError("best_of must be a positive odd number.")
@@ -1159,11 +1291,11 @@ def build_draft(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate draft JSON using independent table/player/ball or multi-stream segmentation.")
+    parser = argparse.ArgumentParser(description="Generate rally timeline JSON using the current multistream pipeline.")
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Path to YOLO table weights")
     parser.add_argument("--pose-weights", default="weights/yolov8x-pose.pt", help="Path to YOLO pose weights")
-    parser.add_argument("--out", required=True, help="Output draft JSON path")
+    parser.add_argument("--out", required=True, help="Output rally timeline JSON path")
     parser.add_argument("--best-of", type=int, default=5)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default="player")
@@ -1189,7 +1321,7 @@ def main() -> int:
     )
     out_path = Path(args.out)
     save_draft_match(out_path, draft)
-    print(f"[OK] Saved {args.mode} draft: {out_path} | total_rallies={len(draft.points)}")
+    print(f"[OK] Saved {args.mode} rally timeline: {out_path} | total_rallies={len(draft.points)}")
     return 0
 
 

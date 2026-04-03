@@ -16,7 +16,7 @@ Do not use this file as the long-term architecture spec.
 ## Current Status
 - Date:
   - `2026-04-03`
-- Current production draft baseline:
+- Current production baseline:
   - `table / ROI-first`
 - Current tracker baseline:
   - endpoint refinement on top of the accepted `starter + LET + active window` player-path baseline
@@ -35,7 +35,7 @@ Do not use this file as the long-term architecture spec.
     - commit `0990559`
     - `Stabilize first ten set4 endpoint reviews`
   - current endpoint regression suite:
-    - `matches/ground_truth/endpoint_regression_suite.json`
+    - `matches/ground_truth/timeline_regression_suite.json`
     - `set4_frozen_full`
       - required no-regression suite
     - `set1_reviewed_first6`
@@ -74,11 +74,11 @@ Do not use this file as the long-term architecture spec.
     - `qwen3:14b` installed in Ollama for reasoning review
     - default local vision model config was switched from `llama3.2-vision` to `qwen3-vl:8b`
     - `review_rally_splits_qwen.py` now supports `--skip-models` for candidate-only benchmarking
-  - latest kept draft outputs are:
-    - `matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set2_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set3_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+  - latest kept rally timeline outputs are:
+    - `matches/Vinh_set1_rally_timeline.json`
+    - `matches/Vinh_set2_rally_timeline.json`
+    - `matches/Vinh_set3_rally_timeline.json`
+    - `matches/Vinh_set4_rally_timeline.json`
   - older debug outputs still exist only as reference material and do not change the promoted baseline
   - current work-cycle constraint:
     - keep `table / ROI-first` unchanged
@@ -195,13 +195,13 @@ Do not use this file as the long-term architecture spec.
     - `pt_0004 = dead_reset_run_start`
     - `pt_0005 = dead_reset_run_start`
     - `pt_0006 = ball_only_false_tail_start`
-  - `matches/ground_truth/endpoint_regression_suite.json` was updated so:
+  - `matches/ground_truth/timeline_regression_suite.json` was updated so:
     - `set1_reviewed_first6` is now `required`
 - `endpoint regression suite scaffolding now exists`
   - added regression manifest:
-    - `matches/ground_truth/endpoint_regression_suite.json`
+    - `matches/ground_truth/timeline_regression_suite.json`
   - added checker:
-    - `scripts/check_endpoint_regression.py`
+    - `scripts/check_timeline_regression.py`
   - added pure comparison helper:
     - `backend/endpoint_regression.py`
   - added unit coverage:
@@ -258,7 +258,7 @@ Do not use this file as the long-term architecture spec.
 
 ### Exact Resume Point
 - run:
-  - `.venv\\Scripts\\python.exe scripts\\check_endpoint_regression.py`
+  - `.venv\\Scripts\\python.exe scripts\\check_timeline_regression.py`
 - expected current state:
   - `set4_frozen_full` must stay green
   - `set1_reviewed_first6` must also stay green
@@ -291,8 +291,8 @@ Do not use this file as the long-term architecture spec.
     - `pt_0018 = 232.766`
     - `pt_0019 = 241.742`
     - `pt_0020 = 260.093`
-  - latest kept draft:
-    - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+  - latest kept rally timeline:
+    - `matches/Vinh_set4_rally_timeline.json`
   - checkpoint committed and pushed:
     - `0990559`
     - `Stabilize first ten set4 endpoint reviews`
@@ -356,11 +356,11 @@ Do not use this file as the long-term architecture spec.
     - `set2 = 19 rallies`, `LET = 0`
     - `set3 = 18 rallies`, `LET = 0`
     - `set4 = 20 rallies`, `LET = 3`
-  - latest kept drafts are:
-    - `matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set2_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set3_stage1_player_independent_sandwich_with_starter_role.json`
-    - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+  - latest kept rally timelines are:
+    - `matches/Vinh_set1_rally_timeline.json`
+    - `matches/Vinh_set2_rally_timeline.json`
+    - `matches/Vinh_set3_rally_timeline.json`
+    - `matches/Vinh_set4_rally_timeline.json`
   - accepted current `set4` `LET` timestamps are:
     - `01:51.778`
     - `01:55.048`
@@ -748,7 +748,7 @@ Do not use this file as the long-term architecture spec.
   - candidate-only rerun surfaced `11` split candidates on `set4`
   - this confirmed the blocker moved from `0-candidate extraction` to accept / reject quality
 - `ball-only standalone draft mode`
-  - added a real `--mode ball` path in `scripts/generate_draft_multistream.py`
+  - added a real `--mode ball` path in `scripts/generate_rally_timeline.py`
   - `ball-only` mode now disables player streams and uses a standalone ball-tracking profile
   - added dedicated multistream tests for `ball-only` mode and the post-pass pair-merge behavior
 - `ball-only standalone tuning v7`
@@ -1241,10 +1241,10 @@ Keep the latest full-set debug outputs and current rally-benchmark artifacts:
      - `set3 = 18 rallies`, `LET = 0`
      - `set4 = 20 rallies`, `LET = 3`
    - latest kept player-path drafts are:
-     - `matches/Vinh_set1_stage1_player_independent_sandwich_with_starter_role.json`
-     - `matches/Vinh_set2_stage1_player_independent_sandwich_with_starter_role.json`
-     - `matches/Vinh_set3_stage1_player_independent_sandwich_with_starter_role.json`
-     - `matches/Vinh_set4_stage1_player_independent_sandwich_with_starter_role.json`
+     - `matches/Vinh_set1_rally_timeline.json`
+     - `matches/Vinh_set2_rally_timeline.json`
+     - `matches/Vinh_set3_rally_timeline.json`
+     - `matches/Vinh_set4_rally_timeline.json`
    - Stage 1 now has 3 explicit detector paths:
      - `table / ROI-first` as the already-existing reference detector
    - `multistream / YOLO player-signal` now has a reviewed `start + LET` baseline on `set1..4`
@@ -1305,3 +1305,32 @@ At the end of each work session:
   - exact next resume point
 - update `PROJECT_ACTION_PLAN.md` if priorities or task status changed
 - update `ROADMAP_PRODUCTION.md` only if architecture or doctrine changed
+
+## 2026-04-03
+- `all four reviewed sets now have accepted rally timelines`
+  - `set1 = 14 rallies`, `LET = 1`
+  - `set2 = 19 rallies`, `LET = 0`
+  - `set3 = 18 rallies`, `LET = 0`
+  - `set4 = 20 rallies`, `LET = 3`
+- `set2 pt_0019` was fixed as an `open-tail fragmented resume`
+  - new endpoint: `203.737`
+  - this change preserved `set1` and `set4` exactly
+- `set3 pt_0009` was fixed as a `post_dead_plateau_start`
+  - new endpoint: `110.210`
+  - this change preserved `set1`, `set2`, and `set4` exactly
+- `canonical naming cleanup`
+  - active generator entrypoint is now `scripts/generate_rally_timeline.py`
+  - active checker entrypoint is now `scripts/check_timeline_regression.py`
+  - active outputs are now:
+    - `matches/Vinh_set1_rally_timeline.json`
+    - `matches/Vinh_set2_rally_timeline.json`
+    - `matches/Vinh_set3_rally_timeline.json`
+    - `matches/Vinh_set4_rally_timeline.json`
+- verification
+  - `50 passed, 1 warning`
+  - `scripts/check_timeline_regression.py`:
+    - `set4_frozen_full = 20/20`
+    - `set1_reviewed_first6 = 6/6`
+- next resume point
+  - expand the regression suite toward full `set1..4`
+  - start the first `winner / point-state` pass on top of the frozen rally timelines
