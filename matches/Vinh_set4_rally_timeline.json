@@ -1,10 +1,10 @@
-{
-  "schema_version": "draft_match_v1",
+﻿{
+  "schema_version": "rally_timeline_v1",
   "sport": "table_tennis",
   "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set4.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-04-03T14:48:19.013889+00:00",
+  "created_at": "2026-04-03T18:15:14.704005+00:00",
   "roi": {
     "x": 874,
     "y": 753,
@@ -29,6 +29,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "clean_winner_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.7844361868947745,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8895294678211212,
       "flags": [
@@ -55,6 +59,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.37054285794496533,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8665648663043976,
       "flags": [
@@ -81,6 +89,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_b",
+      "winner_confidence": 0.604749438214302,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8031295418739318,
       "flags": [
@@ -107,6 +119,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.4354845834374428,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8483739590644837,
       "flags": [
@@ -133,6 +149,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.3376144719123841,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8624211263656615,
       "flags": [
@@ -159,6 +179,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.37782845020294187,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8303252375125885,
       "flags": [
@@ -185,6 +209,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.3635583751797676,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8426908826828003,
       "flags": [
@@ -211,6 +239,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.33877257490158086,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8735195207595825,
       "flags": [
@@ -240,6 +272,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.4514560914039612,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8328529000282288,
       "flags": [
@@ -266,6 +302,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.37841313230991364,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.795901318192482,
       "flags": [
@@ -292,6 +332,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.40433889448642735,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8374813139438629,
       "flags": [
@@ -318,6 +362,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.7082510140657425,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8620201802253723,
       "flags": [
@@ -344,6 +392,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_b",
+      "winner_confidence": 0.6318287368059159,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8518927586078643,
       "flags": [
@@ -370,6 +422,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.34924121940135955,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8017923420667648,
       "flags": [
@@ -396,6 +452,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "clean_winner_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.7681572716355326,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8320537471771241,
       "flags": [
@@ -422,6 +482,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.36803455984592437,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8699993658065795,
       "flags": [
@@ -450,6 +514,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.3618469880223274,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8113202440738677,
       "flags": [
@@ -476,6 +544,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.3942500618696213,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8032991158962248,
       "flags": [
@@ -502,6 +574,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.404573233127594,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8501691502332687,
       "flags": [
@@ -528,6 +604,10 @@
       "boundary_mode": "video_end_open_tail",
       "endpoint_mode": "last_exchange_support",
       "endpoint_confidence": 0.38419923186302185,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.38879329198598855,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.787210372686386,
       "flags": [
@@ -546,7 +626,12 @@
     "scoring_rallies": 20,
     "non_scoring_rallies": 0,
     "winner_known_rallies": 0,
-    "winner_unknown_rallies": 20
+    "winner_unknown_rallies": 20,
+    "winner_candidate_known_rallies": 5,
+    "winner_candidate_unknown_rallies": 15,
+    "winner_auto_rallies": 0,
+    "winner_review_rallies": 9,
+    "winner_blocked_rallies": 11
   },
   "analysis_metadata": {
     "detector_mode": "player",
@@ -556,6 +641,7 @@
     "stride": 2,
     "active_window_mode": "accepted_start_to_next_accepted_start",
     "endpoint_refine_mode": "roi_plus_ball_bounded_search",
+    "winner_inference_mode": "constrained_end_event_v1",
     "excluded_let_count": 3,
     "excluded_let_starts": [
       {

@@ -1,6 +1,7 @@
-import numpy as np
+﻿import numpy as np
 
-import scripts.generate_draft_multistream as generate_draft_multistream
+import scripts.generate_rally_timeline as generate_rally_timeline
+from backend.rally_timeline_contract import RallyTimelinePoint
 from backend.ai_multistream_rally import MultiStreamSignals, detect_multistream_rallies
 from backend.ai_multistream_rally import (
     _dedupe_player_sandwich_start_candidates,
@@ -1247,7 +1248,7 @@ def test_detect_multistream_rallies_player_mode_requires_real_player_source():
         raise AssertionError("Expected player-only mode without player source to fail")
 
 
-def test_build_draft_table_mode_disables_non_table_streams(monkeypatch):
+def test_build_rally_timeline_table_mode_disables_non_table_streams(monkeypatch):
     captured = {}
 
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
@@ -1272,11 +1273,11 @@ def test_build_draft_table_mode_disables_non_table_streams(monkeypatch):
         assert mode == "table"
         return [RallySegment(t_start=1.0, t_end=2.0, confidence=0.85, flags=[])]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="table",
@@ -1287,15 +1288,15 @@ def test_build_draft_table_mode_disables_non_table_streams(monkeypatch):
     assert captured["player_signal_source"] == "none"
     assert captured["ball_signal_source"] == "none"
     assert captured["ball_tracking_profile"] == "support"
-    assert len(draft.points) == 1
-    assert "table_only" in draft.points[0].flags
-    assert "player_signal_none" in draft.points[0].flags
-    assert "ball_signal_none" in draft.points[0].flags
-    assert draft.analysis_metadata["detector_mode"] == "table"
-    assert draft.to_dict()["summary"]["total_rallies"] == 1
+    assert len(timeline.points) == 1
+    assert "table_only" in timeline.points[0].flags
+    assert "player_signal_none" in timeline.points[0].flags
+    assert "ball_signal_none" in timeline.points[0].flags
+    assert timeline.analysis_metadata["detector_mode"] == "table"
+    assert timeline.to_dict()["summary"]["total_rallies"] == 1
 
 
-def test_build_draft_ball_mode_disables_player_streams(monkeypatch):
+def test_build_rally_timeline_ball_mode_disables_player_streams(monkeypatch):
     captured = {}
 
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
@@ -1320,11 +1321,11 @@ def test_build_draft_ball_mode_disables_player_streams(monkeypatch):
         assert mode == "ball"
         return [RallySegment(t_start=1.0, t_end=2.0, confidence=0.8, flags=["ball_only"])]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="ball",
@@ -1335,14 +1336,14 @@ def test_build_draft_ball_mode_disables_player_streams(monkeypatch):
     assert captured["player_signal_source"] == "none"
     assert captured["ball_signal_source"] == "classical"
     assert captured["ball_tracking_profile"] == "standalone"
-    assert len(draft.points) == 1
-    assert "ball_only" in draft.points[0].flags
-    assert "player_signal_none" in draft.points[0].flags
-    assert draft.analysis_metadata["detector_mode"] == "ball"
-    assert draft.to_dict()["summary"]["total_rallies"] == 1
+    assert len(timeline.points) == 1
+    assert "ball_only" in timeline.points[0].flags
+    assert "player_signal_none" in timeline.points[0].flags
+    assert timeline.analysis_metadata["detector_mode"] == "ball"
+    assert timeline.to_dict()["summary"]["total_rallies"] == 1
 
 
-def test_build_draft_player_mode_allows_ball_streams_for_endpoint_refinement(monkeypatch):
+def test_build_rally_timeline_player_mode_allows_ball_streams_for_endpoint_refinement(monkeypatch):
     captured = {}
 
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
@@ -1367,11 +1368,11 @@ def test_build_draft_player_mode_allows_ball_streams_for_endpoint_refinement(mon
         assert mode == "player"
         return [RallySegment(t_start=0.5, t_end=2.0, confidence=0.78, flags=["player_only"], server_role="B")]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
@@ -1382,16 +1383,16 @@ def test_build_draft_player_mode_allows_ball_streams_for_endpoint_refinement(mon
     assert captured["player_signal_source"] == "role_tracker"
     assert captured["ball_signal_source"] == "classical"
     assert captured["ball_tracking_profile"] == "support"
-    assert len(draft.points) == 1
-    assert "player_only" in draft.points[0].flags
-    assert "player_signal_role_tracker" in draft.points[0].flags
-    assert "ball_signal_classical" in draft.points[0].flags
-    assert draft.points[0].starter_role == "B"
-    assert draft.analysis_metadata["detector_mode"] == "player"
-    assert draft.to_dict()["summary"]["total_rallies"] == 1
+    assert len(timeline.points) == 1
+    assert "player_only" in timeline.points[0].flags
+    assert "player_signal_role_tracker" in timeline.points[0].flags
+    assert "ball_signal_classical" in timeline.points[0].flags
+    assert timeline.points[0].starter_role == "B"
+    assert timeline.analysis_metadata["detector_mode"] == "player"
+    assert timeline.to_dict()["summary"]["total_rallies"] == 1
 
 
-def test_build_draft_defaults_match_review_pipeline(monkeypatch):
+def test_build_rally_timeline_defaults_match_review_pipeline(monkeypatch):
     captured = {}
 
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
@@ -1416,11 +1417,11 @@ def test_build_draft_defaults_match_review_pipeline(monkeypatch):
         captured["mode"] = mode
         return [RallySegment(t_start=0.5, t_end=2.0, confidence=0.78, flags=["player_only"], server_role="B")]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
     )
@@ -1429,9 +1430,9 @@ def test_build_draft_defaults_match_review_pipeline(monkeypatch):
     assert captured["player_signal_source"] == "role_tracker"
     assert captured["ball_signal_source"] == "classical"
     assert captured["ball_tracking_profile"] == "support"
-    assert draft.analysis_metadata["detector_mode"] == "player"
-    assert draft.analysis_metadata["player_signal_source"] == "role_tracker"
-    assert draft.analysis_metadata["ball_signal_source"] == "classical"
+    assert timeline.analysis_metadata["detector_mode"] == "player"
+    assert timeline.analysis_metadata["player_signal_source"] == "role_tracker"
+    assert timeline.analysis_metadata["ball_signal_source"] == "classical"
 
 
 def test_infer_player_serve_mode_prefers_double_for_set4_like_role_sequence():
@@ -1509,7 +1510,7 @@ def test_repair_double_serve_role_singletons_flips_suspicious_run_edge():
     assert [candidate.role for candidate in repaired] == ["B", "B", "A", "A", "B", "B"]
 
 
-def test_build_draft_excludes_let_segments_from_points(monkeypatch):
+def test_build_rally_timeline_excludes_let_segments_from_points(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1544,40 +1545,40 @@ def test_build_draft_excludes_let_segments_from_points(monkeypatch):
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
         player_signal_source="role_tracker",
     )
 
-    assert len(draft.points) == 1
-    assert draft.points[0].id == "pt_0001"
-    assert draft.points[0].starter_role == "B"
-    assert draft.points[0].t_start == 1.2
-    assert draft.points[0].active_start == 1.2
-    assert draft.points[0].active_end == 3.0
-    assert draft.points[0].search_upper_bound == 3.0
-    assert draft.points[0].preceding_let_count == 1
-    assert draft.points[0].preceding_let_starts == [0.5]
-    assert draft.points[0].service_attempt_index == 2
-    assert draft.points[0].boundary_mode == "video_end_open_tail"
-    assert draft.points[0].endpoint_mode in {"detector_end_clamped", "last_exchange_support", "dead_reset_run_start"}
-    assert 0.0 <= draft.points[0].endpoint_confidence <= 1.0
-    assert draft.analysis_metadata["excluded_let_count"] == 1
-    assert len(draft.analysis_metadata["excluded_let_starts"]) == 1
-    assert draft.analysis_metadata["excluded_let_starts"][0]["t_start"] == 0.5
-    assert draft.analysis_metadata["active_window_mode"] == "accepted_start_to_next_accepted_start"
-    assert draft.analysis_metadata["endpoint_refine_mode"] == "roi_plus_ball_bounded_search"
-    assert draft.analysis_metadata["unattached_trailing_let_count"] == 0
-    assert draft.to_dict()["summary"]["total_rallies"] == 1
+    assert len(timeline.points) == 1
+    assert timeline.points[0].id == "pt_0001"
+    assert timeline.points[0].starter_role == "B"
+    assert timeline.points[0].t_start == 1.2
+    assert timeline.points[0].active_start == 1.2
+    assert timeline.points[0].active_end == 3.0
+    assert timeline.points[0].search_upper_bound == 3.0
+    assert timeline.points[0].preceding_let_count == 1
+    assert timeline.points[0].preceding_let_starts == [0.5]
+    assert timeline.points[0].service_attempt_index == 2
+    assert timeline.points[0].boundary_mode == "video_end_open_tail"
+    assert timeline.points[0].endpoint_mode in {"detector_end_clamped", "last_exchange_support", "dead_reset_run_start"}
+    assert 0.0 <= timeline.points[0].endpoint_confidence <= 1.0
+    assert timeline.analysis_metadata["excluded_let_count"] == 1
+    assert len(timeline.analysis_metadata["excluded_let_starts"]) == 1
+    assert timeline.analysis_metadata["excluded_let_starts"][0]["t_start"] == 0.5
+    assert timeline.analysis_metadata["active_window_mode"] == "accepted_start_to_next_accepted_start"
+    assert timeline.analysis_metadata["endpoint_refine_mode"] == "roi_plus_ball_bounded_search"
+    assert timeline.analysis_metadata["unattached_trailing_let_count"] == 0
+    assert timeline.to_dict()["summary"]["total_rallies"] == 1
 
 
-def test_build_draft_attaches_multiple_preceding_lets_and_active_windows(monkeypatch):
+def test_build_rally_timeline_attaches_multiple_preceding_lets_and_active_windows(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1626,41 +1627,41 @@ def test_build_draft_attaches_multiple_preceding_lets_and_active_windows(monkeyp
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
         player_signal_source="role_tracker",
     )
 
-    assert len(draft.points) == 2
-    assert draft.points[0].t_start == 2.0
-    assert draft.points[0].starter_role == "B"
-    assert draft.points[0].active_start == 2.0
-    assert draft.points[0].active_end == 5.0
-    assert draft.points[0].search_upper_bound == 5.0
-    assert draft.points[0].preceding_let_count == 2
-    assert draft.points[0].preceding_let_starts == [0.5, 1.0]
-    assert draft.points[0].service_attempt_index == 3
-    assert draft.points[0].boundary_mode == "next_start_exclusive"
-    assert draft.points[1].t_start == 5.0
-    assert draft.points[1].starter_role == "A"
-    assert draft.points[1].active_start == 5.0
-    assert draft.points[1].active_end == 7.0
-    assert draft.points[1].search_upper_bound == 7.0
-    assert draft.points[1].preceding_let_count == 0
-    assert draft.points[1].preceding_let_starts == []
-    assert draft.points[1].service_attempt_index == 1
-    assert draft.points[1].boundary_mode == "video_end_open_tail"
-    assert draft.analysis_metadata["excluded_let_count"] == 2
-    assert draft.analysis_metadata["unattached_trailing_let_count"] == 0
+    assert len(timeline.points) == 2
+    assert timeline.points[0].t_start == 2.0
+    assert timeline.points[0].starter_role == "B"
+    assert timeline.points[0].active_start == 2.0
+    assert timeline.points[0].active_end == 5.0
+    assert timeline.points[0].search_upper_bound == 5.0
+    assert timeline.points[0].preceding_let_count == 2
+    assert timeline.points[0].preceding_let_starts == [0.5, 1.0]
+    assert timeline.points[0].service_attempt_index == 3
+    assert timeline.points[0].boundary_mode == "next_start_exclusive"
+    assert timeline.points[1].t_start == 5.0
+    assert timeline.points[1].starter_role == "A"
+    assert timeline.points[1].active_start == 5.0
+    assert timeline.points[1].active_end == 7.0
+    assert timeline.points[1].search_upper_bound == 7.0
+    assert timeline.points[1].preceding_let_count == 0
+    assert timeline.points[1].preceding_let_starts == []
+    assert timeline.points[1].service_attempt_index == 1
+    assert timeline.points[1].boundary_mode == "video_end_open_tail"
+    assert timeline.analysis_metadata["excluded_let_count"] == 2
+    assert timeline.analysis_metadata["unattached_trailing_let_count"] == 0
 
 
-def test_build_draft_refines_endpoint_before_search_upper_bound(monkeypatch):
+def test_build_rally_timeline_refines_endpoint_before_search_upper_bound(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1694,11 +1695,11 @@ def test_build_draft_refines_endpoint_before_search_upper_bound(monkeypatch):
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
@@ -1706,13 +1707,13 @@ def test_build_draft_refines_endpoint_before_search_upper_bound(monkeypatch):
         ball_signal_source="classical",
     )
 
-    assert len(draft.points) == 2
-    assert draft.points[0].search_upper_bound == 6.0
-    assert draft.points[0].t_end < 6.0
-    assert draft.points[0].endpoint_mode in {"last_exchange_support", "dead_reset_run_start"}
+    assert len(timeline.points) == 2
+    assert timeline.points[0].search_upper_bound == 6.0
+    assert timeline.points[0].t_end < 6.0
+    assert timeline.points[0].endpoint_mode in {"last_exchange_support", "dead_reset_run_start"}
 
 
-def test_build_draft_endpoint_prefers_dead_reset_run_over_lingering_table_motion(monkeypatch):
+def test_build_rally_timeline_endpoint_prefers_dead_reset_run_over_lingering_table_motion(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1754,11 +1755,11 @@ def test_build_draft_endpoint_prefers_dead_reset_run_over_lingering_table_motion
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
@@ -1766,13 +1767,13 @@ def test_build_draft_endpoint_prefers_dead_reset_run_over_lingering_table_motion
         ball_signal_source="classical",
     )
 
-    assert len(draft.points) == 2
-    assert draft.points[0].search_upper_bound == 8.0
-    assert draft.points[0].t_end <= 5.0
-    assert draft.points[0].endpoint_mode == "dead_reset_run_start"
+    assert len(timeline.points) == 2
+    assert timeline.points[0].search_upper_bound == 8.0
+    assert timeline.points[0].t_end <= 5.0
+    assert timeline.points[0].endpoint_mode == "dead_reset_run_start"
 
 
-def test_build_draft_endpoint_scores_dead_runs_and_skips_false_reset_resume(monkeypatch):
+def test_build_rally_timeline_endpoint_scores_dead_runs_and_skips_false_reset_resume(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1814,11 +1815,11 @@ def test_build_draft_endpoint_scores_dead_runs_and_skips_false_reset_resume(monk
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
@@ -1826,13 +1827,13 @@ def test_build_draft_endpoint_scores_dead_runs_and_skips_false_reset_resume(monk
         ball_signal_source="classical",
     )
 
-    assert len(draft.points) == 2
-    assert draft.points[0].search_upper_bound == 9.0
-    assert draft.points[0].t_end >= 5.0
-    assert draft.points[0].endpoint_mode in {"dead_reset_run_start", "last_exchange_support"}
+    assert len(timeline.points) == 2
+    assert timeline.points[0].search_upper_bound == 9.0
+    assert timeline.points[0].t_end >= 5.0
+    assert timeline.points[0].endpoint_mode in {"dead_reset_run_start", "last_exchange_support"}
 
 
-def test_build_draft_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
+def test_build_rally_timeline_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
     def fake_extract_multistream_signals(video_path, table_weights_path, **kwargs):
         return MultiStreamSignals(
             roi=TableROI(x=10, y=20, w=100, h=50, confidence=0.9),
@@ -1874,11 +1875,11 @@ def test_build_draft_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
             ),
         ]
 
-    monkeypatch.setattr(generate_draft_multistream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(generate_draft_multistream, "extract_multistream_signals", fake_extract_multistream_signals)
-    monkeypatch.setattr(generate_draft_multistream, "detect_multistream_rallies", fake_detect_multistream_rallies)
+    monkeypatch.setattr(generate_rally_timeline.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(generate_rally_timeline, "extract_multistream_signals", fake_extract_multistream_signals)
+    monkeypatch.setattr(generate_rally_timeline, "detect_multistream_rallies", fake_detect_multistream_rallies)
 
-    draft = generate_draft_multistream.build_draft(
+    timeline = generate_rally_timeline.build_rally_timeline(
         "demo.mp4",
         "weights/yolov8x_table.pt",
         mode="player",
@@ -1886,10 +1887,10 @@ def test_build_draft_endpoint_ignores_one_sided_pickup_motion(monkeypatch):
         ball_signal_source="classical",
     )
 
-    assert len(draft.points) == 2
-    assert draft.points[0].search_upper_bound == 8.0
-    assert draft.points[0].t_end <= 5.0
-    assert draft.points[0].endpoint_mode == "dead_reset_run_start"
+    assert len(timeline.points) == 2
+    assert timeline.points[0].search_upper_bound == 8.0
+    assert timeline.points[0].t_end <= 5.0
+    assert timeline.points[0].endpoint_mode == "dead_reset_run_start"
 
 
 def test_refine_endpoint_reopens_open_tail_when_late_live_tail_is_strong():
@@ -1936,7 +1937,7 @@ def test_refine_endpoint_reopens_open_tail_when_late_live_tail_is_strong():
     shared[late] = 0.60
     terminal[late] = 0.18
 
-    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+    refined_end, endpoint_mode, _conf = generate_rally_timeline._refine_endpoint_from_signals(
         timestamps,
         table,
         ball,
@@ -1996,7 +1997,7 @@ def test_refine_endpoint_does_not_reopen_after_terminal_disengagement_ball_only_
     shared[late_tail] = 0.20
     terminal[late_tail] = 0.64
 
-    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+    refined_end, endpoint_mode, _conf = generate_rally_timeline._refine_endpoint_from_signals(
         timestamps,
         table,
         ball,
@@ -2066,7 +2067,7 @@ def test_refine_endpoint_terminal_body_split_accepts_long_gap_pseudo_resume():
     shared[late_dead] = 0.12
     terminal[late_dead] = 0.30
 
-    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+    refined_end, endpoint_mode, _conf = generate_rally_timeline._refine_endpoint_from_signals(
         timestamps,
         table,
         ball,
@@ -2136,7 +2137,7 @@ def test_refine_endpoint_ball_only_false_tail_prefers_early_dead():
     shared[late_dead] = 0.12
     terminal[late_dead] = 0.30
 
-    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+    refined_end, endpoint_mode, _conf = generate_rally_timeline._refine_endpoint_from_signals(
         timestamps,
         table,
         ball,
@@ -2216,7 +2217,7 @@ def test_refine_endpoint_terminal_body_split_accepts_disengaged_table_dominant_t
     shared[late_dead] = 0.12
     terminal[late_dead] = 0.30
 
-    refined_end, endpoint_mode, _conf = generate_draft_multistream._refine_endpoint_from_signals(
+    refined_end, endpoint_mode, _conf = generate_rally_timeline._refine_endpoint_from_signals(
         timestamps,
         table,
         ball,
@@ -2234,3 +2235,230 @@ def test_refine_endpoint_terminal_body_split_accepts_disengaged_table_dominant_t
 
     assert refined_end <= 1.81
     assert endpoint_mode in {"terminal_body_split_start", "dead_reset_run_start"}
+
+
+def test_infer_winner_prefers_last_actor_when_dead_transition_is_strong():
+    timestamps = np.arange(0.0, 2.1, 0.1, dtype=np.float32)
+    zeros = np.zeros_like(timestamps)
+    support = {
+        "table_norm": np.full_like(timestamps, 0.08),
+        "ball_norm": np.full_like(timestamps, 0.04),
+        "action_a": zeros.copy(),
+        "action_b": zeros.copy(),
+        "live_pair": np.full_like(timestamps, 0.08),
+        "interaction_pair": np.full_like(timestamps, 0.04),
+        "reset_pair": np.full_like(timestamps, 0.22),
+        "terminal_body_pair": np.full_like(timestamps, 0.10),
+    }
+
+    live = (timestamps >= 0.4) & (timestamps <= 1.0)
+    support["table_norm"][live] = 0.72
+    support["ball_norm"][live] = 0.66
+    support["live_pair"][live] = 0.58
+    support["interaction_pair"][live] = 0.26
+    support["action_b"][live] = 0.34
+
+    last_actor = (timestamps >= 1.1) & (timestamps <= 1.2)
+    support["table_norm"][last_actor] = 0.62
+    support["ball_norm"][last_actor] = 0.54
+    support["live_pair"][last_actor] = 0.52
+    support["interaction_pair"][last_actor] = 0.14
+    support["action_a"][last_actor] = 0.62
+    support["action_b"][last_actor] = 0.18
+
+    dead = timestamps >= 1.3
+    support["table_norm"][dead] = 0.06
+    support["ball_norm"][dead] = 0.08
+    support["live_pair"][dead] = 0.10
+    support["interaction_pair"][dead] = 0.04
+    support["reset_pair"][dead] = 0.74
+    support["terminal_body_pair"][dead] = 0.64
+    support["action_a"][dead] = 0.08
+    support["action_b"][dead] = 0.10
+
+    point = RallyTimelinePoint(
+        id="pt_0001",
+        t_start=0.2,
+        t_end=1.6,
+        starter_role="A",
+    )
+    point_end_event, winner_value, confidence, decision = generate_rally_timeline._infer_winner_from_fusion_v2(
+        timestamps,
+        point=point,
+        support_series=support,
+    )
+
+    assert point_end_event in {"clean_winner_like", "rally_error_like"}
+    assert winner_value == "player_a"
+    assert confidence >= 0.58
+    assert decision in {"auto", "review"}
+
+
+def test_infer_winner_leaves_unknown_when_end_is_ambiguous():
+    timestamps = np.arange(0.0, 1.7, 0.1, dtype=np.float32)
+    support = {
+        "table_norm": np.full_like(timestamps, 0.22),
+        "ball_norm": np.full_like(timestamps, 0.18),
+        "action_a": np.full_like(timestamps, 0.28),
+        "action_b": np.full_like(timestamps, 0.26),
+        "live_pair": np.full_like(timestamps, 0.32),
+        "interaction_pair": np.full_like(timestamps, 0.20),
+        "reset_pair": np.full_like(timestamps, 0.34),
+        "terminal_body_pair": np.full_like(timestamps, 0.18),
+    }
+
+    point = RallyTimelinePoint(
+        id="pt_0002",
+        t_start=0.1,
+        t_end=1.4,
+        starter_role="B",
+    )
+    point_end_event, winner_value, confidence, decision = generate_rally_timeline._infer_winner_from_fusion_v2(
+        timestamps,
+        point=point,
+        support_series=support,
+    )
+
+    assert point_end_event == "ambiguous_end"
+    assert winner_value == "unknown"
+    assert confidence <= 0.52
+    assert decision == "blocked"
+
+
+def test_resolve_last_actor_prefers_decisive_peak_when_close_actions_overlap():
+    timestamps = np.arange(0.0, 1.8, 0.1, dtype=np.float32)
+    action_a = np.full_like(timestamps, 0.10)
+    action_b = np.full_like(timestamps, 0.10)
+    table = np.full_like(timestamps, 0.10)
+    ball = np.full_like(timestamps, 0.10)
+    interaction = np.full_like(timestamps, 0.06)
+    live = np.full_like(timestamps, 0.12)
+    reset = np.full_like(timestamps, 0.24)
+    terminal = np.full_like(timestamps, 0.10)
+
+    action_b[8:11] = np.array([0.58, 0.72, 0.64], dtype=np.float32)
+    action_a[9:12] = np.array([0.60, 0.82, 0.76], dtype=np.float32)
+    table[8:12] = np.array([0.72, 0.82, 0.78, 0.68], dtype=np.float32)
+    ball[8:12] = np.array([0.28, 0.36, 0.64, 0.76], dtype=np.float32)
+    interaction[8:12] = np.array([0.36, 0.48, 0.62, 0.54], dtype=np.float32)
+    live[8:12] = np.array([0.58, 0.72, 0.82, 0.76], dtype=np.float32)
+    reset[8:12] = np.array([0.30, 0.28, 0.26, 0.32], dtype=np.float32)
+
+    actor_local, actor_name, actor_confidence = generate_rally_timeline._resolve_last_actor_local(
+        action_a,
+        action_b,
+        table,
+        ball,
+        interaction,
+        live,
+        0.1,
+        reset,
+        terminal,
+    )
+
+    assert actor_local is not None
+    assert actor_name == "player_a"
+    assert actor_confidence >= 0.18
+
+
+def test_resolve_last_actor_ignores_late_reset_tail_when_other_peak_is_stronger():
+    timestamps = np.arange(0.0, 2.0, 0.1, dtype=np.float32)
+    action_a = np.full_like(timestamps, 0.10)
+    action_b = np.full_like(timestamps, 0.10)
+    table = np.full_like(timestamps, 0.12)
+    ball = np.full_like(timestamps, 0.12)
+    interaction = np.full_like(timestamps, 0.08)
+    live = np.full_like(timestamps, 0.14)
+    reset = np.full_like(timestamps, 0.26)
+    terminal = np.full_like(timestamps, 0.10)
+
+    action_b[8:11] = np.array([0.70, 0.82, 0.76], dtype=np.float32)
+    table[8:11] = np.array([0.88, 0.96, 0.90], dtype=np.float32)
+    ball[8:11] = np.array([0.58, 0.72, 0.66], dtype=np.float32)
+    interaction[8:11] = np.array([0.42, 0.56, 0.48], dtype=np.float32)
+    live[8:11] = np.array([0.72, 0.82, 0.78], dtype=np.float32)
+    reset[8:11] = np.array([0.34, 0.36, 0.40], dtype=np.float32)
+
+    action_a[13:16] = np.array([0.40, 0.38, 0.34], dtype=np.float32)
+    table[13:16] = np.array([0.18, 0.14, 0.12], dtype=np.float32)
+    ball[13:16] = np.array([0.34, 0.28, 0.22], dtype=np.float32)
+    interaction[13:16] = np.array([0.16, 0.12, 0.10], dtype=np.float32)
+    live[13:16] = np.array([0.40, 0.38, 0.34], dtype=np.float32)
+    reset[13:16] = np.array([0.58, 0.62, 0.66], dtype=np.float32)
+    terminal[13:16] = np.array([0.24, 0.28, 0.32], dtype=np.float32)
+
+    actor_local, actor_name, actor_confidence = generate_rally_timeline._resolve_last_actor_local(
+        action_a,
+        action_b,
+        table,
+        ball,
+        interaction,
+        live,
+        0.1,
+        reset,
+        terminal,
+    )
+
+    assert actor_local is not None
+    assert actor_name == "player_b"
+    assert actor_confidence >= 0.18
+
+
+def test_infer_winner_emits_review_when_strong_actor_has_no_real_reply():
+    timestamps = np.arange(0.0, 2.1, 0.1, dtype=np.float32)
+    zeros = np.zeros_like(timestamps)
+    support = {
+        "table_norm": np.full_like(timestamps, 0.10),
+        "ball_norm": np.full_like(timestamps, 0.10),
+        "action_a": zeros.copy(),
+        "action_b": zeros.copy(),
+        "live_pair": np.full_like(timestamps, 0.12),
+        "interaction_pair": np.full_like(timestamps, 0.08),
+        "reset_pair": np.full_like(timestamps, 0.28),
+        "terminal_body_pair": np.full_like(timestamps, 0.12),
+    }
+
+    exchange = (timestamps >= 0.6) & (timestamps <= 1.0)
+    support["table_norm"][exchange] = 0.72
+    support["ball_norm"][exchange] = 0.52
+    support["live_pair"][exchange] = 0.74
+    support["interaction_pair"][exchange] = 0.34
+    support["action_b"][exchange] = 0.78
+    support["action_a"][exchange] = 0.22
+
+    actor_slice = (timestamps >= 1.1) & (timestamps <= 1.2)
+    support["table_norm"][actor_slice] = 0.88
+    support["ball_norm"][actor_slice] = 0.82
+    support["live_pair"][actor_slice] = 0.82
+    support["interaction_pair"][actor_slice] = 0.18
+    support["action_b"][actor_slice] = 0.92
+    support["action_a"][actor_slice] = 0.18
+
+    no_reply = timestamps >= 1.3
+    support["table_norm"][no_reply] = 0.38
+    support["ball_norm"][no_reply] = 0.70
+    support["live_pair"][no_reply] = 0.76
+    support["interaction_pair"][no_reply] = 0.18
+    support["action_b"][no_reply] = 0.12
+    support["action_a"][no_reply] = 0.20
+    support["reset_pair"][no_reply] = 0.54
+    support["terminal_body_pair"][no_reply] = 0.30
+
+    point = RallyTimelinePoint(
+        id="pt_0003",
+        t_start=0.4,
+        t_end=1.8,
+        starter_role="A",
+    )
+    point_end_event, winner_value, confidence, decision = generate_rally_timeline._infer_winner_from_fusion_v2(
+        timestamps,
+        point=point,
+        support_series=support,
+    )
+
+    assert point_end_event == "rally_error_like"
+    assert winner_value == "player_b"
+    assert confidence >= 0.58
+    assert decision == "review"
+
+

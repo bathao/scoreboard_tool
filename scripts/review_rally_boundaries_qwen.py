@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -13,7 +13,7 @@ import ollama
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.ai_contract import DraftMatch, DraftPointEvent, load_draft_match, save_draft_match
+from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, load_rally_timeline, save_rally_timeline
 
 
 @dataclass
@@ -22,8 +22,8 @@ class BoundaryCandidate:
     right_idx: int
     boundary_time: float
     gap_sec: float
-    left_point: DraftPointEvent
-    right_point: DraftPointEvent
+    left_point: RallyTimelinePoint
+    right_point: RallyTimelinePoint
 
 
 def _extract_json_block(text: str) -> Dict[str, Any]:
@@ -41,8 +41,8 @@ def _extract_json_block(text: str) -> Dict[str, Any]:
         return {}
 
 
-def _candidate_boundaries(draft: DraftMatch, *, max_gap_sec: float = 0.12) -> List[BoundaryCandidate]:
-    points = list(draft.points)
+def _candidate_boundaries(timeline: RallyTimeline, *, max_gap_sec: float = 0.12) -> List[BoundaryCandidate]:
+    points = list(timeline.points)
     candidates: List[BoundaryCandidate] = []
     for idx in range(len(points) - 1):
         left = points[idx]
@@ -233,14 +233,14 @@ def review_boundary_with_reasoner(
 
 
 def _merge_points(
-    left: DraftPointEvent,
-    right: DraftPointEvent,
-) -> DraftPointEvent:
+    left: RallyTimelinePoint,
+    right: RallyTimelinePoint,
+) -> RallyTimelinePoint:
     merged_flags = sorted(
         set(left.flags + right.flags + ["qwen3_vl_boundary_merge", "qwen3_reason_merge"])
     )
     merged_conf = max(float(left.confidence), float(right.confidence))
-    return DraftPointEvent(
+    return RallyTimelinePoint(
         id=left.id,
         t_start=float(left.t_start),
         t_end=float(right.t_end),
@@ -253,12 +253,12 @@ def _merge_points(
 
 
 def apply_boundary_decisions(
-    draft: DraftMatch,
+    timeline: RallyTimeline,
     candidate_reports: List[Dict[str, Any]],
     *,
     min_vision_conf: float = 0.70,
     min_reason_conf: float = 0.80,
-) -> DraftMatch:
+) -> RallyTimeline:
     merge_left_indices = {
         int(r["left_idx"])
         for r in candidate_reports
@@ -268,9 +268,9 @@ def apply_boundary_decisions(
         and float(r.get("reason_confidence", 0.0)) >= min_reason_conf
     }
 
-    new_points: List[DraftPointEvent] = []
+    new_points: List[RallyTimelinePoint] = []
     idx = 0
-    points = list(draft.points)
+    points = list(timeline.points)
     while idx < len(points):
         current = points[idx]
         while idx in merge_left_indices and idx + 1 < len(points):
@@ -279,10 +279,10 @@ def apply_boundary_decisions(
         new_points.append(current)
         idx += 1
 
-    renumbered: List[DraftPointEvent] = []
+    renumbered: List[RallyTimelinePoint] = []
     for i, point in enumerate(new_points, start=1):
         renumbered.append(
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id=f"pt_{i:04d}",
                 t_start=point.t_start,
                 t_end=point.t_end,
@@ -294,24 +294,24 @@ def apply_boundary_decisions(
             )
         )
 
-    return DraftMatch(
-        schema_version=draft.schema_version,
-        sport=draft.sport,
-        video_path=draft.video_path,
-        video_fps=draft.video_fps,
-        best_of=draft.best_of,
-        created_at=draft.created_at,
-        roi=dict(draft.roi),
+    return RallyTimeline(
+        schema_version=timeline.schema_version,
+        sport=timeline.sport,
+        video_path=timeline.video_path,
+        video_fps=timeline.video_fps,
+        best_of=timeline.best_of,
+        created_at=timeline.created_at,
+        roi=dict(timeline.roi),
         points=renumbered,
-        analysis_metadata=dict(draft.analysis_metadata),
-        score_validation=dict(draft.score_validation),
+        analysis_metadata=dict(timeline.analysis_metadata),
+        score_validation=dict(timeline.score_validation),
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Review rally boundaries with Qwen3-VL + Qwen3.")
-    parser.add_argument("--draft", required=True, help="Input draft JSON")
-    parser.add_argument("--out", required=True, help="Output reviewed draft JSON")
+    parser.add_argument("--timeline", required=True, help="Input timeline JSON")
+    parser.add_argument("--out", required=True, help="Output reviewed timeline JSON")
     parser.add_argument("--report-out", required=True, help="Output review report JSON")
     parser.add_argument("--vision-model", default="qwen3-vl:8b")
     parser.add_argument("--reason-model", default="qwen3:14b")
@@ -321,14 +321,14 @@ def main() -> int:
     parser.add_argument("--image-dir", default="matches/qwen_boundary_review")
     args = parser.parse_args()
 
-    draft = load_draft_match(Path(args.draft))
-    candidates = _candidate_boundaries(draft, max_gap_sec=float(args.max_gap_sec))
+    timeline = load_rally_timeline(Path(args.timeline))
+    candidates = _candidate_boundaries(timeline, max_gap_sec=float(args.max_gap_sec))
     image_dir = Path(args.image_dir)
 
     reports: List[Dict[str, Any]] = []
     for cand in candidates:
         print(f"[Boundary] {cand.left_point.id} -> {cand.right_point.id} | gap={cand.gap_sec:.3f}s")
-        image_path = build_boundary_grid(draft.video_path, cand, image_dir)
+        image_path = build_boundary_grid(timeline.video_path, cand, image_dir)
         vision = review_boundary_with_vision(
             model_name=args.vision_model,
             image_path=image_path,
@@ -364,19 +364,19 @@ def main() -> int:
         )
 
     reviewed = apply_boundary_decisions(
-        draft,
+        timeline,
         reports,
         min_vision_conf=float(args.min_vision_conf),
         min_reason_conf=float(args.min_reason_conf),
     )
-    save_draft_match(Path(args.out), reviewed)
+    save_rally_timeline(Path(args.out), reviewed)
 
     report_payload = {
-        "input_draft": str(Path(args.draft).resolve()),
+        "input_draft": str(Path(args.timeline).resolve()),
         "output_draft": str(Path(args.out).resolve()),
         "vision_model": args.vision_model,
         "reason_model": args.reason_model,
-        "input_count": len(draft.points),
+        "input_count": len(timeline.points),
         "output_count": len(reviewed.points),
         "candidate_count": len(reports),
         "candidates": reports,
@@ -385,10 +385,11 @@ def main() -> int:
     with open(args.report_out, "w", encoding="utf-8") as f:
         json.dump(report_payload, f, ensure_ascii=False, indent=2)
 
-    print(f"[OK] Reviewed draft saved: {args.out} | points={len(reviewed.points)}")
+    print(f"[OK] Reviewed timeline saved: {args.out} | points={len(reviewed.points)}")
     print(f"[OK] Review report saved: {args.report_out}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

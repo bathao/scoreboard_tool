@@ -1,10 +1,10 @@
 {
-  "schema_version": "draft_match_v1",
+  "schema_version": "rally_timeline_v1",
   "sport": "table_tennis",
   "video_path": "C:\\Users\\MSI\\scoreboard_tool\\Vinh_set1.mp4",
   "video_fps": 59.94005994005994,
   "best_of": 5,
-  "created_at": "2026-04-03T14:44:16.565147+00:00",
+  "created_at": "2026-04-04T03:15:30.798766+00:00",
   "roi": {
     "x": 843,
     "y": 741,
@@ -29,7 +29,11 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
-      "winner": "unknown",
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.8362754054522514,
+      "winner_decision": "auto",
+      "winner": "player_a",
       "confidence": 0.8386487436294556,
       "flags": [
         "ball_signal_classical",
@@ -55,6 +59,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.39238974180817604,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.806092774271965,
       "flags": [
@@ -83,6 +91,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.39936539292335504,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8000091856718063,
       "flags": [
@@ -109,6 +121,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.4480096030235291,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8355348628759384,
       "flags": [
@@ -135,6 +151,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.35940195474028586,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8209915035963058,
       "flags": [
@@ -161,6 +181,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "ball_only_false_tail_start",
       "endpoint_confidence": 0.7077372419834136,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.8074017534910887,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8673943138122557,
       "flags": [
@@ -187,6 +211,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "terminal_body_split_start",
       "endpoint_confidence": 0.715671145915985,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.41104213237762455,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.7644623750448228,
       "flags": [
@@ -213,6 +241,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.7664924730026723,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8462097549438476,
       "flags": [
@@ -239,6 +271,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "post_body_pseudo_live_start",
       "endpoint_confidence": 0.7576290100812911,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.6436437819433213,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8411663889884949,
       "flags": [
@@ -265,6 +301,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.45433163404464727,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8253135120868682,
       "flags": [
@@ -291,6 +331,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.6004289950077236,
+      "winner_decision": "review",
       "winner": "unknown",
       "confidence": 0.8529760932922362,
       "flags": [
@@ -317,6 +361,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.3778318256507628,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.7819807076454163,
       "flags": [
@@ -343,6 +391,10 @@
       "boundary_mode": "next_start_exclusive",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "ambiguous_end",
+      "winner_candidate": "unknown",
+      "winner_confidence": 0.372538808401674,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8420691919326783,
       "flags": [
@@ -369,6 +421,10 @@
       "boundary_mode": "video_end_open_tail",
       "endpoint_mode": "dead_reset_run_start",
       "endpoint_confidence": 0.95,
+      "point_end_event": "rally_error_like",
+      "winner_candidate": "player_a",
+      "winner_confidence": 0.5756299289149046,
+      "winner_decision": "blocked",
       "winner": "unknown",
       "confidence": 0.8709346443414687,
       "flags": [
@@ -386,8 +442,13 @@
     "total_rallies": 14,
     "scoring_rallies": 14,
     "non_scoring_rallies": 0,
-    "winner_known_rallies": 0,
-    "winner_unknown_rallies": 14
+    "winner_known_rallies": 1,
+    "winner_unknown_rallies": 13,
+    "winner_candidate_known_rallies": 6,
+    "winner_candidate_unknown_rallies": 8,
+    "winner_auto_rallies": 1,
+    "winner_review_rallies": 4,
+    "winner_blocked_rallies": 9
   },
   "analysis_metadata": {
     "detector_mode": "player",
@@ -397,6 +458,7 @@
     "stride": 2,
     "active_window_mode": "accepted_start_to_next_accepted_start",
     "endpoint_refine_mode": "roi_plus_ball_bounded_search",
+    "winner_inference_mode": "winner_fusion_v2_layer_ab",
     "excluded_let_count": 1,
     "excluded_let_starts": [
       {

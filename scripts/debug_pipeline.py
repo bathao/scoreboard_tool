@@ -101,8 +101,8 @@ def run_debug(json_path_str: str, video_path_str: str):
     print(f"Check results in: {output_dir.absolute()}")
 
 if __name__ == "__main__":
-    # Point to your latest draft JSON and source video
-    TARGET_JSON = "matches/Vinh_set1_draft.json"
+    # Point to your latest rally timeline JSON and source video
+    TARGET_JSON = "matches/Vinh_set1_rally_timeline.json"
     TARGET_VIDEO = "Vinh_set1.mp4"
     
     run_debug(TARGET_JSON, TARGET_VIDEO)

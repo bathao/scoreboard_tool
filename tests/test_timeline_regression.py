@@ -1,8 +1,8 @@
-from backend.endpoint_regression import compare_endpoint_suite
+from backend.timeline_regression import compare_timeline_suite
 
 
-def test_compare_endpoint_suite_reports_ok_and_diff():
-    draft_points = [
+def test_compare_timeline_suite_reports_ok_and_diff():
+    timeline_points = [
         {"id": "pt_0001", "t_end": 7.48, "endpoint_mode": "dead_reset_run_start"},
         {"id": "pt_0002", "t_end": 12.80, "endpoint_mode": "dead_reset_run_start"},
     ]
@@ -16,7 +16,7 @@ def test_compare_endpoint_suite_reports_ok_and_diff():
         ],
     }
 
-    result = compare_endpoint_suite(draft_points, suite_spec)
+    result = compare_timeline_suite(timeline_points, suite_spec)
 
     assert result["name"] == "demo"
     assert result["pass_count"] == 1
@@ -26,7 +26,7 @@ def test_compare_endpoint_suite_reports_ok_and_diff():
     assert result["point_results"][1]["status"] == "diff"
 
 
-def test_compare_endpoint_suite_reports_missing():
+def test_compare_timeline_suite_reports_missing():
     suite_spec = {
         "name": "demo",
         "points": [
@@ -34,7 +34,7 @@ def test_compare_endpoint_suite_reports_missing():
         ],
     }
 
-    result = compare_endpoint_suite([], suite_spec)
+    result = compare_timeline_suite([], suite_spec)
 
     assert result["missing_count"] == 1
     assert result["fail_count"] == 1

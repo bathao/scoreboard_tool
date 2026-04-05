@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.ai_contract import DraftMatch, DraftPointEvent, load_draft_match, needs_human_review
+from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, load_rally_timeline, needs_human_review
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ def _safe_div(n: float, d: float) -> float:
     return n / d if d > 0 else 0.0
 
 
-def segment_iou(a: DraftPointEvent, b: DraftPointEvent) -> float:
+def segment_iou(a: RallyTimelinePoint, b: RallyTimelinePoint) -> float:
     left = max(float(a.t_start), float(b.t_start))
     right = min(float(a.t_end), float(b.t_end))
     inter = max(0.0, right - left)
@@ -72,8 +72,8 @@ def segment_iou(a: DraftPointEvent, b: DraftPointEvent) -> float:
 
 
 def best_matches(
-    pred_points: List[DraftPointEvent],
-    gt_points: List[DraftPointEvent],
+    pred_points: List[RallyTimelinePoint],
+    gt_points: List[RallyTimelinePoint],
     *,
     iou_threshold: float,
 ) -> List[Tuple[int, int, float]]:
@@ -102,7 +102,7 @@ def winner_is_known(w: str) -> bool:
     return w in ("player_a", "player_b")
 
 
-def evaluate_clip(name: str, pred: DraftMatch, gt: DraftMatch, iou_threshold: float) -> ClipMetrics:
+def evaluate_clip(name: str, pred: RallyTimeline, gt: RallyTimeline, iou_threshold: float) -> ClipMetrics:
     pred_points = list(pred.points)
     gt_points = list(gt.points)
 
@@ -209,8 +209,8 @@ def print_table(rows: List[ClipMetrics]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Phase 2 benchmark evaluator for rally and winner quality.")
-    parser.add_argument("--pred", help="Predicted draft/refined JSON")
-    parser.add_argument("--gt", help="Ground-truth JSON (same ai_contract format)")
+    parser.add_argument("--pred", help="Predicted timeline/refined JSON")
+    parser.add_argument("--gt", help="Ground-truth JSON (same rally timeline format)")
     parser.add_argument("--name", default=None, help="Optional clip name when using --pred/--gt")
     parser.add_argument("--manifest", default=None, help="Manifest JSON with list of {name,pred,gt}")
     parser.add_argument("--iou-threshold", type=float, default=0.5, help="IoU threshold for rally matching")
@@ -221,8 +221,8 @@ def main() -> int:
     clip_metrics: List[ClipMetrics] = []
 
     for pair in pairs:
-        pred_match = load_draft_match(pair.pred_path)
-        gt_match = load_draft_match(pair.gt_path)
+        pred_match = load_rally_timeline(pair.pred_path)
+        gt_match = load_rally_timeline(pair.gt_path)
         m = evaluate_clip(pair.name, pred_match, gt_match, iou_threshold=float(args.iou_threshold))
         clip_metrics.append(m)
 
@@ -273,3 +273,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

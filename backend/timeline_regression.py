@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 
-def compare_endpoint_suite(
-    draft_points: list[dict[str, Any]],
+def compare_timeline_suite(
+    timeline_points: list[dict[str, Any]],
     suite_spec: dict[str, Any],
 ) -> dict[str, Any]:
     point_by_id = {
         str(point["id"]): point
-        for point in draft_points
+        for point in timeline_points
         if isinstance(point, dict) and point.get("id")
     }
 

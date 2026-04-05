@@ -55,7 +55,7 @@ The production system should:
 - If AI confidence for a rally winner is too low, the system should ask only:
   - who won this rally?
 - Target manual-review rate:
-  - less than `5%` of rallies
+  - less than `2%` of rallies
 - The user should only provide the winner for that rally.
 - After a user correction, the code must automatically recompute all downstream score changes:
   - next points

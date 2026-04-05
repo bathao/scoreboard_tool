@@ -8,14 +8,14 @@ from pathlib import Path
 # Add root directory to sys.path for backend imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.ai_contract import load_draft_match, to_core_rally_events
+from backend.rally_timeline_contract import load_rally_timeline, to_core_rally_events
 from backend.timeline import build_match_timeline
 from render.renderer import ScoreboardRenderer
 
 def main():
     parser = argparse.ArgumentParser(description="Render final 1080p scoreboard video and merge original audio.")
     parser.add_argument("--video", required=True, help="Path to input source video")
-    parser.add_argument("--json", required=True, help="Path to draft/refined JSON")
+    parser.add_argument("--json", required=True, help="Path to rally timeline / refined JSON")
     parser.add_argument("--out", required=True, help="Path to final output video")
     parser.add_argument("--temp-video", default="temp_no_audio.mp4", help="Temporary intermediate video path")
     parser.add_argument(
@@ -39,22 +39,22 @@ def main():
     print(f"--- STARTING FINAL RENDER WITH AUDIO ---")
     
     # 1. Load Data & Logic
-    draft = load_draft_match(Path(input_json))
-    for p in draft.points:
+    timeline = load_rally_timeline(Path(input_json))
+    for p in timeline.points:
         if p.winner == "unknown":
             if args.unknown_winner_policy == "skip":
                 continue
             p.winner = args.unknown_winner_policy
 
-    core_events = to_core_rally_events(draft)
-    timeline = build_match_timeline(best_of=draft.best_of, events=core_events)
+    core_events = to_core_rally_events(timeline)
+    match_timeline = build_match_timeline(best_of=timeline.best_of, events=core_events)
 
     # 2. Render Video Frames (No Audio yet)
     print(f"Step 1: Rendering video frames to 1080p...")
     renderer = ScoreboardRenderer(
         input_path=input_video,
         output_path=temp_video,
-        timeline=timeline
+        timeline=match_timeline
     )
     render_to_1080p(renderer)
 

@@ -1,8 +1,8 @@
-from backend.ai_contract import DraftMatch, DraftPointEvent, counts_toward_score, to_core_rally_events
+﻿from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, counts_toward_score, to_core_rally_events
 
 
 def test_counts_toward_score_false_for_let_flags():
-    point = DraftPointEvent(
+    point = RallyTimelinePoint(
         id="pt_0001",
         t_start=1.0,
         t_end=1.8,
@@ -14,26 +14,26 @@ def test_counts_toward_score_false_for_let_flags():
 
 
 def test_to_core_rally_events_skips_non_scoring_let_points():
-    draft = DraftMatch(
+    timeline = RallyTimeline(
         video_path="demo.mp4",
         video_fps=30.0,
         roi={"x": 0, "y": 0, "w": 100, "h": 50},
         points=[
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id="pt_0001",
                 t_start=1.0,
                 t_end=2.0,
                 winner="player_a",
                 flags=["rally_label_point"],
             ),
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id="pt_0002",
                 t_start=3.0,
                 t_end=3.8,
                 winner="player_b",
                 flags=["player_state_machine", "rally_label_let", "let_no_score"],
             ),
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id="pt_0003",
                 t_start=5.0,
                 t_end=6.0,
@@ -43,15 +43,15 @@ def test_to_core_rally_events_skips_non_scoring_let_points():
         ],
     )
 
-    core = to_core_rally_events(draft)
+    core = to_core_rally_events(timeline)
 
     assert [event.winner for event in core] == ["player_a", "player_b"]
     assert [event.timestamp for event in core] == [2.0, 6.0]
-    assert draft.build_summary()["non_scoring_rallies"] == 1
+    assert timeline.build_summary()["non_scoring_rallies"] == 1
 
 
-def test_draft_point_event_roundtrip_preserves_starter_role():
-    point = DraftPointEvent(
+def test_rally_timeline_point_roundtrip_preserves_starter_role():
+    point = RallyTimelinePoint(
         id="pt_0001",
         t_start=1.0,
         t_end=2.0,
@@ -65,12 +65,18 @@ def test_draft_point_event_roundtrip_preserves_starter_role():
         boundary_mode="next_start_exclusive",
         endpoint_mode="last_live_island",
         endpoint_confidence=0.77,
+        point_end_event="clean_winner_like",
+        winner_candidate="player_a",
+        winner_confidence=0.86,
+        winner_decision="auto",
+        winner_reason="clear last shot",
+        winner_model="qwen3-vl:8b",
         winner="unknown",
         confidence=0.8,
         flags=["player_only"],
     )
 
-    restored = DraftPointEvent.from_dict(point.to_dict())
+    restored = RallyTimelinePoint.from_dict(point.to_dict())
 
     assert restored.active_start == 1.0
     assert restored.active_end == 5.0
@@ -82,3 +88,10 @@ def test_draft_point_event_roundtrip_preserves_starter_role():
     assert restored.boundary_mode == "next_start_exclusive"
     assert restored.endpoint_mode == "last_live_island"
     assert restored.endpoint_confidence == 0.77
+    assert restored.point_end_event == "clean_winner_like"
+    assert restored.winner_candidate == "player_a"
+    assert restored.winner_confidence == 0.86
+    assert restored.winner_decision == "auto"
+    assert restored.winner_reason == "clear last shot"
+    assert restored.winner_model == "qwen3-vl:8b"
+

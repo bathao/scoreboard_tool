@@ -96,6 +96,986 @@ Do not use this file as the long-term architecture spec.
     - the warning remains a `.pytest_cache` permission warning inside the workspace
     - no fresh full-suite rerun was completed after the current endpoint cycle
 
+## Work Log - `2026-04-04`
+### Experiments That Passed
+- `winner-side naming cleanup is now complete in the active flow`
+  - active code now uses:
+    - `scripts/generate_rally_timeline.py`
+    - `backend/rally_timeline_contract.py`
+    - `scripts/check_timeline_regression.py`
+  - active flow no longer uses the old `draft / Draft*` naming
+- `candU + review` was removed from the active winner path
+  - current rule:
+    - if `winner_candidate = unknown`
+    - then `winner_decision` must be `blocked`
+  - result:
+    - review buckets are now actionable by construction
+- `decisive actor resolver improved set2 pt_0014`
+  - before:
+    - `pt_0014 = candA review`
+    - operator feedback:
+      - wrong side
+  - after the resolver + actor-supported review pass:
+    - `pt_0014 = candB review`
+    - `winner_confidence ~= 0.635`
+  - frozen rally guardrails stayed green:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+- `set2 winner review batch was regenerated after the fix`
+  - current folder:
+    - `debug_report/Vinh_set2_rally_clips_winner_fusion_v2_labeled_current`
+- `reply-window no-reply branch increased set2 winner hypothesis coverage`
+  - new narrow winner branch:
+    - if a strong decisive actor exists
+    - and the opponent never produces a real reply window
+    - allow `review` even when `ball/live` stay active briefly after the final shot
+  - current set2 result after rerun:
+    - `17/19 blocked`
+    - `2/19 review`
+    - `0/19 auto`
+  - current reviewed rallies are:
+    - `pt_0002 -> player_b review`
+    - `pt_0014 -> player_b review`
+  - this is still not usable overall, but it is better than the previous:
+    - `18/19 blocked`
+    - `1/19 review`
+
+### Experiments That Failed
+- `winner fusion v2 is still not usable on set2`
+  - after the latest pass:
+    - `17/19 blocked`
+    - `2/19 review`
+    - `0/19 auto`
+  - conclusion:
+    - the latest patch fixed one wrong reviewed point and added one more reviewable rally
+    - but did not solve the broader coverage problem
+
+### Current Diagnosis
+- `set2` does not mostly fail because of side inversion anymore
+  - `pt_0014` proved the actor-side resolver was part of the problem
+  - `pt_0002` proved that some rallies were blocked only because the system required post-shot collapse to be too immediate
+- `set2` still mainly fails because Layer A/B do not create enough rally-level hypotheses
+  - most points still end at:
+    - `ambiguous_end`
+    - `candU`
+    - `blocked`
+- `coverage`, not `auto`, remains the correct next target
+  - do not spend time promoting `review -> auto`
+  - first increase the number of rallies that land on plausible `candA / candB`
+- `the current heuristic Layer A/B path is still too weak as the main winner engine`
+  - even after the latest improvements, coverage is still far below usable
+  - conclusion:
+    - stop treating this branch as the primary implementation target
+    - pivot the next winner cycle to a local VLM-first workflow
+
+### Exact Resume Point
+- next cycle should start with:
+  - local VLM winner planning and implementation on `set1`
+  - frozen rally boundaries remain the fixed input
+- first rollout plan:
+  - export short end-clips + ordered frame packs from `set1`
+  - define the local VLM prompt and strict JSON output schema
+  - run the local model on `set1`
+  - compare output with operator review before expanding to `set2..4`
+- keep/drop rule:
+  - keep rally boundaries frozen:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+  - keep the current heuristic winner branch only as a reference baseline, not as the main path
+
+## Work Log - `2026-04-04` (Local VLM Start)
+### Experiments That Passed
+- `local VLM winner scaffolding is now in the repo`
+  - contract additions in:
+    - `backend/rally_timeline_contract.py`
+    - new optional fields:
+      - `winner_reason`
+      - `winner_model`
+  - structured Ollama client in:
+    - `backend/ai_ollama_client.py`
+  - local VLM winner runner in:
+    - `scripts/refine_rally_winners.py`
+  - current behavior:
+    - uses `qwen3-vl:8b`
+    - uses the second half of each rally
+    - exports an ordered frame-grid evidence pack
+    - expects structured JSON:
+      - `winner`
+      - `confidence`
+      - `decision`
+      - `reason`
+- `contract/client tests passed after the local-VLM additions`
+  - command:
+    - `.venv\Scripts\python.exe -m pytest tests\test_ai_ollama_client.py tests\test_rally_timeline_contract.py -q`
+  - result:
+    - `6 passed, 1 warning`
+- `frozen rally suite stayed green after the local-VLM scaffolding`
+  - command:
+    - `.venv\Scripts\python.exe scripts\check_timeline_regression.py`
+  - result:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+
+### Experiments That Did Not Finish
+- `first local VLM run on set1 was interrupted`
+  - command started:
+    - `scripts/refine_rally_winners.py --timeline matches/Vinh_set1_rally_timeline.json --out matches/checks/Vinh_set1_rally_timeline_local_vlm_trial.json --image-dir debug_report/Vinh_set1_local_vlm_evidence --model qwen3-vl:8b`
+  - result:
+    - interrupted by operator before completion
+    - no trusted output timeline was produced
+  - partial artifact currently visible:
+    - `debug_report/Vinh_set1_local_vlm_evidence/pt_0001_winner_evidence_grid.jpg`
+
+### Additional Results After The Lighter Pack Change
+- `lighter 4-frame local-VLM rerun progressed further but still is not usable`
+  - command:
+    - `scripts/refine_rally_winners.py --timeline matches/Vinh_set1_rally_timeline.json --out matches/checks/Vinh_set1_rally_timeline_local_vlm_trial.json --image-dir debug_report/Vinh_set1_local_vlm_evidence_run3 --model qwen3-vl:8b --resume-if-exists`
+  - timeout:
+    - `30 minutes`
+  - progress reached before timeout:
+    - `4` rallies were written to the trial output
+    - evidence grids were exported for:
+      - `pt_0001`
+      - `pt_0002`
+      - `pt_0003`
+      - `pt_0004`
+      - `pt_0005` image also exists, but timeline checkpoint shows only `4` processed
+  - current trial output:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_trial.json`
+  - current per-rally local-VLM result on the processed points:
+    - `winner_candidate = unknown`
+    - `winner_confidence = 0.0`
+    - `winner_decision = blocked`
+  - interpretation:
+    - the bottleneck is no longer only speed
+    - the local VLM prompt / JSON extraction / evidence representation is not yet producing useful structured output
+
+### Single-Rally Debug Result
+- `pt_0001` was debugged directly against `qwen3-vl:8b`
+
+## Work Log - `2026-04-05` (Qwen3 Two-Pass Recovery)
+### Experiments That Passed
+- `qwen3-vl:8b` now works better through a 2-pass local stack`
+  - pass 1:
+    - qwen3 sees the ordered rally evidence images
+    - `content` may still come back empty
+    - `thinking` still contains the visual analysis
+  - pass 2:
+    - the same qwen3 model is called again with that `thinking`
+    - it condenses the analysis into compact JSON
+  - result:
+    - the pipeline can now recover:
+      - `winner_candidate`
+      - `winner_score_a`
+      - `winner_score_b`
+      - short textual reason
+- `winner score fields were added to the rally timeline contract`
+  - new per-rally fields:
+    - `winner_score_a`
+    - `winner_score_b`
+- `set1 pt_0001..pt_0004` now produce differentiated qwen3 outputs`
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_scores2_pt1_4.json`
+  - current results:
+    - `pt_0001 -> player_a, a=0.95, b=0.05, review`
+    - `pt_0002 -> player_a, a=0.95, b=0.05, review`
+    - `pt_0003 -> player_b, a=0.00, b=1.00, review`
+    - `pt_0004 -> player_a, a=0.70, b=0.30, review`
+- `set1 review clips were exported for the new qwen3 batch`
+  - folder:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_scores2_pt1_4_clips`
+  - csv:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_scores2_pt1_4_clips/rally_clips.csv`
+- `frozen rally suite stayed green after the qwen3 2-pass recovery`
+  - `set1_frozen_full = 14/14`
+  - `set2_frozen_full = 19/19`
+  - `set3_frozen_full = 18/18`
+  - `set4_frozen_full = 20/20`
+
+### Important Interpretation
+- `set1` true final score is `11-3` tilted toward `near/player_a`
+  - therefore a high number of `near` winner predictions is not automatically a bad sign
+  - the correct evaluation target is:
+    - beat the trivial `always-near` baseline
+    - find the minority `far` wins reliably
+- current first useful qwen3 evidence of minority-class recall:
+  - `pt_0003` is now predicted as `player_b/far` with full confidence
+
+### Exact Resume Point
+- get operator review on:
+  - `pt_0001..pt_0004` from the new 2-pass qwen3 batch
+- if that direction is correct:
+  - expand the same 2-pass qwen3 path across more of `set1`
+  - use `winner_score_a / winner_score_b` to rank likely `far` wins first
+
+## Work Log - `2026-04-05` (Late Stop / Next Resume)
+### Latest Stable Status
+- `2-pass qwen3` is now the active local-VLM path for winner research
+  - pass 1:
+    - qwen3 looks at ordered rally evidence images
+  - pass 2:
+    - qwen3 condenses the pass-1 `thinking` into compact JSON
+- current first reviewable `set1` batch:
+  - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_scores2_pt1_4.json`
+  - review clips:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_scores2_pt1_4_clips`
+  - current outputs:
+    - `pt_0001 -> near, a=0.95, b=0.05, review`
+    - `pt_0002 -> near, a=0.95, b=0.05, review`
+    - `pt_0003 -> far, a=0.00, b=1.00, review`
+    - `pt_0004 -> near, a=0.70, b=0.30, review`
+- frozen rally suite is still preserved:
+  - `set1_frozen_full = 14/14`
+  - `set2_frozen_full = 19/19`
+  - `set3_frozen_full = 18/18`
+  - `set4_frozen_full = 20/20`
+
+### Important Evaluation Note
+- operator confirmed:
+  - real `set1` final score is `11-3`
+  - it is tilted toward `near/player_a`
+- implication:
+  - many `near` predictions on `set1` are not automatically bad
+  - the correct benchmark is now:
+    - can the model beat a trivial `always-near` baseline
+    - can the model identify the minority `far` wins reliably
+
+### Resume Point For Next Session
+- wait for operator feedback on:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0003`
+  - `pt_0004`
+  - from:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_scores2_pt1_4_clips`
+- after that:
+  - keep `2-pass qwen3`
+  - expand only on `set1`
+  - use `winner_score_a / winner_score_b` to rank likely `far` wins first
+  - do not touch frozen rally boundaries
+
+## Work Log - `2026-04-05` (Transformers Native-Video Prep)
+### Experiments That Passed
+- `Hugging Face core stack is now installed in the project .venv`
+  - installed:
+    - `transformers 5.5.0`
+    - `accelerate 1.13.0`
+    - `safetensors 0.7.0`
+    - `sentencepiece 0.2.1`
+    - `einops 0.8.2`
+    - `av 17.0.0`
+- `CUDA / GPU check stayed good`
+  - `torch 2.12.0.dev + cu128`
+  - `cuda_available = True`
+  - GPU:
+    - `NVIDIA GeForce RTX 5060 Ti`
+    - `~15.93 GB VRAM`
+- `transformers has direct Qwen3-VL support in this env`
+  - verified available classes:
+    - `Qwen3VLProcessor`
+    - `Qwen3VLForConditionalGeneration`
+    - `Qwen3VLVideoProcessor`
+- `official HF checkpoints were verified by metadata lookup`
+  - `Qwen/Qwen3-VL-4B-Instruct`
+  - `Qwen/Qwen3-VL-8B-Instruct`
+
+### Important Conclusion
+- if we try the `Transformers native-video` path on this machine:
+  - the first practical checkpoint should be:
+    - `Qwen/Qwen3-VL-4B-Instruct`
+  - reason:
+    - it is much safer for `16 GB VRAM` in a first video POC
+  - `Qwen/Qwen3-VL-8B-Instruct` remains the preferred larger option only after the smaller POC proves workable
+
+### Exact Resume Point
+- next narrow experiment can be:
+  - `set1 pt_0001`
+  - same short rally clip
+  - first native-video POC through `Transformers`
+  - start with `Qwen/Qwen3-VL-4B-Instruct`
+
+## Work Log - `2026-04-05` (Transformers Native-Video POC)
+### Experiments That Passed
+- `Qwen3-VL-4B-Instruct` was downloaded locally into:
+  - `models/Qwen3-VL-4B-Instruct`
+- `Qwen3-VL` processor accepted true native-video input`
+  - local clip used:
+    - `debug_report/pt_0001_winner_window_ratio67.mp4`
+  - message format using:
+    - `type: "video"`
+    - local `.mp4` path
+  - processor generated:
+    - `pixel_values_videos`
+    - `video_grid_thw`
+- `default native-video settings were too heavy for 16GB VRAM`
+  - `Qwen3-VL-4B-Instruct` loaded successfully
+  - generation failed with CUDA OOM under the processor defaults
+- `reduced native-video token budget works on this GPU`
+  - successful settings for `set1 pt_0001`:
+    - `fps = 1`
+    - `min_frames = 4`
+    - `max_frames = 4`
+    - `size.shortest_edge = 1024`
+    - `size.longest_edge = 1048576`
+  - resulting video grid:
+    - `video_grid_thw = [2, 24, 42]`
+  - resulting native-video output:
+    - `player_a`
+
+### Important Interpretation
+- native-video through `Transformers` is now confirmed viable on local hardware
+  - but only after constraining the video token budget
+- this is a real improvement over the Ollama `videos` path
+  - the Ollama path could not prove that the model was actually reading the clip
+  - the `Transformers` path truly decoded the clip and reached generation
+
+### Exact Resume Point
+- compare on the same rally:
+  - `2-pass qwen3` image-pack result for `set1 pt_0001`
+  - `Transformers native-video` result for `set1 pt_0001`
+- if the direction still looks good:
+  - expand the reduced-token native-video POC to:
+    - `set1 pt_0001..pt_0004`
+
+## Work Log - `2026-04-05` (8B Backup Downloaded)
+### Experiments That Passed
+- `Qwen3-VL-8B-Instruct` is now downloaded locally`
+  - path:
+    - `models/Qwen3-VL-8B-Instruct`
+  - key weight shards:
+    - `model-00001-of-00004.safetensors`
+    - `model-00002-of-00004.safetensors`
+    - `model-00003-of-00004.safetensors`
+    - `model-00004-of-00004.safetensors`
+
+### Current Position
+- native-video work now has both checkpoints available locally:
+  - `models/Qwen3-VL-4B-Instruct`
+  - `models/Qwen3-VL-8B-Instruct`
+- intended usage:
+  - `4B` is the active main path for native-video winner work
+  - `8B` is downloaded as backup only
+  - `8B` is not part of the active flow right now
+
+### Active Flow Snapshot
+- active winner path:
+  - `Transformers native-video`
+  - model:
+    - `Qwen3-VL-4B-Instruct`
+- comparison baseline only:
+  - `2-pass qwen3-vl:8b` image-pack path
+- parked backup:
+  - `Qwen3-VL-8B-Instruct`
+
+## Work Log - `2026-04-05` (Native-Video Full Set1 Batch)
+### Experiments That Passed
+- `full set1 native-video batch ran end-to-end with the frozen rally windows`
+  - runner:
+    - `scripts/refine_rally_winners_native_video.py`
+  - active model:
+    - `models/Qwen3-VL-4B-Instruct`
+  - winner window rule:
+    - use the last `2/3` of each frozen rally
+  - reduced video-token settings that fit `RTX 5060 Ti 16GB`:
+    - `fps = 1`
+    - `min_frames = 4`
+    - `max_frames = 4`
+    - `size.shortest_edge = 1024`
+    - `size.longest_edge = 1048576`
+  - output JSON:
+    - `matches/checks/Vinh_set1_rally_timeline_native_video_qwen3vl4b_full.json`
+  - review clips:
+    - `debug_report/Vinh_set1_native_video_qwen3vl4b_full`
+  - CSV:
+    - `debug_report/Vinh_set1_native_video_qwen3vl4b_full/rally_clips.csv`
+
+### Current Result
+- `technical path works, quality is not good enough yet`
+  - the batch completed on all `14` rallies of `set1`
+  - current model output is:
+    - `14/14 = player_a / near`
+  - current filenames therefore all look like:
+    - `pt_000x__pick_near__native_video_qwen3vl4b.mp4`
+
+### Interpretation
+- `Transformers native-video` is now a real working path, not just a prep stage
+- current weakness is no longer transport/runtime
+  - it is prediction quality
+- next evaluation should focus on:
+  - whether this path can beat the trivial `always-near` baseline on `set1`
+  - especially whether it can recover the minority `far` wins
+
+## Work Log - `2026-04-05` (Native-Video Window Bug Found)
+### Findings
+- `the native-video clip builder was not fully honoring the agreed winner window rule`
+  - intended rule:
+    - use the last `2/3` of each frozen rally
+  - actual bug in `scripts/refine_rally_winners_native_video.py`:
+    - the helper still applied `max_window_sec = 4.0`
+    - long rallies were silently clipped to `4s`
+
+### Fix
+- `the default native-video window cap is now disabled`
+  - `--max-window-sec` default changed from `4.0` to `0.0`
+  - `0.0` now means:
+    - do not cap
+    - keep the full ratio-derived window
+
+### Quick Verification
+- `set1 pt_0001`
+  - duration `5.506s`
+  - native-video window now `5.506 -> 9.176`
+  - length `3.670s`
+- `set1 pt_0011`
+  - duration `8.842s`
+  - native-video window now `107.151 -> 113.046`
+  - length `5.895s`
+- `set1 pt_0014`
+  - duration `5.372s`
+  - native-video window now `146.936 -> 150.517`
+  - length `3.581s`
+
+### Next Step
+- rerun the native-video `set1` batch with the corrected uncapped `2/3` winner window before judging model quality further
+
+## Work Log - `2026-04-05` (Native-Video Full Set1 Rerun After Window Fix)
+### Experiments That Passed
+- `the full set1 native-video batch was rerun with the corrected uncapped 2/3 winner window`
+  - output JSON:
+    - `matches/checks/Vinh_set1_rally_timeline_native_video_qwen3vl4b_ratio67_uncapped.json`
+  - review clips:
+    - `debug_report/Vinh_set1_native_video_qwen3vl4b_ratio67_uncapped`
+  - CSV:
+    - `debug_report/Vinh_set1_native_video_qwen3vl4b_ratio67_uncapped/rally_clips.csv`
+- `the corrected clip timings now match the intended rule`
+  - example:
+    - `pt_0011`
+    - corrected CSV now shows:
+      - `clip_start = 107.151`
+      - `clip_end = 113.046`
+    - exported clip duration measured by `ffprobe`:
+      - `5.906s`
+    - this matches the intended uncapped `2/3` winner window
+
+### Current Result
+- `quality is still unchanged after the timing fix`
+  - rerun result is still:
+    - `14/14 = player_a / near`
+
+### Interpretation
+- the earlier review complaint about clip timing was valid
+- that timing bug is now fixed
+- from this point onward, any judgment about native-video quality should use only the corrected uncapped artifact
+
+## Work Log - `2026-04-05` (Native-Video Window Rule Updated Again)
+### Rule Change
+- `winner window rule is now adaptive by rally length`
+  - if rally duration `<= 4s`:
+    - keep the full frozen rally
+  - if rally duration `> 4s`:
+    - use the last `2/3` of the frozen rally
+  - keep the `max-window-sec = 0` behavior:
+    - no silent cap on long rallies
+
+### Quick Verification
+- `set1 pt_0002`
+  - duration `2.703s`
+  - window now `10.177 -> 12.880`
+  - full rally kept
+- `set1 pt_0006`
+  - duration `3.570s`
+  - window now `54.288 -> 57.858`
+  - full rally kept
+- `set1 pt_0011`
+  - duration `8.842s`
+  - window now `107.151 -> 113.046`
+  - still uses uncapped last `2/3`
+
+### Next Step
+- rerun the native-video `set1` batch with this adaptive rule before collecting more winner feedback
+
+## Work Log - `2026-04-05` (Native-Video Full Set4 Batch)
+### Experiments That Passed
+- `full set4 native-video batch ran with the adaptive winner-window rule`
+  - rule:
+    - rally `<= 4s` -> keep full rally
+    - rally `> 4s` -> use last `2/3`
+  - output JSON:
+    - `matches/checks/Vinh_set4_rally_timeline_native_video_qwen3vl4b_ratio67_adaptive.json`
+  - review clips:
+    - `debug_report/Vinh_set4_native_video_qwen3vl4b_ratio67_adaptive`
+  - CSV:
+    - `debug_report/Vinh_set4_native_video_qwen3vl4b_ratio67_adaptive/rally_clips.csv`
+
+### Current Result
+- `technical path completed on all 20 rallies`
+- `prediction quality is still collapsed to one side`
+  - current result:
+    - `20/20 = player_a / near`
+
+### Interpretation
+- `set4` confirms the current native-video path is not just overfitting to the near-heavy scoreline of set1`
+- even on a different set, the present prompt/setup still collapses to `player_a`
+
+## Work Log - `2026-04-05` (Native-Video Full Set4 Rerun)
+### Current Review Artifact
+- latest full `set4` rerun:
+  - `debug_report/Vinh_set4_native_video_qwen3vl4b_ratio67_adaptive_rerun`
+  - `debug_report/Vinh_set4_native_video_qwen3vl4b_ratio67_adaptive_rerun/rally_clips.csv`
+  - `matches/checks/Vinh_set4_rally_timeline_native_video_qwen3vl4b_ratio67_adaptive_rerun.json`
+
+### Result
+- rerun result stayed unchanged:
+  - `20/20 = player_a / near`
+
+## Work Log - `2026-04-05` (Boundary Freeze Guardrail Strengthened)
+### Experiments That Passed
+- `winner scripts now assert that frozen rally boundaries stay unchanged`
+  - scripts covered:
+    - `scripts/refine_rally_winners.py`
+    - `scripts/refine_rally_winners_native_video.py`
+  - enforced invariant:
+    - winner phase may update winner fields only
+    - it must not modify accepted rally `id / t_start / t_end`
+
+## Work Log - `2026-04-05` (Return To Pure Set4 Boundary Review)
+### Experiments That Passed
+- `all in-progress JSONs in matches/checks were cleared before the next review cycle`
+- `full set4 rallies were exported again directly from the original input video`
+  - no winner model used
+  - no `2/3` cropping
+  - each clip is exactly the frozen `t_start -> t_end`
+  - review folder:
+    - `debug_report/Vinh_set4_frozen_full_rallies`
+  - CSV:
+    - `debug_report/Vinh_set4_frozen_full_rallies/rally_clips.csv`
+  - count:
+    - `20` clips
+
+### Current Working Rule
+- if the pure full-rally export still looks cut in the middle of a rally, the problem is upstream in the frozen boundary baseline, not in winner processing
+
+## Work Log - `2026-04-05` (Winner Work Paused, Return To Endtime)
+### Operator Review
+- `set4` pure full-rally export still appears to end too early on multiple rallies
+  - reported points:
+    - `pt_0003`
+    - `pt_0004`
+    - `pt_0006`
+    - `pt_0008`
+    - `pt_0010`
+    - `pt_0011`
+    - `pt_0013`
+    - `pt_0017`
+    - `pt_0018`
+    - `pt_0019`
+    - `pt_0020`
+
+### Decision
+- `winner detection is paused`
+- `native-video / local-VLM winner experiments are not the current priority anymore`
+- `the project returns upstream to rally endtime / boundary correction first`
+
+### Resume Point
+- use only:
+  - `debug_report/Vinh_set4_frozen_full_rallies`
+- re-check and fix the accepted `set4` endtime baseline before resuming any winner work
+  - evidence image:
+    - `debug_report/Vinh_set1_local_vlm_evidence_run3/pt_0001_winner_evidence_grid.jpg`
+  - result with a simple descriptive prompt:
+    - the model described the image correctly
+    - so the image itself is readable to the model
+  - result with the current strict winner prompt:
+    - `message.content` came back as malformed / incomplete JSON
+    - `message.thinking` was very long
+    - the model explicitly appeared confused by the time labels
+  - concrete confusion pattern from the raw trace:
+    - frame labels are relative:
+      - `F1 +0.00s`
+      - `F2 +0.92s`
+      - ...
+    - footer also shows:
+      - `winner_window=6.42s->9.18s`
+    - the model reasoned as if the frames might be outside or before the winner window
+  - conclusion:
+    - current failure is not only winner logic
+    - it is also:
+      - prompt design
+      - evidence-pack labeling
+      - structured-output reliability
+
+### Current Diagnosis
+- the next useful step is no longer architecture work
+  - the first local VLM pass can now be executed directly
+- the current partial `set1` local-VLM artifacts should not be trusted
+  - rerun the first pass cleanly from the start in the next session
+- the first attempted local-VLM run also showed a practical performance issue
+  - the previous evidence pack was too heavy for a smooth full-set pass
+  - current default was reduced for the next run:
+    - `4` frames
+    - `480x270` per frame
+    - `2x2` grid
+- the next blocker is now:
+  - inspect a single rally's raw model response
+  - determine whether failure comes from:
+    - prompt design
+    - JSON extraction
+    - or evidence-pack quality
+
+### Exact Resume Point
+- first:
+  - do not launch another full `set1` local-VLM run yet
+  - instead run one rally only, with raw-response logging enabled
+  - start with:
+    - `pt_0001` raw-response debugging is now done
+    - next use `pt_0001` again only after simplifying the evidence labels
+    - then retry on `pt_0002`
+- then:
+  - inspect:
+    - the evidence grid
+    - the raw Qwen response
+    - the parsed JSON fields
+  - next concrete fix should be:
+    - remove conflicting absolute-vs-relative time labels from the evidence grid
+    - simplify the winner prompt
+    - log raw `content` and `thinking` for the next one-rally test
+  - only after one-rally debugging works:
+    - rerun a small batch
+    - then rerun full `set1`
+- do not:
+  - touch frozen rally boundaries
+  - treat the interrupted or timed-out trial output as proof that the local-VLM path is working
+
+## Work Log - `2026-04-04` (Local VLM Model Pivot)
+### Experiments That Passed
+- `single-rally direct model comparison now points to qwen2.5vl:7b`
+  - same evidence image:
+    - `debug_report/Vinh_set1_local_vlm_single_debug_onlygrid/pt_0001_winner_evidence_grid.jpg`
+  - `qwen3-vl:8b` result on the simplified winner prompt:
+    - `message.content = ''`
+    - `message.thinking` non-empty
+    - not usable as a clean winner label source in the current local stack
+  - `qwen2.5vl:7b` result on the same image and prompt:
+    - returned a direct winner label:
+      - `player_a`
+    - no long structured-output failure observed on that direct call
+- `active local-VLM defaults were switched to qwen2.5vl:7b`
+  - active client default:
+    - `backend/ai_ollama_client.py`
+  - active winner refine script default:
+    - `scripts/refine_rally_winners.py`
+  - winner inference metadata string now targets:
+    - `local_vlm_qwen2_5vl_7b_second_half_framepack_v1`
+
+### Current Diagnosis
+- `qwen3-vl:8b` is no longer the best first model for this task on this machine
+  - not because it cannot read the image
+  - but because its winner-response path is not producing clean usable output
+- `qwen2.5vl:7b` is now the correct next primary local-VLM candidate
+  - it already produced a direct `player_a` label on the same evidence image and prompt
+- the next useful test is now:
+  - run the full local winner script path on exactly one rally with `qwen2.5vl:7b`
+  - verify:
+    - parsed winner label
+    - decision bucket
+    - stored JSON fields
+
+### Exact Resume Point
+- first:
+  - rerun `scripts/refine_rally_winners.py` on `set1 pt_0001` only
+  - use:
+    - `qwen2.5vl:7b`
+  - write to a fresh trial JSON
+- then:
+  - inspect the stored point fields:
+    - `winner_candidate`
+    - `winner_confidence`
+    - `winner_decision`
+    - `winner_reason`
+    - `winner_model`
+- only after that:
+  - decide whether to batch more `set1` rallies
+
+## Work Log - `2026-04-04` (qwen2.5vl Script Path Check)
+### Experiments That Passed
+- `the full local-VLM script path now works with qwen2.5vl:7b`
+  - one-rally run:
+    - `set1 pt_0001`
+  - output:
+    - `winner_candidate = player_a`
+    - `winner_confidence = 0.64`
+    - `winner_decision = review`
+    - `winner_model = qwen2.5vl:7b`
+  - trial file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen25_trial.json`
+  - evidence image:
+    - `debug_report/Vinh_set1_local_vlm_qwen25_single/pt_0001_winner_evidence_grid.jpg`
+- `small-batch speed is now acceptable with qwen2.5vl:7b`
+  - `set1 pt_0001..pt_0004` completed in a few seconds
+  - trial file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen25_trial4.json`
+
+### Experiments That Failed
+- `current qwen2.5vl prompt/output path looks strongly biased toward player_a`
+  - `set1 pt_0001..pt_0004` all returned:
+    - `winner_candidate = player_a`
+    - `winner_decision = review`
+    - `winner_confidence = 0.64`
+  - `set2 pt_0014` also returned:
+    - `winner_candidate = player_a`
+    - even though the earlier heuristic review path had already improved this point toward `player_b`
+  - conclusion:
+    - the local-VLM path now works technically
+    - but the current prompt/evidence design is likely introducing a near-side bias
+
+### Current Diagnosis
+- the main blocker is no longer:
+  - empty VLM output
+  - or unacceptable speed on tiny batches
+- the new blocker is:
+  - side bias / default-answer bias toward `player_a`
+- next useful work should focus on:
+  - prompt redesign
+  - frame-pack redesign
+  - explicit bias checks on rallies expected to favor `player_b`
+
+### Exact Resume Point
+- first:
+  - keep `qwen2.5vl:7b` as the active local winner model
+  - do not go back to `qwen3-vl:8b` as the primary path
+- then:
+  - redesign the winner prompt to reduce default-answer bias
+  - test at least:
+    - one rally likely won by `player_a`
+    - one rally likely won by `player_b`
+    - one ambiguous rally
+- only after that:
+  - batch more `set1`
+
+## Work Log - `2026-04-04` (Table-Centered Crop Trial)
+### Experiments That Passed
+- `winner evidence pack now crops around the table play zone`
+  - evidence frames are no longer full-frame only
+  - current crop expands around the frozen table ROI so the top and bottom players occupy much more of the grid
+- `first labeled set1 review clips were exported for operator review`
+  - folder:
+    - `debug_report/Vinh_set1_local_vlm_qwen25_crop_trial4_clips`
+  - exported points:
+    - `pt_0001`
+    - `pt_0002`
+    - `pt_0003`
+    - `pt_0004`
+
+### Experiments That Failed
+- `the crop+prompt change appears to have overcorrected the earlier near-side bias`
+  - previous small-batch behavior:
+    - all first four `set1` rallies leaned `player_a`
+  - current small-batch behavior after the crop+prompt change:
+    - all first four `set1` rallies lean `player_b`
+  - additional check:
+    - `set2 pt_0014` also leaned `player_b`
+  - conclusion:
+    - the local-VLM path is now technically stable enough to review
+    - but side bias is still dominating the output
+
+### Current Diagnosis
+- the main question is no longer whether local VLM can run
+  - it can
+- the main question is now:
+  - whether the current evidence-pack and prompt design are forcing a side prior
+- the next useful input is operator review on the first labeled `set1` clips
+  - this will tell us whether the new far-side lean is:
+    - a real improvement
+    - or just the opposite bias
+
+### Exact Resume Point
+- first:
+  - get operator feedback on:
+    - `debug_report/Vinh_set1_local_vlm_qwen25_crop_trial4_clips`
+- then:
+  - depending on feedback:
+    - keep the crop and soften the prompt
+    - or redesign the frame-pack again
+
+## Work Log - `2026-04-04` (qwen3-vl Stack Fix)
+### Experiments That Passed
+- `qwen3-vl:8b` now works through the real script path
+  - key fix was not a model swap
+  - key fix was local-stack behavior:
+    - do not send one stitched grid as the only image
+    - send `4` ordered frame images separately
+    - increase token budget substantially
+    - allow fallback winner extraction from `thinking` when `content` is empty
+- `set1 pt_0001` now runs end-to-end with qwen3-vl
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_fix_pt1.json`
+  - result:
+    - `winner_candidate = player_b`
+    - `winner_decision = review`
+    - `winner_model = qwen3-vl:8b`
+- `first qwen3 set1 mini-batch is now reviewable`
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_fix_pt1_4.json`
+  - clip folder:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_fix_pt1_4_clips`
+  - current mini-batch outputs:
+    - `pt_0001 -> lean_far`
+    - `pt_0002 -> lean_near`
+    - `pt_0003 -> lean_far`
+    - `pt_0004 -> lean_near`
+
+### Current Diagnosis
+- the earlier conclusion `qwen3-vl:8b is unusable` was too strong
+  - it was largely a stack/protocol issue
+- qwen3 is now back as the primary local-VLM path
+- the next blocker is now model quality, not transport:
+  - does the new `set1` mini-batch actually lean the right side often enough
+
+### Exact Resume Point
+- first:
+  - get operator feedback on:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_fix_pt1_4_clips`
+- then:
+  - tune prompt / frame-pack based on those first four qwen3 labels
+
+## Work Log - `2026-04-04` (qwen3 First Review Feedback)
+### Experiments That Passed
+- `first human review of the qwen3 mini-batch now exists`
+  - operator feedback on `set1 pt_0001..pt_0004`:
+    - `pt_0001 = wrong`
+    - `pt_0002 = correct`
+    - `pt_0003 = wrong`
+    - `pt_0004 = wrong`
+
+### Current Diagnosis
+- `qwen3-vl` is now usable enough to produce reviewable winner hypotheses
+  - but current accuracy on the first four reviewed `set1` rallies is still poor
+- the strongest concrete hypothesis from operator feedback is:
+  - `winner_window = 1/2` may be too short on rallies whose accepted `t_end` is a bit late
+  - especially `pt_0001` may need more pre-end context for the model to understand the last real exchange
+
+### Exact Resume Point
+- first:
+  - change the local-VLM default winner window from `1/2` to `2/3` of the rally
+- then:
+  - rerun `set1 pt_0001..pt_0004` with `qwen3-vl:8b`
+  - export a new labeled clip batch for operator comparison
+
+## Work Log - `2026-04-04` (qwen3 Two-Thirds Window Trial)
+### Experiments That Passed
+- `local-VLM default winner window was widened from 1/2 to 2/3 of the rally`
+  - active script default now uses:
+    - `window_ratio = 2/3`
+- `the qwen3 set1 mini-batch was rerun with the wider winner window`
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_fix_pt1_4_ratio67.json`
+  - clip folder:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_fix_pt1_4_ratio67_clips`
+  - current outputs:
+    - `pt_0001 -> lean_near`
+    - `pt_0002 -> lean_near`
+    - `pt_0003 -> lean_near`
+    - `pt_0004 -> lean_near`
+
+### Current Diagnosis
+- widening the window from `1/2` to `2/3` did materially change the model behavior
+  - the earlier mixed pattern:
+    - `far, near, far, near`
+  - became:
+    - `near, near, near, near`
+- this strongly suggests that winner-window length is a first-order factor for local-VLM behavior
+- the next decision now depends on operator review:
+  - whether the wider context actually improves correctness enough
+
+### Exact Resume Point
+- first:
+  - get operator feedback on:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_fix_pt1_4_ratio67_clips`
+- then:
+  - decide whether `2/3` should stay as default
+  - or whether window ratio needs to become adaptive instead of fixed
+
+## Work Log - `2026-04-05` (Strict Prompt Trial)
+### Experiments That Passed
+- `qwen3 prompt was tightened to reduce posture-only winner guesses`
+  - new prompt explicitly says:
+    - do not decide only from who walks away, relaxes, or picks up the ball
+    - use the last clear shot plus visible failed return
+    - otherwise answer `unknown`
+- `the stricter prompt changed the first reviewed set1 batch in a meaningful way`
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_ratio67_prompt2_pt1_4.json`
+  - clip folder:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_ratio67_prompt2_pt1_4_clips`
+  - current outputs:
+    - `pt_0001 -> unknown`
+    - `pt_0002 -> lean_near`
+    - `pt_0003 -> unknown`
+    - `pt_0004 -> unknown`
+
+### Current Diagnosis
+- this is the first sign that the prompt can change the model in the desired direction
+  - instead of confidently forcing one side on almost every point
+  - it now abstains on several rallies
+- coverage is lower, but false-positive pressure also appears lower
+- the next decision should be made from operator review:
+  - is this conservative shift better than the previous overconfident near/far swings
+
+### Exact Resume Point
+- first:
+  - get operator feedback on:
+    - `debug_report/Vinh_set1_local_vlm_qwen3_ratio67_prompt2_pt1_4_clips`
+- then:
+  - if the new conservative behavior is better:
+    - keep this prompt family
+    - and work on increasing coverage
+  - otherwise:
+    - adjust evidence pack again
+
+## Work Log - `2026-04-05` (Forced 8x2 Evidence Trial)
+### Experiments That Passed
+- `qwen3 winner evidence pack was expanded to 8 time steps with dual views`
+  - each time step now has:
+    - `full` frame
+    - `crop` frame
+  - qwen3 receives ordered separate images instead of only one stitched grid
+- `forced A/B choice is now active for qwen3 path`
+  - current prompt no longer allows `unknown`
+  - model is asked to choose:
+    - `player_a`
+    - or `player_b`
+  - confidence is then parsed or defaulted for review use
+- `set1 pt_0001..pt_0004 rerun completed with the richer evidence pack`
+  - output file:
+    - `matches/checks/Vinh_set1_rally_timeline_local_vlm_qwen3_forced8x2_pt1_4.json`
+  - current outputs:
+    - `pt_0001 -> player_a, 0.50`
+    - `pt_0002 -> player_a, 0.50`
+    - `pt_0003 -> player_a, 0.50`
+    - `pt_0004 -> player_a, 0.95`
+
+### Current Diagnosis
+- richer evidence did change the behavior again
+  - compared with the earlier conservative prompt run, the model is now willing to decide on every point
+- but current pattern is still suspicious:
+  - the first four reviewed set1 rallies all lean `player_a`
+  - three of them have only floor confidence
+  - one rally has high confidence and therefore deserves extra scrutiny
+
+### Exact Resume Point
+- first:
+  - export and review the new `8x2 forced-choice` clips for:
+    - `pt_0001..pt_0004`
+- then:
+  - determine whether the richer evidence improved correctness enough
+  - especially inspect the high-confidence `pt_0004`
+
 ## Work Log - `2026-04-03`
 ### Experiments That Passed
 - `set1 pt_0007 improved without regressing frozen suites`
@@ -203,9 +1183,9 @@ Do not use this file as the long-term architecture spec.
   - added checker:
     - `scripts/check_timeline_regression.py`
   - added pure comparison helper:
-    - `backend/endpoint_regression.py`
+    - `backend/timeline_regression.py`
   - added unit coverage:
-    - `tests/test_endpoint_regression.py`
+    - `tests/test_timeline_regression.py`
 - `set4 frozen guardrail is now machine-checkable`
   - current checker result:
     - `set4_frozen_full` passes `20/20`
@@ -408,7 +1388,7 @@ Do not use this file as the long-term architecture spec.
   - regression remembered:
     - `set1 / set2 / set3` stayed exactly unchanged on timestamp lists while fixing `set4`
   - targeted regression after the final guard:
-    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_rally_timeline_contract.py`
     - result:
       - `31 passed, 1 warning`
   - committed and pushed checkpoint:
@@ -438,7 +1418,7 @@ Do not use this file as the long-term architecture spec.
     - low / moderate dominance for the supposed server
   - also added a stricter high-action rejection for the `already-live attack` pattern seen in `set2`
 - `targeted regression after set2 feedback`
-  - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+  - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_rally_timeline_contract.py`
   - result:
     - `28 passed, 1 warning`
 - `set2 rerun after the feedback-driven selector change`
@@ -477,7 +1457,7 @@ Do not use this file as the long-term architecture spec.
     - `weak_opponent_mid_rally`
     - `post_rally_freeze`
   - targeted regression after the tuning:
-    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_ai_contract.py`
+    - `.venv\Scripts\python.exe -m pytest tests/test_multistream_rally.py tests/test_rally_timeline_contract.py`
     - result:
       - `28 passed, 1 warning`
 - `set2 + set3 cross-check on the new selector snapshot`
@@ -552,7 +1532,7 @@ Do not use this file as the long-term architecture spec.
     - `12` start images
     - `1` CSV with the current detector scores per candidate
 - `targeted regression rerun on current snapshot`
-  - `tests/test_multistream_rally.py` + `tests/test_ai_contract.py`:
+  - `tests/test_multistream_rally.py` + `tests/test_rally_timeline_contract.py`:
     - `27 passed, 1 warning`
   - the only observed warning is still `.pytest_cache` access denied
 
@@ -580,7 +1560,7 @@ Do not use this file as the long-term architecture spec.
     - production draft baseline is still `table / ROI-first`
     - the `player` path is still in the `start-first` debug phase
 - `targeted regression rerun on current workspace`
-  - `tests/test_multistream_rally.py` + `tests/test_ai_contract.py`:
+  - `tests/test_multistream_rally.py` + `tests/test_rally_timeline_contract.py`:
     - `22 passed, 1 warning`
   - `tests/test_offline_player_tracker.py`:
     - `15 passed, 1 warning`
@@ -613,7 +1593,7 @@ Do not use this file as the long-term architecture spec.
     - `mode=player` dispatch
   - current test result:
     - `tests/test_multistream_rally.py`: `24 passed, 1 warning`
-    - `tests/test_ai_contract.py`: `2 passed, 1 warning`
+    - `tests/test_rally_timeline_contract.py`: `2 passed, 1 warning`
 
 ### Experiments That Failed Or Were Rejected
 - `player-only v2 full-run artifacts`
@@ -1334,3 +2314,141 @@ At the end of each work session:
 - next resume point
   - expand the regression suite toward full `set1..4`
   - start the first `winner / point-state` pass on top of the frozen rally timelines
+
+## 2026-04-04
+- `winner / point-state v1 started on set1`
+  - added new rally fields:
+    - `point_end_event`
+    - `winner_candidate`
+    - `winner_confidence`
+    - `winner_decision`
+  - `winner` itself is still only auto-applied when confidence is high enough
+- `winner inference doctrine implemented in code`
+  - use `end-of-rally evidence -> point-end event -> winner candidate -> decision`
+  - keep `table timing + player behavior` mandatory
+  - keep `ball` as optional strong evidence
+  - keep body-language as secondary confidence only
+- `set1 winner v1 rerun`
+  - output:
+    - `matches/Vinh_set1_rally_timeline.json`
+  - summary:
+    - `winner_known_rallies = 0`
+    - `winner_candidate_known_rallies = 6`
+    - `winner_review_rallies = 7`
+    - `winner_blocked_rallies = 7`
+  - first visible candidate examples:
+    - `pt_0001 -> player_a review 0.762 clean_winner_like`
+    - `pt_0006 -> player_a review 0.735 clean_winner_like`
+    - `pt_0008 -> player_a review 0.669 rally_error_like`
+    - `pt_0009 -> player_a review 0.584 rally_error_like`
+- verification
+  - `50 passed, 1 warning`
+  - `scripts/check_timeline_regression.py`:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+- current read
+  - this is a safe starting point for winner work
+  - it does not yet auto-resolve any rally
+  - the next useful step is to review `set1` winner candidates and tighten event classes before expanding to the other sets
+- `winner v1 rerun expanded to set2 / set3 / set4`
+  - outputs:
+    - `matches/Vinh_set2_rally_timeline.json`
+    - `matches/Vinh_set3_rally_timeline.json`
+    - `matches/Vinh_set4_rally_timeline.json`
+  - current summaries:
+    - `set2: candidate_known=1, review=5, blocked=14, auto=0`
+    - `set3: candidate_known=5, review=6, blocked=12, auto=0`
+    - `set4: candidate_known=5, review=9, blocked=11, auto=0`
+- `winner review assets exported`
+  - `debug_report/Vinh_set1_rally_clips_winner_current`
+  - `debug_report/Vinh_set2_rally_clips_winner_current`
+  - `debug_report/Vinh_set3_rally_clips_winner_current`
+  - `debug_report/Vinh_set4_rally_clips_winner_current`
+  - filenames now include:
+    - winner candidate
+    - decision bucket
+    - confidence
+    - coarse end-event class
+- verification after full rerun
+  - `scripts/check_timeline_regression.py`:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+- next resume point
+  - review the winner-labeled clips with the operator
+  - classify which current candidates are directionally right vs clearly wrong
+  - only then tighten event classes / confidence thresholds
+  - do not start score progression until winner candidates are substantially healthier
+
+## 2026-04-04 (winner fusion v2 kickoff after naming cleanup)
+
+- cleaned the active flow naming so the canonical path now uses only `rally timeline` terms
+  - moved the active implementation onto `scripts/generate_rally_timeline.py`
+  - moved the active contract onto `backend/rally_timeline_contract.py`
+  - renamed regression helpers to `timeline_regression`
+  - renamed tests to `tests/test_rally_timeline_contract.py` and `tests/test_timeline_regression.py`
+- verified the rename refactor did not break the frozen rally baseline
+  - `52 passed, 1 warning`
+  - `set1_frozen_full = 14/14`
+  - `set2_frozen_full = 19/19`
+  - `set3_frozen_full = 18/18`
+  - `set4_frozen_full = 20/20`
+- started `Winner Fusion v2` implementation on top of the frozen baseline
+  - split winner inference into:
+    - common winner-search window
+    - Layer A `Physics / Event`
+    - Layer B `Player Interaction`
+    - fused final decision
+  - updated `analysis_metadata.winner_inference_mode` to `winner_fusion_v2_layer_ab`
+- removed `winner v1` naming from the active code path
+  - winner annotation now goes through the explicit `fusion v2` functions only
+- reran `set1` through the new winner path
+  - rally boundaries stayed frozen
+  - current `set1` winner summary:
+    - `winner_known_rallies = 1`
+    - `winner_candidate_known_rallies = 6`
+    - `winner_review_rallies = 7`
+    - `winner_blocked_rallies = 6`
+  - notable first-pass outputs:
+    - `pt_0001 -> rally_error_like / player_a / 0.836 / auto`
+    - `pt_0006 -> rally_error_like / player_a / 0.807 / review`
+- next resume point:
+  - inspect the first `winner_fusion_v2_layer_ab` pass on `set1`
+  - decide whether `pt_0001` should really stay `auto`
+  - then tighten Layer A/B fusion gates before expanding v2 beyond `set1`
+
+## 2026-04-04 (winner fusion v2 reality check)
+
+- exported `set1` winner-labeled rally clips and reviewed the labeling format
+- fixed one important labeling bug:
+  - `candU + review` is no longer allowed
+  - if `winner_candidate = unknown`, decision now goes straight to `blocked`
+- reran `set1`
+  - current `set1` summary after the gate fix:
+    - `winner_known_rallies = 1`
+    - `winner_candidate_known_rallies = 6`
+    - `winner_review_rallies = 4`
+    - `winner_blocked_rallies = 9`
+- reran `set2` with the same `winner_fusion_v2_layer_ab` path
+  - rally boundaries stayed frozen:
+    - `set1_frozen_full = 14/14`
+    - `set2_frozen_full = 19/19`
+    - `set3_frozen_full = 18/18`
+    - `set4_frozen_full = 20/20`
+  - winner result on `set2` is poor:
+    - `18/19 blocked`
+    - `1/19 review`
+    - the only reviewed rally `pt_0014` is wrong by operator inspection
+- conclusion:
+  - `Winner Fusion v2` is still a research prototype
+  - it is not usable yet, even on `set1`, because blocked coverage is still far too high
+  - the main problem is not `auto` thresholding
+  - the main problem is that Layer A/B still fail to create useful `candidate A/B` hypotheses for most rallies
+- next resume point:
+  - debug `set2 pt_0014` first
+  - then debug a small batch of `set2` blocked rallies that look obvious by eye
+  - focus on increasing hypothesis coverage
+  - do not spend the next cycle trying to promote more `auto`

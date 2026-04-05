@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -14,14 +14,14 @@ import ollama
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.ai_contract import DraftMatch, DraftPointEvent, load_draft_match, save_draft_match
+from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, load_rally_timeline, save_rally_timeline
 from backend.ai_multistream_rally import _smooth_and_normalize, extract_multistream_signals
 
 
 @dataclass
 class SplitCandidate:
     point_idx: int
-    point: DraftPointEvent
+    point: RallyTimelinePoint
     candidate_rank: int
     split_t: float
     quiet_start_t: float
@@ -102,7 +102,7 @@ def _pick_local_minima(
 
 
 def extract_split_candidates(
-    draft: DraftMatch,
+    timeline: RallyTimeline,
     *,
     video_path: str,
     table_weights_path: str,
@@ -133,7 +133,7 @@ def extract_split_candidates(
     combo = np.maximum.reduce([table_norm, player_norm * 0.90, ball_norm])
 
     candidates: List[SplitCandidate] = []
-    for idx, point in enumerate(draft.points):
+    for idx, point in enumerate(timeline.points):
         duration = float(point.t_end - point.t_start)
         if duration < min_segment_sec:
             continue
@@ -376,8 +376,8 @@ def review_split_with_reasoner(model_name: str, candidate: SplitCandidate, visio
     }
 
 
-def _split_point(point: DraftPointEvent, split_t: float) -> tuple[DraftPointEvent, DraftPointEvent]:
-    left = DraftPointEvent(
+def _split_point(point: RallyTimelinePoint, split_t: float) -> tuple[RallyTimelinePoint, RallyTimelinePoint]:
+    left = RallyTimelinePoint(
         id=point.id,
         t_start=float(point.t_start),
         t_end=float(split_t),
@@ -387,7 +387,7 @@ def _split_point(point: DraftPointEvent, split_t: float) -> tuple[DraftPointEven
         source="ai",
         corrections=list(point.corrections),
     )
-    right = DraftPointEvent(
+    right = RallyTimelinePoint(
         id=point.id,
         t_start=float(split_t),
         t_end=float(point.t_end),
@@ -401,12 +401,12 @@ def _split_point(point: DraftPointEvent, split_t: float) -> tuple[DraftPointEven
 
 
 def apply_split_decisions(
-    draft: DraftMatch,
+    timeline: RallyTimeline,
     reports: List[Dict[str, Any]],
     *,
     min_vision_conf: float,
     min_reason_conf: float,
-) -> DraftMatch:
+) -> RallyTimeline:
     split_map: Dict[int, List[float]] = {}
     for r in reports:
         if not (
@@ -418,8 +418,8 @@ def apply_split_decisions(
             continue
         split_map.setdefault(int(r["point_idx"]), []).append(float(r["split_t"]))
 
-    new_points: List[DraftPointEvent] = []
-    for idx, point in enumerate(draft.points):
+    new_points: List[RallyTimelinePoint] = []
+    for idx, point in enumerate(timeline.points):
         if idx not in split_map:
             new_points.append(point)
             continue
@@ -436,7 +436,7 @@ def apply_split_decisions(
             if split_t <= current_start:
                 continue
             left, _ = _split_point(
-                DraftPointEvent(
+                RallyTimelinePoint(
                     id=point.id,
                     t_start=current_start,
                     t_end=float(point.t_end),
@@ -455,7 +455,7 @@ def apply_split_decisions(
             continue
 
         new_points.append(
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id=point.id,
                 t_start=current_start,
                 t_end=float(point.t_end),
@@ -467,10 +467,10 @@ def apply_split_decisions(
             )
         )
 
-    renumbered: List[DraftPointEvent] = []
+    renumbered: List[RallyTimelinePoint] = []
     for i, point in enumerate(new_points, start=1):
         renumbered.append(
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id=f"pt_{i:04d}",
                 t_start=point.t_start,
                 t_end=point.t_end,
@@ -482,23 +482,23 @@ def apply_split_decisions(
             )
         )
 
-    return DraftMatch(
-        schema_version=draft.schema_version,
-        sport=draft.sport,
-        video_path=draft.video_path,
-        video_fps=draft.video_fps,
-        best_of=draft.best_of,
-        created_at=draft.created_at,
-        roi=dict(draft.roi),
+    return RallyTimeline(
+        schema_version=timeline.schema_version,
+        sport=timeline.sport,
+        video_path=timeline.video_path,
+        video_fps=timeline.video_fps,
+        best_of=timeline.best_of,
+        created_at=timeline.created_at,
+        roi=dict(timeline.roi),
         points=renumbered,
-        analysis_metadata=dict(draft.analysis_metadata),
-        score_validation=dict(draft.score_validation),
+        analysis_metadata=dict(timeline.analysis_metadata),
+        score_validation=dict(timeline.score_validation),
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Review possible rally splits with Qwen3-VL + Qwen3.")
-    parser.add_argument("--draft", required=True)
+    parser.add_argument("--timeline", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--report-out", required=True)
     parser.add_argument("--video", required=True)
@@ -521,9 +521,9 @@ def main() -> int:
     parser.add_argument("--build-images", action="store_true", help="Still build candidate grids when --skip-models is used")
     args = parser.parse_args()
 
-    draft = load_draft_match(Path(args.draft))
+    timeline = load_rally_timeline(Path(args.timeline))
     candidates = extract_split_candidates(
-        draft,
+        timeline,
         video_path=args.video,
         table_weights_path=args.weights,
         pose_weights_path=args.pose_weights,
@@ -600,23 +600,23 @@ def main() -> int:
         )
 
     if args.skip_models:
-        reviewed = draft
+        reviewed = timeline
     else:
         reviewed = apply_split_decisions(
-            draft,
+            timeline,
             reports,
             min_vision_conf=float(args.min_vision_conf),
             min_reason_conf=float(args.min_reason_conf),
         )
-    save_draft_match(Path(args.out), reviewed)
+    save_rally_timeline(Path(args.out), reviewed)
 
     payload = {
-        "input_draft": str(Path(args.draft).resolve()),
+        "input_draft": str(Path(args.timeline).resolve()),
         "output_draft": str(Path(args.out).resolve()),
         "vision_model": args.vision_model,
         "reason_model": args.reason_model,
         "skip_models": bool(args.skip_models),
-        "input_count": len(draft.points),
+        "input_count": len(timeline.points),
         "output_count": len(reviewed.points),
         "candidate_count": len(reports),
         "candidates": reports,
@@ -625,10 +625,11 @@ def main() -> int:
     with open(args.report_out, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"[OK] Reviewed draft saved: {args.out} | points={len(reviewed.points)}")
+    print(f"[OK] Reviewed timeline saved: {args.out} | points={len(reviewed.points)}")
     print(f"[OK] Review report saved: {args.report_out}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

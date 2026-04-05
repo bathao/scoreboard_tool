@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import sys
@@ -11,21 +11,21 @@ import torch.nn.functional as F
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.ai_contract import DraftMatch, DraftPointEvent, save_draft_match
+from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, save_rally_timeline
 from backend.ai_rally_segmentation import detect_rally_segments_advanced_gpu
 from backend.ai_table_roi_dl import DLConfig, detect_table_roi_dl
 from backend.video_gpu_io import nvdec_bgr24_stream, probe_video_ffprobe
 
 
-def build_draft(
+def build_rally_timeline(
     video_path: str,
     weights_path: str,
     *,
     best_of: int = 5,
     stride: int = 2,
-) -> DraftMatch:
+) -> RallyTimeline:
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU is required for production draft generation.")
+        raise RuntimeError("CUDA GPU is required for production rally timeline generation.")
 
     if best_of <= 0 or best_of % 2 == 0:
         raise ValueError("best_of must be a positive odd number.")
@@ -80,10 +80,10 @@ def build_draft(
         effective_fps=info.fps / stride,
     )
 
-    points: List[DraftPointEvent] = []
+    points: List[RallyTimelinePoint] = []
     for i, seg in enumerate(segments, start=1):
         points.append(
-            DraftPointEvent(
+            RallyTimelinePoint(
                 id=f"pt_{i:04d}",
                 t_start=float(seg.t_start),
                 t_end=float(seg.t_end),
@@ -94,7 +94,7 @@ def build_draft(
             )
         )
 
-    draft = DraftMatch(
+    timeline = RallyTimeline(
         video_path=str(v_path),
         video_fps=float(info.fps),
         best_of=int(best_of),
@@ -109,12 +109,12 @@ def build_draft(
             "stride": max(1, int(stride)),
         },
     )
-    return draft
+    return timeline
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate production draft JSON from raw table-tennis clip."
+        description="Generate production rally timeline JSON from raw table-tennis clip."
     )
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument(
@@ -122,13 +122,13 @@ def main() -> int:
         default="weights/yolov8x_table.pt",
         help="Path to YOLO table weights",
     )
-    parser.add_argument("--out", required=True, help="Output draft JSON path")
+    parser.add_argument("--out", required=True, help="Output rally timeline JSON path")
     parser.add_argument("--best-of", type=int, default=5, help="Match format (3/5/7)")
     parser.add_argument("--stride", type=int, default=2, help="Process every Nth frame")
 
     args = parser.parse_args()
 
-    draft = build_draft(
+    timeline = build_rally_timeline(
         args.video,
         args.weights,
         best_of=args.best_of,
@@ -136,10 +136,11 @@ def main() -> int:
     )
 
     out_path = Path(args.out)
-    save_draft_match(out_path, draft)
-    print(f"[OK] Saved draft: {out_path} | total_rallies={len(draft.points)}")
+    save_rally_timeline(out_path, timeline)
+    print(f"[OK] Saved rally timeline: {out_path} | total_rallies={len(timeline.points)}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

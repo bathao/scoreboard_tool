@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from backend.ai_contract import DraftMatch, to_core_rally_events
+from backend.rally_timeline_contract import RallyTimeline, to_core_rally_events
 from backend.engine import ScoreEngine
 from backend.models import MatchState
 
@@ -16,7 +16,7 @@ def _set_to_dict(s) -> Dict[str, Any]:
 
 
 def build_score_validation(
-    draft: DraftMatch,
+    timeline: RallyTimeline,
     *,
     expected_scope: str = "any",  # any | set | match
     expected_final_set_score: str | None = None,  # e.g. "11-3"
@@ -36,10 +36,10 @@ def build_score_validation(
         expected_a = None
         expected_b = None
 
-    unknown_count = sum(1 for p in draft.points if p.winner == "unknown")
-    events = to_core_rally_events(draft)
+    unknown_count = sum(1 for p in timeline.points if p.winner == "unknown")
+    events = to_core_rally_events(timeline)
 
-    engine = ScoreEngine(MatchState(best_of=draft.best_of))
+    engine = ScoreEngine(MatchState(best_of=timeline.best_of))
     snapshots = []
     for e in events:
         snapshots.append(engine.process_event(e))
@@ -99,8 +99,8 @@ def build_score_validation(
     return {
         "status": status,
         "expected_scope": expected_scope,
-        "best_of": int(draft.best_of),
-        "event_count": len(draft.points),
+        "best_of": int(timeline.best_of),
+        "event_count": len(timeline.points),
         "known_winner_count": len(events),
         "unknown_winner_count": unknown_count,
         "is_match_finished": bool(match.is_finished),

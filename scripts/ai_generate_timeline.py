@@ -1,4 +1,4 @@
-# scripts/ai_generate_draft.py
+﻿# scripts/ai_generate_timeline.py
 from __future__ import annotations
 
 import argparse
@@ -314,7 +314,7 @@ def detect_events_from_motion(
     return events
 
 
-def events_to_draft_json(
+def events_to_rally_timeline_json(
     video_path: str,
     video_info: VideoInfo,
     roi: Dict[str, int],
@@ -348,11 +348,11 @@ def load_json(path: Path) -> Any:
 
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
-        description="Generate draft match events from a table tennis video (baseline)."
+        description="Generate rally timeline events from a table tennis video (baseline)."
     )
     p.add_argument("--video", required=True, help="Path to input video, e.g. Vinh_1280.mp4")
     p.add_argument("--roi", required=True, help="Path to ROI json, e.g. matches/table_roi_001.json")
-    p.add_argument("--out", required=True, help="Output draft json path")
+    p.add_argument("--out", required=True, help="Output rally timeline json path")
     p.add_argument("--best-of", type=int, default=5)
     p.add_argument("--debug", action="store_true")
     p.add_argument("--stride", type=int, default=1, help="Process every Nth frame (e.g. 3 => ~20fps from 60fps)")
@@ -414,7 +414,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elapsed = t1 - t0
     print(f"[INFO] Done. events={len(events)}  elapsed={elapsed:.2f}s")
 
-    draft = events_to_draft_json(
+    timeline = events_to_rally_timeline_json(
         video_path=video_path,
         video_info=info,
         roi=roi_clamped,
@@ -422,7 +422,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         best_of=int(args.best_of),
     )
 
-    out_path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[INFO] Saved: {out_path}")
 
     return 0
@@ -430,3 +430,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

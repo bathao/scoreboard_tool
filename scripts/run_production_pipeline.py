@@ -14,11 +14,11 @@ def run_step(cmd: list[str], name: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run end-to-end production pipeline: draft -> refine -> render."
+        description="Run end-to-end production pipeline: rally timeline -> refine -> render."
     )
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="YOLO table weights")
-    parser.add_argument("--draft-out", required=True, help="Path to output draft JSON")
+    parser.add_argument("--timeline-out", required=True, help="Path to output rally timeline JSON")
     parser.add_argument("--refined-out", default=None, help="Path to output refined JSON")
     parser.add_argument("--final-out", required=True, help="Path to final rendered video")
     parser.add_argument("--best-of", type=int, default=5)
@@ -44,34 +44,34 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    draft_path = Path(args.draft_out)
-    refined_path = Path(args.refined_out) if args.refined_out else Path(str(draft_path).replace("_draft.json", "_refined.json"))
+    timeline_path = Path(args.timeline_out)
+    refined_path = Path(args.refined_out) if args.refined_out else Path(str(timeline_path).replace("_timeline.json", "_refined.json"))
 
     run_step(
         [
             sys.executable,
-            "scripts/generate_draft_production.py",
+            "scripts/generate_table_rally_timeline.py",
             "--video",
             args.video,
             "--weights",
             args.weights,
             "--out",
-            str(draft_path),
+            str(timeline_path),
             "--best-of",
             str(args.best_of),
             "--stride",
             str(args.stride),
         ],
-        "Generate Draft",
+        "Generate Rally Timeline",
     )
 
-    input_json_for_render = draft_path
+    input_json_for_render = timeline_path
     if not args.skip_refine:
         refine_cmd = [
             sys.executable,
-            "scripts/ai_refine_draft.py",
-            "--draft",
-            str(draft_path),
+            "scripts/refine_rally_winners.py",
+            "--timeline",
+            str(timeline_path),
             "--out",
             str(refined_path),
             "--model",

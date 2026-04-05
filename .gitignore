@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
+.pytest_cache/
 .env
 .venv
 .env.*
@@ -14,6 +15,9 @@ build/
 renders/
 *.mp4
 *.avi
+debug_report/
+models/
+matches/checks/*.json
 yolov8x_table.pt
 yolov8n-pose.pt
 yolov8x-pose.pt

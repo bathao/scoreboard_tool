@@ -1,10 +1,88 @@
 {
-  "version": "2026-04-02",
+  "version": "2026-04-03",
   "notes": [
-    "set4_frozen_full is the required no-regression suite.",
-    "set1_reviewed_first6 is now frozen from the currently accepted reviewed set1 first-six batch and is also required."
+    "All four reviewed sets are now frozen as required no-regression rally timeline suites.",
+    "Winner and score work must preserve the accepted set1..4 rally boundaries."
   ],
   "suites": [
+    {
+      "name": "set1_frozen_full",
+      "enforcement": "required",
+      "video": "Vinh_set1.mp4",
+      "timeline_json": "matches/Vinh_set1_rally_timeline.json",
+      "default_tolerance_sec": 0.05,
+      "points": [
+        { "id": "pt_0001", "t_end": 9.175833702087402, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0002", "t_end": 12.879533767700195, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0003", "t_end": 29.629600524902344, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0004", "t_end": 38.405033111572266, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0005", "t_end": 47.981266021728516, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0006", "t_end": 57.8577995300293, "endpoint_mode": "ball_only_false_tail_start" },
+        { "id": "pt_0007", "t_end": 69.33592987060547, "endpoint_mode": "terminal_body_split_start" },
+        { "id": "pt_0008", "t_end": 74.80806732177734, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0009", "t_end": 85.68560028076172, "endpoint_mode": "post_body_pseudo_live_start" },
+        { "id": "pt_0010", "t_end": 95.6622314453125, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0011", "t_end": 113.0462646484375, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0012", "t_end": 128.4282989501953, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0013", "t_end": 140.03990173339844, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0014", "t_end": 150.51702880859375, "endpoint_mode": "dead_reset_run_start" }
+      ]
+    },
+    {
+      "name": "set2_frozen_full",
+      "enforcement": "required",
+      "video": "Vinh_set2.mp4",
+      "timeline_json": "matches/Vinh_set2_rally_timeline.json",
+      "default_tolerance_sec": 0.05,
+      "points": [
+        { "id": "pt_0001", "t_end": 3.4367666244506836, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0002", "t_end": 11.177833557128906, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0003", "t_end": 21.98863410949707, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0004", "t_end": 31.231199264526367, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0005", "t_end": 36.26956558227539, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0006", "t_end": 43.877166748046875, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0007", "t_end": 58.05799865722656, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0008", "t_end": 75.8424301147461, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0009", "t_end": 85.18509674072266, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0010", "t_end": 94.86143493652344, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0011", "t_end": 113.11299896240234, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0012", "t_end": 124.92479705810547, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0013", "t_end": 139.1056365966797, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0014", "t_end": 149.64950561523438, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0015", "t_end": 164.43093872070312, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0016", "t_end": 174.57440185546875, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0017", "t_end": 186.81996154785156, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0018", "t_end": 195.69549560546875, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0019", "t_end": 203.7368621826172, "endpoint_mode": "last_exchange_support" }
+      ]
+    },
+    {
+      "name": "set3_frozen_full",
+      "enforcement": "required",
+      "video": "Vinh_set3.mp4",
+      "timeline_json": "matches/Vinh_set3_rally_timeline.json",
+      "default_tolerance_sec": 0.05,
+      "points": [
+        { "id": "pt_0001", "t_end": 6.139466762542725, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0002", "t_end": 31.431400299072266, "endpoint_mode": "terminal_body_split_start" },
+        { "id": "pt_0003", "t_end": 43.4100341796875, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0004", "t_end": 54.22083282470703, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0005", "t_end": 63.36330032348633, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0006", "t_end": 73.94053649902344, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0007", "t_end": 86.61986541748047, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0008", "t_end": 93.76033020019531, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0009", "t_end": 110.21009826660156, "endpoint_mode": "post_dead_plateau_start" },
+        { "id": "pt_0010", "t_end": 126.39293670654297, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0011", "t_end": 138.23809814453125, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0012", "t_end": 148.81533813476562, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0013", "t_end": 162.76260375976562, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0014", "t_end": 179.61276245117188, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0015", "t_end": 192.4589385986328, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0016", "t_end": 201.73486328125, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0017", "t_end": 228.9954376220703, "endpoint_mode": "dead_reset_run_start" },
+        { "id": "pt_0018", "t_end": 237.40383911132812, "endpoint_mode": "dead_reset_run_start" }
+      ]
+    },
     {
       "name": "set4_frozen_full",
       "enforcement": "required",
@@ -32,22 +110,6 @@
         { "id": "pt_0018", "t_end": 232.765869140625, "endpoint_mode": "dead_reset_run_start" },
         { "id": "pt_0019", "t_end": 241.7415008544922, "endpoint_mode": "dead_reset_run_start" },
         { "id": "pt_0020", "t_end": 260.0931701660156, "endpoint_mode": "last_exchange_support" }
-      ]
-    },
-    {
-      "name": "set1_reviewed_first6",
-      "enforcement": "required",
-      "video": "Vinh_set1.mp4",
-      "timeline_json": "matches/Vinh_set1_rally_timeline.json",
-      "source_review": "debug_report/Vinh_set1_suspect_points_current/rally_clips.csv",
-      "default_tolerance_sec": 0.35,
-      "points": [
-        { "id": "pt_0001", "t_end": 9.175833702087402, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0002", "t_end": 12.879533767700195, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0003", "t_end": 29.629600524902344, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0004", "t_end": 38.405033111572266, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0005", "t_end": 47.981266021728516, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0006", "t_end": 57.8577995300293, "endpoint_mode": "ball_only_false_tail_start" }
       ]
     }
   ]
