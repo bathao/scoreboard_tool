@@ -49,7 +49,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - keep the current post-followup rally timestamps for `set1..4` frozen
   - resume winner detection using `Transformers native-video`
   - use `Qwen3-VL-4B-Instruct` as the main model
-  - keep `Qwen3-VL-8B-Instruct` as backup only if `4B` is not good enough
+  - only escalate to `Qwen3-VL-8B-Instruct` on hard rallies after `4B` custom config is exhausted
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -117,8 +117,63 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[doing]` keep the current post-followup `set1..4` timelines frozen as the temporary accepted timestamp baseline
 - `[doing]` resume `detect winner = Transformers native-video` on top of the frozen `set1..4` rally boundaries
 - `[doing]` use `Qwen3-VL-4B-Instruct` as the active main path for winner work
-- `[doing]` keep `Qwen3-VL-8B-Instruct` downloaded as backup only
-- `[doing]` start the next winner cycle from `set1`, then expand to `set2 / set3 / set4`
+- `[doing]` treat `Qwen3-VL-8B-Instruct` as escalation only for hard rallies after `4B`
+- `[doing]` the current main task is to improve `4B` config/customization before spending more time on `8B`
+- `[doing]` active `4B` main branch is now:
+  - `pairwise + composite tiebreak`
+  - `ROI table x = 40%, y = 90%` as the main pass
+  - current code config sampling
+- `[doing]` comparative-composite prompt family is no longer the active direction
+  - it collapsed toward `player_b / far`
+  - keep it only as a logged failed ablation in `PROJECT_PROGRESS.md`
+- `[doing]` next ablation must change only one variable at a time
+  - first clean A/B target:
+    - keep the old `4B` prompt + sampling baseline
+    - change only the main-pass view to `table ROI crop + 20% margin`
+  - do not combine this with new `fps / frame-count / prompt` changes in the same run
+- `[doing]` first clean A/B result is now positive
+  - `ROI table + 20%` as the main pass improved the current `set4` mixed probe to about:
+    - `5/6`
+  - adding the requested denser config on top did not improve beyond that same probe score
+  - next expansion should start from:
+    - `ROI main pass + 20%`
+    - old baseline sampling
+- `[doing]` full `set4` winner runs with `ROI + 40%` are now the strongest `4B` result so far
+  - both:
+    - `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case1_currentcfg_full`
+    - `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case2_probe2cfg_full`
+    reached:
+    - `16/20` aligned on reviewed `set4`
+  - current remaining mismatches are only:
+    - `pt_0015`
+    - `pt_0017`
+    - `pt_0018`
+    - `pt_0020`
+  - the denser `probe2` sampling package did not beat the simpler current-code case on full `set4`
+- `[doing]` treat `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case1_currentcfg_full` as the current main review batch
+- `[doing]` targeted wrong-point debug now shows:
+  - `ROI y = 80%` fixed:
+    - `pt_0015`
+    - `pt_0017`
+  - `ROI y = 80% + flip main pass` additionally fixed:
+    - `pt_0020`
+  - `pt_0018` still stays wrong and is now the clearest hard-case candidate
+- `[doing]` operator accepted `ROI x = 40%, y = 90%` as the next main default framing for `4B`
+  - keep `8B` only as escalation for stubborn hard cases like `pt_0018`
+- `[doing]` do not trust the raw full-rally clip as winner input when `t_end` still contains a late dead tail
+  - some rallies currently reach the model as `12-13s` clips even though the point visibly ended `4-5s` earlier
+  - simply making only the last few seconds denser will not fix those cases if the model is still fed a stale post-point tail
+  - winner input must be an adaptive decision window built on top of the frozen rally, not a blind full-rally pass and not a blind fixed-tail crop
+- `[doing]` immediate `set4` objective is to beat the current weak `4B` reference batch before any selective `8B` escalation
+  - current best reviewed `4B` batch is:
+    - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full`
+  - current `4B` read on reviewed `set4` is only about:
+    - `9/20`
+- `[doing]` keep the latest `8B` batch only as a reference benchmark for later escalation:
+  - `debug_report/Vinh_set4_winner_qwen3vl8b_fullrally_pairwise_tiebreak_full`
+  - current `8B` result on reviewed `set4`:
+    - `13/20` aligned
+    - `7/20` still disagree
 - `[doing]` use only these four folders as the active review artifacts:
   - `debug_report/Vinh_set1_fresh_full_rallies_post_followup_current`
   - `debug_report/Vinh_set2_fresh_full_rallies_post_followup_current`
@@ -141,6 +196,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path
+- `[deferred]` do not spend the main next cycle on full-set `8B` runs until the `4B` path is tuned first
+- `[deferred]` do not keep the old `pairwise yes/no + tiebreak` prompt family as the assumed long-term winner design
 
 ## Rejected
 - `[rejected]` broad threshold tuning on `ball / ROI / reset / resume` as the main fix

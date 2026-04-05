@@ -13,13 +13,382 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-05` (4B Config Ablation After Freeze)
+### Operator Direction
+- do not cut the dead tail for winner input in this cycle
+- keep using the frozen rally clip as-is
+- focus first on `4B` config changes that may improve winner accuracy
+
+### What Was Implemented
+- updated the active `4B` winner script defaults in:
+  - `scripts/refine_rally_winners_native_video.py`
+- new trial config package:
+  - `fps_sample = 4.0`
+  - `min_frames = 12`
+  - `max_frames = 16`
+  - `size_shortest_edge = 576`
+  - `max_pixels = 1280 * 720`
+- also tried a denser probe variant:
+  - `fps_sample = 4.0`
+  - `min_frames = 24`
+  - `max_frames = 24`
+  - `size_shortest_edge = 512`
+  - `max_pixels = 518400`
+
+### Prompt / View Ablations
+- tried a new `comparative composite` main pass:
+  - use `full frame + table zoom` as the main inference clip
+  - ask for:
+    - `Loser=...`
+    - `Winner=...`
+    - `Reason=...`
+- result:
+  - collapsed hard toward `player_b / far`
+  - example probes:
+    - `pt_0001`
+    - `pt_0002`
+    - `pt_0004`
+    - `pt_0005`
+    - `pt_0009`
+    - `pt_0010`
+  - output was effectively:
+    - `player_b` on all tested points
+- conclusion:
+  - this prompt family should not be promoted as the main path
+
+### Best Available Fallback After That
+- reverted the active inference logic back to the older branch:
+  - pairwise:
+    - `Did Player A win?`
+    - `Did Player B win?`
+  - composite `full frame + zoom` only as tiebreak
+- but kept the denser video config above
+
+### Current Probe Result
+- mixed `set4` probe with the denser config and restored pairwise logic:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+  - `pt_0009`
+  - `pt_0010`
+- result:
+  - `pt_0001 -> player_b`:
+    - correct
+  - `pt_0002 -> player_b`:
+    - wrong
+  - `pt_0004 -> player_b`:
+    - correct
+  - `pt_0005 -> player_b`:
+    - wrong
+  - `pt_0009 -> player_a`:
+    - wrong
+  - `pt_0010 -> player_b`:
+    - correct
+- rough read:
+  - `3/6`
+- increasing frames further to `24` did not materially change these probe outputs
+
+### Conclusion
+- for the current `4B` branch, config changes alone have not yet produced a meaningful quality jump
+- the current prompt family often returns canned contradictory text such as:
+  - `A? No`
+  - `B? No`
+  - then `T? Winner=player_b`
+- that suggests the main blocker is not only token density
+- it is also the model's reasoning pattern under the current prompt family
+
+### Exact Resume Point
+- keep `4B` as the main model by operator direction
+- but treat the current dense-config experiments as:
+  - informative
+  - not yet good enough to replace the current `4B` reference batch
+- next cycle should not repeat the same:
+  - `comparative composite` prompt family
+  - or simple `fps / frame-count` increases in isolation
+- next clean test should change only one variable:
+  - keep the old `4B` pairwise + composite-tiebreak baseline
+  - change only the main-pass input view to:
+    - `table ROI crop + 20% margin`
+
+## Work Log - `2026-04-05` (Single-Variable ROI Main-Pass Ablation)
+### What Was Implemented
+- added a new main-pass option in:
+  - `scripts/refine_rally_winners_native_video.py`
+- new option:
+  - `--main-pass-view roi`
+  - `--roi-margin-ratio 0.2`
+- behavior:
+  - the main `A?/B?` prompts now see only `table ROI + 20% margin`
+  - the exported review clip still stays the original rally clip
+  - composite `full frame + zoom` tiebreak logic stays unchanged
+
+### Probe 1: ROI Main Pass Only
+- kept the old baseline otherwise:
+  - `full rally`
+  - `fps=1`
+  - `min_frames=8`
+  - `max_frames=8`
+  - `size_shortest_edge=768`
+  - `max_pixels=0`
+- probe points:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+  - `pt_0009`
+  - `pt_0010`
+- artifact:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_roi20_baseline_probe`
+- result:
+  - `pt_0001 -> player_b`
+  - `pt_0002 -> player_b`
+  - `pt_0004 -> player_b`
+  - `pt_0005 -> player_a`
+  - `pt_0009 -> player_b`
+  - `pt_0010 -> player_b`
+- against the current reviewed labels:
+  - `5/6` aligned
+  - only `pt_0002` remained wrong
+
+### Probe 2: ROI Main Pass + Requested Higher-Density Config
+- kept the same `ROI + 20%` main pass
+- changed config to:
+  - `fps_sample = 4.0`
+  - `min_frames = 12`
+  - `max_frames = 20`
+  - `size_shortest_edge = 600`
+  - `max_pixels = 1572864`
+- artifact:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_roi20_cfg420_probe`
+- result:
+  - `pt_0001 -> player_b`
+  - `pt_0002 -> player_a`
+  - `pt_0004 -> player_b`
+  - `pt_0005 -> player_a`
+  - `pt_0009 -> player_b`
+  - `pt_0010 -> player_a`
+- against the same reviewed labels:
+  - `5/6` aligned
+  - only `pt_0010` became wrong
+
+### Current Read
+- the strongest new signal is not the denser sampling package by itself
+- the strongest new signal so far is:
+  - `ROI table + 20%` as the main pass
+- adding the requested denser config on top did not improve the probe score beyond the ROI-only result
+
+### Exact Resume Point
+- next clean step should start from:
+  - `ROI main pass + 20%`
+  - old baseline sampling
+- if expanding next, prefer a larger `set4` subset or full `set4` run on that exact config before adding more variables
+
+## Work Log - `2026-04-05` (ROI + 40% Full Set4 Runs)
+### Operator Direction
+- test `ROI table + 40%` on full `set4`
+- run two cases:
+  - case 1:
+    - `ROI + 40%`
+    - current code config
+  - case 2:
+    - `ROI + 40%`
+    - the denser `probe2` config
+
+### What Was Run
+- case 1 output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_roi40_case1_currentcfg_full.json`
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case1_currentcfg_full`
+- case 2 output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_roi40_case2_probe2cfg_full.json`
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case2_probe2cfg_full`
+
+### Result
+- both case 1 and case 2 produced the same full-set winner pattern on reviewed `set4`
+- aligned against the current reviewed `set4` labels:
+  - `16/20`
+- remaining mismatches:
+  - `pt_0015`:
+    - predicted `player_a`
+    - truth `player_b`
+  - `pt_0017`:
+    - predicted `player_a`
+    - truth `player_b`
+  - `pt_0018`:
+    - predicted `player_b`
+    - truth `player_a`
+  - `pt_0020`:
+    - predicted `player_a`
+    - truth `player_b`
+
+### Interpretation
+- `ROI + 40%` is materially better than the older `4B` reference batch:
+  - earlier best-known `4B` full batch was about `9/20`
+  - `ROI + 40%` full batch is now `16/20`
+- the denser `probe2` config did not improve the full-set result beyond the current-code case
+- current practical read:
+  - the major gain came from:
+    - `ROI main pass`
+    - and the wider `40%` margin
+  - not from the extra `fps / frame-count / max_pixels` package
+
+### Side-by-Side Note Against ROI + 20% Mixed Probe
+- on the earlier 6-point mixed probe:
+  - `ROI + 20%` had only `pt_0002` wrong
+  - `ROI + 40%` corrected `pt_0002`
+  - and kept:
+    - `pt_0001`
+    - `pt_0004`
+    - `pt_0005`
+    - `pt_0009`
+    - `pt_0010`
+    aligned
+
+### Exact Resume Point
+- `ROI + 40%` is now the strongest `4B` winner candidate on reviewed `set4`
+- next debugging should focus only on the remaining four disagreements:
+  - `pt_0015`
+  - `pt_0017`
+  - `pt_0018`
+  - `pt_0020`
+- treat the simpler `current-code` `ROI + 40%` run as the active main review batch:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_roi40_case1_currentcfg_full`
+  - not the denser `probe2` variant
+
+## Work Log - `2026-04-05` (Wrong-Point ROI Y80 + Flip Check)
+### Operator Direction
+- `ROI + 40%` still looks slightly too short vertically
+- next debug should:
+  - keep `ROI x = 40%`
+  - increase vertical margin to `y = 80%`
+  - then test horizontal flip consistency on the same wrong points
+
+### What Was Run
+- targeted `y = 80%` probe on the remaining wrong points:
+  - `pt_0015`
+  - `pt_0017`
+  - `pt_0018`
+  - `pt_0020`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_roi40y80_wrong4_probe.json`
+- then the same four points were rerun with:
+  - `--flip-main-pass`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_roi40y80_flip_wrong4_probe.json`
+
+### Result
+- `ROI y = 80%` without flip:
+  - fixed:
+    - `pt_0015`
+    - `pt_0017`
+  - still wrong:
+    - `pt_0018`
+    - `pt_0020`
+- `ROI y = 80%` with flip:
+  - kept:
+    - `pt_0015` correct
+    - `pt_0017` correct
+  - fixed:
+    - `pt_0020`
+  - still wrong:
+    - `pt_0018`
+
+### Interpretation
+- `pt_0015` and `pt_0017`
+  - improved just by increasing the vertical ROI margin
+  - this suggests the old crop was missing important top/bottom context
+- `pt_0020`
+  - only flips to the correct winner when the main-pass ROI is horizontally flipped
+  - this is a strong sign of left/right layout sensitivity in the current `4B` reasoning path
+- `pt_0018`
+  - remains wrong after:
+    - `ROI y = 80%`
+    - and after flip
+  - this is now the strongest candidate for:
+    - hard-case escalation to `8B`
+    - or a dedicated review bucket
+
+### Review Artifact
+- combined clean review folder with no CSV:
+  - `debug_report/set4_wrong_roi40y80_flipcheck`
+- each point has:
+  - `full`
+  - `roi40y80`
+  - `roi40y80flip`
+
+### Exact Resume Point
+- if continuing with `4B`, the strongest immediate next move is:
+  - rerun full `set4` with:
+    - `ROI x = 40%`
+    - `ROI y = 80%`
+- but note:
+  - `pt_0018` is already robustly wrong and may need `8B` rather than more `4B` crop tuning
+
+## Work Log - `2026-04-06` (Operator Accepted ROI X40 Y90 Main)
+### Operator Direction
+- keep `Qwen3-VL-4B-Instruct` as the active main winner model
+- promote `ROI x = 40%, y = 90%` to the default main-pass framing
+- keep `Qwen3-VL-8B-Instruct` only as escalation for hard rallies
+
+### What Changed
+- updated the active default in:
+  - `scripts/refine_rally_winners_native_video.py`
+- the main winner metadata tag is now:
+  - `transformers_native_video_<model>_roi40y90_main_v4`
+
+### Current Practical Meaning
+- active winner path now defaults to:
+  - `pairwise + composite tiebreak`
+  - `ROI x = 40%, y = 90%`
+  - current code sampling config
+- keep the frozen `set1..4` rally timestamps unchanged
+- do not promote `8B` to default full-set use yet
+
+## Work Log - `2026-04-05` (4B Winner Config Reframed)
+### Operator Direction
+- keep `Qwen3-VL-4B-Instruct` as the active main winner model
+- use `Qwen3-VL-8B-Instruct` only as escalation for hard rallies after `4B` is tuned
+- keep the frozen `set1..4` rally timestamps unchanged while iterating on winner
+
+### What Was Concluded
+- the current `4B` result on reviewed `set4` is effectively too weak:
+  - roughly `9/20`
+- this is not good enough to be treated as meaningful winner inference
+- the current default package is now considered structurally weak:
+  - `fps_sample = 1.0`
+  - `8` frames
+  - full-rally input
+  - pairwise `Did Player A win? / Did Player B win?`
+
+### Agreed Direction For The Next 4B Cycle
+- increase temporal density around the decision moment instead of sparsely sampling the whole rally
+- move `zoom around the table / ROI` into the main evidence path instead of keeping it only for tiebreak
+- replace the current pairwise prompt family with a single comparative prompt in one pass
+- keep deterministic inference and `bfloat16`
+- use `8B` only after the improved `4B` path has been tested on the hard rallies
+
+### Important Constraint About Winner Input
+- simply making only the last few seconds denser is not enough
+- some rallies still reach the winner model as `12-13s` clips even though the point visibly ended `4-5s` earlier
+- therefore:
+  - a blind full-rally clip is noisy
+  - a blind fixed tail crop is also risky
+- the next winner input must be an adaptive decision window built on top of the frozen rally clip
+- this adaptive winner window must not rewrite the frozen rally `t_start / t_end`
+
+### Exact Resume Point
+- next winner debug should stay on `set4`
+- first objective is to beat the current weak `4B` reference batch:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full`
+- do not spend the next cycle on more full-set `8B` runs before the new `4B` config is tried
+
 ## Work Log - `2026-04-05` (Ollama Winner Path Removed)
 ### Operator Direction
 - `Ollama is no longer part of the active winner plan`
 - active winner path must now be:
   - `Transformers native-video`
   - `Qwen3-VL-4B-Instruct` as the main model
-  - `Qwen3-VL-8B-Instruct` as backup only if `4B` is not sufficient
+  - `Qwen3-VL-8B-Instruct` as escalation only for hard rallies after `4B`
 
 ### Code Cleanup
 - removed the local `Ollama` winner client and script path:
@@ -35,7 +404,250 @@ Do not use this file as the long-term architecture spec.
 ### Working Rule
 - do not spend more time on any `Ollama` transport or prompt path
 - keep winner work strictly on top of the frozen `set1..4` rally boundaries
-- use `Transformers native-video 4B` as the only active main path for winner work
+- use `Transformers native-video 4B` as the active main path for winner work
+- only escalate to `8B` on hard rallies after `4B` custom config is tuned
+
+## Work Log - `2026-04-05` (Winner Main Model Returned To 4B)
+### Operator Direction
+- `Qwen3-VL-4B-Instruct` is the active main model again for winner work
+- `Qwen3-VL-8B-Instruct` should be used only for hard rallies after `4B`
+
+### Practical Interpretation
+- keep the completed `8B` full-batch experiment as a benchmark/reference
+- do not use `8B` as the default full-set winner model in the next cycle
+- next active winner debugging cycle should start from:
+  - `Transformers native-video`
+  - `Qwen3-VL-4B-Instruct`
+  - and only escalate selected hard rallies to `Qwen3-VL-8B-Instruct`
+
+## Work Log - `2026-04-05` (Set4 Full-Rally Native-Video Winner Run With 8B)
+### What Was Run
+- reran the current best winner branch on:
+  - `set4`
+- active model:
+  - `Qwen3-VL-8B-Instruct`
+- branch logic:
+  - pairwise full-rally prompts:
+    - `Did Player A win?`
+    - `Did Player B win?`
+  - composite `full frame + table zoom` tiebreak when pairwise stays ambiguous
+
+### Output Artifacts
+- output JSON:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl8b_fullrally_pairwise_tiebreak_full.json`
+- review clips:
+  - `debug_report/Vinh_set4_winner_qwen3vl8b_fullrally_pairwise_tiebreak_full`
+  - `debug_report/Vinh_set4_winner_qwen3vl8b_fullrally_pairwise_tiebreak_full/rally_clips.csv`
+
+### Current Result
+- `8B` is materially better than the earlier `4B` full-batch result on the same reviewed `set4` target
+- predicted `far` on:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0003`
+  - `pt_0004`
+  - `pt_0005`
+  - `pt_0006`
+  - `pt_0007`
+  - `pt_0008`
+  - `pt_0009`
+  - `pt_0010`
+  - `pt_0011`
+  - `pt_0013`
+  - `pt_0014`
+  - `pt_0015`
+  - `pt_0016`
+  - `pt_0017`
+  - `pt_0018`
+  - `pt_0020`
+- predicted `near` on:
+  - `pt_0012`
+  - `pt_0019`
+- against the currently reviewed `set4 far-win` list:
+  - `13/20` aligned
+  - `7/20` still disagree
+- remaining disagreement pattern:
+  - false `far` on:
+    - `pt_0002`
+    - `pt_0003`
+    - `pt_0005`
+    - `pt_0007`
+    - `pt_0008`
+    - `pt_0016`
+    - `pt_0018`
+
+### Exact Resume Point
+- operator should review:
+  - `debug_report/Vinh_set4_winner_qwen3vl8b_fullrally_pairwise_tiebreak_full`
+- next debug should focus only on the remaining `7` disagreements, because the old `4B` side-collapse is no longer the main blocker
+
+## Work Log - `2026-04-05` (Set4 Full-Rally Native-Video Winner Run)
+### What Was Run
+- first fresh winner run after the `Ollama` cleanup was executed on:
+  - `set4`
+- active path used:
+  - `Transformers native-video`
+  - `Qwen3-VL-4B-Instruct`
+- operator rule for this run:
+  - pass the full frozen rally to the model
+  - do not cut only the end segment
+
+### Output Artifacts
+- output JSON:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_fullrally.json`
+- review clips:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally`
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally/rally_clips.csv`
+
+### Current Result
+- runtime path works end-to-end on all `20` rallies
+- current quality is still collapsed:
+  - `20/20` rallies were labeled `player_a`
+- this batch should be used only as the first full-rally reference batch for operator review
+
+### Operator Feedback
+- operator-confirmed `far-win` rallies in this `set4` batch are:
+  - `pt_0001`
+  - `pt_0004`
+  - `pt_0006`
+  - `pt_0009`
+  - `pt_0010`
+  - `pt_0011`
+  - `pt_0013`
+  - `pt_0014`
+  - `pt_0015`
+  - `pt_0017`
+  - `pt_0020`
+- implication:
+  - the current full-rally native-video `4B` path is not just weak on minority recall
+  - it is strongly side-collapsed on `set4`
+  - because `11/20` reviewed rallies should be `far` wins, not `near`
+
+### Exact Resume Point
+- use the confirmed `far-win` set above as the anchor set for the next debug pass
+- next winner iteration should optimize against this `set4` side-collapse before expanding further
+
+## Work Log - `2026-04-05` (Set4 Pairwise + Composite Tiebreak)
+### What Changed
+- native-video `4B` winner logic was changed from:
+  - one forced single-pick prompt
+- to:
+  - pairwise full-rally prompts:
+    - `Did Player A win?`
+    - `Did Player B win?`
+  - plus a composite full-rally tiebreak clip:
+    - left:
+      - original full frame
+    - right:
+      - zoom around the table / player area
+
+### Targeted Anchor Check
+- targeted test on:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+- current targeted result:
+  - `pt_0001 -> player_b`
+  - `pt_0002 -> player_a`
+  - `pt_0004 -> player_b`
+  - `pt_0005 -> player_a`
+- this is the first winner debug branch that matched the expected side pattern on that 4-point anchor subset
+
+### Full Set4 Batch
+- a full `set4` rerun was then executed with the same logic:
+  - output JSON:
+    - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full.json`
+  - review clips:
+    - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full`
+    - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full/rally_clips.csv`
+
+### Current Result
+- the new branch no longer collapses to `20/20 near`
+- predicted `far` on:
+  - `pt_0001`
+  - `pt_0003`
+  - `pt_0004`
+  - `pt_0006`
+  - `pt_0007`
+  - `pt_0008`
+  - `pt_0011`
+  - `pt_0012`
+  - `pt_0015`
+  - `pt_0016`
+  - `pt_0017`
+  - `pt_0018`
+- predicted `near` on:
+  - `pt_0002`
+  - `pt_0005`
+  - `pt_0009`
+  - `pt_0010`
+  - `pt_0013`
+  - `pt_0014`
+  - `pt_0019`
+  - `pt_0020`
+
+### Evaluation Against Current Operator Set4 Review
+- using the currently confirmed `far-win` list from operator review:
+  - this full batch is still not good enough
+  - rough read:
+    - `9/20` aligned with the current reviewed labels
+    - `11/20` still disagree
+- important difference versus the earlier batch:
+  - the failure mode is no longer total near-side collapse
+  - it is now a mixed side-classification error pattern
+
+### Follow-up Ablation That Was Rejected
+- tried a more aggressive config package inspired by higher temporal density:
+  - higher `fps`
+  - lower `shortest_edge`
+  - `max_pixels`
+  - stricter JSON-style winner prompt
+- result on the 4-point anchor subset regressed back toward wrong `near` picks
+- conclusion:
+  - do not promote that full package as the new default
+  - keep the better current branch as:
+    - `pairwise yes/no on the original full rally`
+    - fallback composite `full frame + table zoom` tiebreak only when pairwise stays ambiguous
+
+### Additional Prompt Ablations That Were Rejected
+- `loser-first prompt`
+  - tested on representative `set4` points:
+    - `pt_0001`
+    - `pt_0002`
+    - `pt_0003`
+    - `pt_0009`
+  - result:
+    - collapsed to `Loser=player_b` on all four probes
+  - conclusion:
+    - asking for `loser` directly is not better than the current winner prompts in this setup
+- `composite pairwise yes/no`
+  - tested on representative points after building `full frame + zoom` composite videos
+  - result:
+    - often produced:
+      - `A=no, B=no`
+      - or `A=yes, B=yes`
+    - not a cleaner signal than the current single-pick composite tiebreak
+  - conclusion:
+    - keep composite as a single-pick tiebreak only
+    - do not replace the main pairwise branch with composite-pairwise
+
+### Exact Resume Point
+- use the latest full batch for operator review:
+  - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full`
+- next debug should focus on why these still disagree with the current reviewed `far-win` labels:
+  - `pt_0009`
+  - `pt_0010`
+  - `pt_0013`
+  - `pt_0014`
+  - `pt_0020`
+  - plus the extra false-`far` predictions:
+    - `pt_0003`
+    - `pt_0007`
+    - `pt_0008`
+    - `pt_0012`
+    - `pt_0016`
+    - `pt_0018`
 
 ## Work Log - `2026-04-05` (Set4 Endtime Reopened)
 ### What Was Confirmed
