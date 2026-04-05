@@ -38,17 +38,18 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - commit `4e70e0f`
   - `Detect rallies correctly for all four reviewed sets`
 - Latest local checkpoint:
-  - commit `3ec0d2a`
-  - `Accept set4 rally endtime fixes`
+  - commit `bfe9fa9`
+  - `Freeze temporary rally timestamps for all four sets`
 - Endpoint regression suite baseline:
   - `set1_frozen_full` = required no-regression suite
   - `set2_frozen_full` = required no-regression suite
   - `set3_frozen_full` = required no-regression suite
   - `set4_frozen_full` = required no-regression suite
 - Current focus:
-  - stop winner work completely for now
-  - current post-followup rally timestamps for `set1..4` are temporarily accepted
-  - freeze the current `set1 / set2 / set3 / set4` rally timestamps before touching winner again
+  - keep the current post-followup rally timestamps for `set1..4` frozen
+  - resume winner detection using `Transformers native-video`
+  - use `Qwen3-VL-4B-Instruct` as the main model
+  - keep `Qwen3-VL-8B-Instruct` as backup only if `4B` is not good enough
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -113,173 +114,23 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `matches/ground_truth/timeline_regression_suite.json`
 
 ## Doing
-- `[doing]` pause winner work completely until rally endtime is trusted again
-- `[doing]` keep winner work paused until the newly frozen `set1..4` boundary baseline is revisited deliberately
-- `[doing]` treat the current post-followup `set1..4` timelines as the temporary frozen timestamp baseline
-- `[doing]` treat current `winner_fusion_v2_layer_ab` as an unsuccessful research branch
-  - keep it only as a reference baseline
-  - do not spend the next cycle trying to rescue it with more threshold tuning
-- `[doing]` keep the current local-VLM / native-video winner work as parked experiments only
-  - do not continue winner tuning until endtime is fixed upstream
-        - `pt_0004 -> near (a=0.70, b=0.30)`
-      - operator note to keep in mind:
-        - true `set1` final score is `11-3` tilted toward `near/player_a`
-        - therefore many `near` winner predictions are normal
-        - evaluation should now focus on:
-          - whether qwen3 beats the trivial `always-near` baseline
-          - whether qwen3 can find the minority `far` wins
-      - current review artifact waiting for operator feedback:
-        - `debug_report/Vinh_set1_local_vlm_qwen3_scores2_pt1_4_clips`
-        - review target:
-          - `pt_0001 .. pt_0004`
-      - local `Transformers` path has now been prepared as a parallel option:
-        - installed in `.venv`:
-          - `transformers`
-          - `accelerate`
-          - `safetensors`
-          - `sentencepiece`
-          - `einops`
-          - `av`
-        - verified in `transformers 5.5.0`:
-          - `Qwen3VLProcessor`
-          - `Qwen3VLForConditionalGeneration`
-          - `Qwen3VLVideoProcessor`
-        - verified official Hugging Face checkpoints exist:
-          - `Qwen/Qwen3-VL-4B-Instruct`
-          - `Qwen/Qwen3-VL-8B-Instruct`
-        - practical recommendation for the first native-video POC on `RTX 5060 Ti 16GB`:
-          - start with `Qwen/Qwen3-VL-4B-Instruct`
-          - keep `Qwen/Qwen3-VL-8B-Instruct` as the next step only if memory/runtime are still acceptable
-        - both checkpoints are now downloaded locally:
-          - `models/Qwen3-VL-4B-Instruct`
-          - `models/Qwen3-VL-8B-Instruct`
-        - current role split:
-          - `4B` = active native-video main path
-          - `8B` = downloaded backup only, not active in the current flow
-      - first `Transformers native-video` POC status:
-        - default processor settings on `Qwen3-VL-4B-Instruct` caused OOM on `RTX 5060 Ti 16GB`
-        - a reduced video-token budget works:
-          - `fps = 1`
-          - `min_frames = 4`
-          - `max_frames = 4`
-          - `size.shortest_edge = 1024`
-          - `size.longest_edge = 1048576`
-        - native-video winner clips must follow the true rally-time rule:
-          - if rally duration `<= 4s`:
-            - keep the full frozen rally
-          - if rally duration `> 4s`:
-            - use the last `2/3` of the frozen rally
-          - do not silently cap long rallies to `4s`
-        - with those settings, `set1 pt_0001` native-video inference completed and returned:
-          - `player_a`
-        - full `set1` native-video batch has now been run with the same reduced-token settings
-        - current result is not yet good enough:
-          - `14/14` rallies were labeled `player_a / near`
-        - the old native-video full-set artifact was found to be partially wrong as a review input:
-          - some long rallies were silently capped to `4s`
-        - corrected review artifact to use the true uncapped `2/3` rally window:
-          - `debug_report/Vinh_set1_native_video_qwen3vl4b_ratio67_uncapped`
-      - immediate next step is:
-        - first re-open `set4` endtime work using the pure frozen full-rally export from the original video:
-          - `debug_report/Vinh_set4_frozen_full_rallies`
-        - do not trust or extend any winner batch until this boundary review is accepted again
-      - immediate next fix should target:
-        - prompt wording
-        - frame-pack composition
-        - minority-class recall on the `far-win` rallies of `set1`
-        - side-collapse on `set4`, where the current full native-video batch also returned only `player_a / near`
-    - next step is not another long full-set run
-      - debug one rally at a time
-      - capture the raw model response
-      - fix prompt / JSON parsing / evidence quality first
-    - first single-rally debug finding:
-      - `qwen3-vl:8b` can describe the evidence image
-      - but with the current winner prompt it returns malformed / incomplete JSON
-      - the current evidence labels appear to confuse the model:
-        - frame labels are relative (`+0.00`, `+0.92`, ...)
-        - footer also shows absolute `winner_window=6.42s->9.18s`
-      - next fix should target:
-        - simpler prompt
-        - cleaner evidence labels
-        - raw-response logging before another batch run
-- `[doing]` keep rule-based logic only as a validator / fallback around the local VLM result
-  - use it to catch obvious contradictions
-  - do not use it as the primary winner engine in this cycle
-
-## Local VLM Winner Plan
-- use a local vision model as the primary winner detector
-- current active main path:
-  - `Transformers native-video`
-  - model:
-    - `Qwen3-VL-4B-Instruct`
-- keep `Qwen3-VL-8B-Instruct` downloaded only as a backup
-  - do not use `8B` in the active flow for now
-- keep the current `2-pass qwen3-vl:8b` image-pack path only as a comparison baseline
-- inputs per rally:
-  - frozen `t_start / t_end`
-  - `winner_window = last two-thirds of the rally`
-    - `window_start = max(t_start, t_end - (2/3) * (t_end - t_start))`
-    - `window_end = t_end`
-  - current default uses the last two-thirds:
-    - current accepted `t_end` can still be slightly late by about `2-3s`
-    - using the last two-thirds gives the model more pre-end context when the accepted `t_end` is slightly late
-  - clamp the winner window:
-    - keep a minimum window long enough to show the last exchange
-    - keep a maximum window short enough to avoid flooding the model with irrelevant early-rally content
-  - use an ordered multi-frame pack as the first evidence format
-    - for `qwen3-vl:8b`, send the ordered frames as separate images instead of a single stitched grid
-    - current richer pack for qwen3 testing:
-      - `8` ordered time steps
-      - `full + crop` per time step
-    - do not start with full-rally clips as the main format
-    - do not start with a full long video clip per rally
-  - current default pack for speed:
-      - `8` time steps
-      - `480x270` each
-      - full view plus table-centered crop
-  - frame-pack content should cover:
-    - final live exchange
-    - post-shot flight / aftermath
-    - immediate reset after the point
-  - explicit mapping:
-    - `player_a = near`
-    - `player_b = far`
-- expected model output per rally:
-  - `winner = player_a / player_b / unknown`
-  - `confidence = 0..1`
-  - `reason = short`
-  - `decision = auto / review / blocked`
-- prompt rule:
-  - allow `unknown`
-  - never force a binary answer on an ambiguous rally
-- first rollout:
-  - start with `set1`
-  - export winner-review frame-packs from the second half of each rally
-  - run local VLM inference
-  - compare with operator feedback
-- validator rule:
-  - keep rule-based event checks only as a contradiction detector
-  - examples:
-    - impossible side mapping
-    - impossible serve-error interpretation
-    - confidence too high on weak visual evidence
-- current local model direction:
-  - prefer the already installed local vision stack first
-  - only change models after measuring precision / coverage on reviewed rallies
+- `[doing]` keep the current post-followup `set1..4` timelines frozen as the temporary accepted timestamp baseline
+- `[doing]` resume `detect winner = Transformers native-video` on top of the frozen `set1..4` rally boundaries
+- `[doing]` use `Qwen3-VL-4B-Instruct` as the active main path for winner work
+- `[doing]` keep `Qwen3-VL-8B-Instruct` downloaded as backup only
+- `[doing]` start the next winner cycle from `set1`, then expand to `set2 / set3 / set4`
+- `[doing]` use only these four folders as the active review artifacts:
+  - `debug_report/Vinh_set1_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set2_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set3_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set4_fresh_full_rallies_post_followup_current`
 
 ## Todo
-- `[todo]` compare the new `2-pass qwen3` `set1 pt_0001..pt_0004` batch against operator review
-- `[todo]` keep the current `2-pass qwen3` image-pack path only as a comparison baseline
-- `[todo]` use `winner_score_a / winner_score_b` to rank likely minority `far` wins in `set1`
-- `[todo]` beat the trivial `always-near` baseline on `set1`
-- `[todo]` expand the reduced-token native-video `Qwen3-VL-4B` POC from `set1 pt_0001` to `pt_0001..pt_0004`
-- `[todo]` compare `native-video Qwen3-VL-4B` vs current `2-pass qwen3` image-pack path on the same rallies
-- `[todo]` decide the first safe `auto / review / blocked` gate for local VLM outputs
+- `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
+- `[todo]` keep winner inference strictly downstream of the frozen `set1..4` timestamp checkpoint
 - `[todo]` build `score progression` on top of accepted rallies + inferred winners
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
 - `[todo]` start correction / UI flow only after rally + winner + score are usable
-- `[todo]` expand local-VLM winner review from `set1` to `set2 / set3 / set4`
-- `[todo]` only promote `winner auto` when checked rallies show bounded-risk precision
 
 ## Deferred
 - `[deferred]` do not retune `table / ROI-first` in this cycle
@@ -288,7 +139,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not spend this cycle on `Qwen` boundary/split tuning
 - `[deferred]` do not start Web UI work yet
 - `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
- - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
+- `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
+- `[deferred]` do not reintroduce any `Ollama`-based winner path
 
 ## Rejected
 - `[rejected]` broad threshold tuning on `ball / ROI / reset / resume` as the main fix

@@ -70,7 +70,7 @@ def test_rally_timeline_point_roundtrip_preserves_starter_role():
         winner_confidence=0.86,
         winner_decision="auto",
         winner_reason="clear last shot",
-        winner_model="qwen3-vl:8b",
+        winner_model="Qwen3-VL-4B-Instruct",
         winner="unknown",
         confidence=0.8,
         flags=["player_only"],
@@ -93,5 +93,5 @@ def test_rally_timeline_point_roundtrip_preserves_starter_role():
     assert restored.winner_confidence == 0.86
     assert restored.winner_decision == "auto"
     assert restored.winner_reason == "clear last shot"
-    assert restored.winner_model == "qwen3-vl:8b"
+    assert restored.winner_model == "Qwen3-VL-4B-Instruct"
 

@@ -13,6 +13,30 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-05` (Ollama Winner Path Removed)
+### Operator Direction
+- `Ollama is no longer part of the active winner plan`
+- active winner path must now be:
+  - `Transformers native-video`
+  - `Qwen3-VL-4B-Instruct` as the main model
+  - `Qwen3-VL-8B-Instruct` as backup only if `4B` is not sufficient
+
+### Code Cleanup
+- removed the local `Ollama` winner client and script path:
+  - `backend/ai_ollama_client.py`
+  - `scripts/refine_rally_winners.py`
+  - `tests/test_ai_ollama_client.py`
+- removed older `Ollama`-based review scripts:
+  - `scripts/review_rally_boundaries_qwen.py`
+  - `scripts/review_rally_splits_qwen.py`
+- production pipeline winner step now points to:
+  - `scripts/refine_rally_winners_native_video.py`
+
+### Working Rule
+- do not spend more time on any `Ollama` transport or prompt path
+- keep winner work strictly on top of the frozen `set1..4` rally boundaries
+- use `Transformers native-video 4B` as the only active main path for winner work
+
 ## Work Log - `2026-04-05` (Set4 Endtime Reopened)
 ### What Was Confirmed
 - `set4 did not regress from later code drift`
@@ -319,6 +343,22 @@ Do not use this file as the long-term architecture spec.
 - if work resumes later:
   - start from this frozen checkpoint
   - and treat any new boundary edit as a deliberate re-open of the baseline
+
+## Work Log - `2026-04-05` (Winner Work Reopened On Frozen Boundaries)
+### Operator Direction
+- winner work is no longer paused completely
+- next cycle should resume:
+  - `detect winner = local VLM`
+- but only on top of the newly frozen `set1..4` rally timestamps
+
+### Working Rule
+- winner inference must stay strictly downstream of the frozen boundary baseline
+- do not reopen `t_start / t_end` while working on winner
+- begin again from `set1`
+- then expand to:
+  - `set2`
+  - `set3`
+  - `set4`
 
 ## Current Status
 - Date:
