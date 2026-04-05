@@ -43,9 +43,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `set3_frozen_full` = required no-regression suite
   - `set4_frozen_full` = required no-regression suite
 - Current focus:
-  - pause winner detection for now
-  - return to validating and fixing `t_end` / rally end boundaries first
-  - current operator review says several `set4` rallies still end too early even in the pure full-rally export
+  - stop winner work completely for now
+  - current `set4` rally endtime patch is now operator-accepted
+  - use this code to rerun fresh full-rally exports for `set1 / set2 / set3`
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -94,108 +94,22 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `tests/test_rally_timeline_contract.py`
 - `[done]` `set3 pt_0009` is fixed without regressing `set1 / set2 / set4`
 - `[done]` full `set1..4` rally baseline is now frozen in `timeline_regression_suite.json`
+- `[done]` current `set4` rally endtime patch is operator-accepted for review use
+- `[done]` accepted current fresh `set4` review batch:
+  - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2`
 
 ## Doing
 - `[doing]` pause winner work completely until rally endtime is trusted again
-- `[doing]` review and fix `set4` rally endtime against the original video first
-  - operator-marked early-end points:
-    - `pt_0003`
-    - `pt_0004`
-    - `pt_0006`
-    - `pt_0008`
-    - `pt_0010`
-    - `pt_0011`
-    - `pt_0013`
-    - `pt_0017`
-    - `pt_0018`
-    - `pt_0019`
-    - `pt_0020`
-- `[doing]` use the pure full-rally export as the review artifact
-  - `debug_report/Vinh_set4_frozen_full_rallies`
+- `[doing]` rerun `set1 / set2 / set3` fresh from source video with the current accepted code
+  - do not reuse older timeline JSON artifacts
+  - export full rally clips from the fresh runs for operator review
+- `[doing]` keep current `set4` accepted batch as the reference review artifact
+  - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2`
 - `[doing]` treat current `winner_fusion_v2_layer_ab` as an unsuccessful research branch
   - keep it only as a reference baseline
   - do not spend the next cycle trying to rescue it with more threshold tuning
 - `[doing]` keep the current local-VLM / native-video winner work as parked experiments only
   - do not continue winner tuning until endtime is fixed upstream
-- `[doing]` implement `local VLM-first winner detection` on `set1` first
-  - use the frozen rally boundaries as the only search window
-  - use a single local model first:
-    - `qwen3-vl:8b`
-  - feed ordered end-of-rally evidence to the local vision model
-  - require structured JSON output:
-    - `winner`
-    - `confidence`
-    - `unknown_allowed`
-    - short reason
-  - current implementation status:
-    - structured Ollama client is in place
-    - local VLM refine script is in place
-    - default evidence pack has been reduced for speed:
-      - `4` ordered frames
-      - `480x270` per frame
-      - `2x2` grid layout
-    - a clean rerun was attempted on `set1` with the lighter pack
-    - current result is still not usable:
-      - after `30` minutes only `4` rallies were processed
-      - all `4` returned:
-        - `winner_candidate = unknown`
-        - `winner_confidence = 0.0`
-        - `winner_decision = blocked`
-    - current `qwen3-vl:8b` finding:
-      - direct single-image grid prompting was not usable
-      - the practical fix is:
-        - send `4` separate ordered frame images instead of one stitched grid
-        - give `qwen3-vl:8b` a much larger token budget
-        - allow fallback extraction from `thinking` when `content` is empty
-      - with that fix, the full script path now runs end-to-end and writes winner fields into JSON
-      - current first `set1` mini-batch is now reviewable:
-        - `pt_0001 -> lean_far`
-        - `pt_0002 -> lean_near`
-        - `pt_0003 -> lean_far`
-        - `pt_0004 -> lean_near`
-      - operator feedback on the first `qwen3` batch says:
-        - `pt_0001 = wrong`
-        - `pt_0002 = correct`
-        - `pt_0003 = wrong`
-        - `pt_0004 = wrong`
-      - strongest current hypothesis:
-        - `winner_window = 1/2` may be too short on some rallies because accepted `t_end` can still be slightly late
-      - after changing the default winner window to `2/3` of the rally:
-        - current rerun became:
-          - `pt_0001 -> lean_near`
-          - `pt_0002 -> lean_near`
-          - `pt_0003 -> lean_near`
-          - `pt_0004 -> lean_near`
-      - after tightening the prompt so posture/ball-pickup alone cannot decide the winner:
-        - current rerun became:
-          - `pt_0001 -> unknown`
-          - `pt_0002 -> lean_near`
-          - `pt_0003 -> unknown`
-          - `pt_0004 -> unknown`
-      - after switching to a richer forced-choice pack:
-        - `8` time steps
-        - `full + crop` for each step
-        - `qwen3-vl` forced to choose `player_a` or `player_b`
-        - current rerun became:
-          - `pt_0001 -> lean_near (c0.50)`
-          - `pt_0002 -> lean_near (c0.50)`
-          - `pt_0003 -> lean_near (c0.50)`
-          - `pt_0004 -> lean_near (c0.95)`
-      - after adding a `2-pass qwen3` fallback:
-        - pass 1:
-          - qwen3 looks at the ordered images
-          - raw answer may still stay in `thinking`
-        - pass 2:
-          - the same qwen3 model condenses that `thinking` into strict JSON
-          - now the pipeline can recover:
-            - `winner`
-            - `winner_score_a`
-            - `winner_score_b`
-            - short reason
-      - latest `set1 pt_0001..pt_0004` batch with the 2-pass qwen3 path:
-        - `pt_0001 -> near (a=0.95, b=0.05)`
-        - `pt_0002 -> near (a=0.95, b=0.05)`
-        - `pt_0003 -> far (a=0.00, b=1.00)`
         - `pt_0004 -> near (a=0.70, b=0.30)`
       - operator note to keep in mind:
         - true `set1` final score is `11-3` tilted toward `near/player_a`
@@ -381,6 +295,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Keep the accepted `set4` endpoint baseline frozen while moving downstream.
 - Winner phase must preserve accepted rally `t_start / t_end` from the earlier detection phase `100%`.
 - Winner scripts may read frozen rally boundaries, but must never rewrite them.
+- When exporting review rallies for `set1 / set2 / set3 / set4`, always rerun from the original video input end-to-end.
+- Do not build review-rally exports from reused intermediate JSON artifacts from earlier partial runs.
 - Run `scripts/check_timeline_regression.py` after each endpoint patch.
 - Never infer winner from body-language cues alone.
 - Winner inference must be constrained by rally-end evidence and score/state validation.

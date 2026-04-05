@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
+import cv2
 import numpy as np
 import torch
 
@@ -13,6 +14,20 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, save_rally_timeline
 from backend.ai_multistream_rally import detect_multistream_rallies, extract_multistream_signals
+
+
+def _probe_video_duration_sec(video_path: str) -> float:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return 0.0
+    try:
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+        if fps <= 0.0 or frame_count <= 0.0:
+            return 0.0
+        return float(frame_count / fps)
+    finally:
+        cap.release()
 
 
 def _smooth_and_normalize(values: List[float]) -> np.ndarray:
@@ -379,6 +394,34 @@ def _refine_endpoint_from_signals(
 
     def run_peak(arr: np.ndarray, run_start_idx: int, run_end_idx: int) -> float:
         return float(np.max(arr[run_start_idx : run_end_idx + 1]))
+
+    def slice_runs_between(
+        runs: list[tuple[int, int]],
+        *,
+        after_idx: int,
+        before_idx: int,
+    ) -> list[tuple[int, int]]:
+        clipped_runs: list[tuple[int, int]] = []
+        for run_start_idx, run_end_idx in runs:
+            if run_end_idx <= after_idx:
+                continue
+            if run_start_idx >= before_idx:
+                break
+            clipped_start_idx = max(run_start_idx, after_idx + 1)
+            clipped_end_idx = min(run_end_idx, before_idx - 1)
+            if clipped_start_idx <= clipped_end_idx:
+                clipped_runs.append((clipped_start_idx, clipped_end_idx))
+        return clipped_runs
+
+    def runs_total_duration_sec(runs: list[tuple[int, int]]) -> float:
+        return float(sum(run_duration_sec(run_start_idx, run_end_idx) for run_start_idx, run_end_idx in runs))
+
+    def runs_span_sec(runs: list[tuple[int, int]]) -> float:
+        if not runs:
+            return 0.0
+        first_start_idx = runs[0][0]
+        last_end_idx = runs[-1][1]
+        return float(interval_times[last_end_idx] - interval_times[first_start_idx] + sample_dt)
 
     def is_weak_tail_fragment(run_start_idx: int, run_end_idx: int) -> bool:
         run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
@@ -1143,7 +1186,135 @@ def _refine_endpoint_from_signals(
         if resume_found:
             continue
 
-        refined_end = float(np.clip(dead_start_t, safe_start + 0.01, safe_upper))
+        # Some rallies produce an early "dead" blip, then fragmented exchange
+        # activity, then a later stronger dead run. In those cases we should let
+        # the loop evaluate the later dead run instead of locking onto the first
+        # brief dip.
+        current_dead_short = bool(dead_duration_value <= max(0.45, 12.0 * sample_dt))
+        future_dead_scan_horizon_sec = min(2.85, max(1.25, 0.34 * interval_duration))
+        for future_dead_start_local, future_dead_end_local in dead_runs[dead_run_idx + 1 :]:
+            future_dead_start_t = float(interval_times[future_dead_start_local])
+            future_dead_gap_sec = future_dead_start_t - dead_end_t
+            if future_dead_gap_sec > future_dead_scan_horizon_sec:
+                break
+            if future_dead_start_t > baseline_end + sample_dt:
+                break
+
+            future_dead_duration_value = run_duration_sec(future_dead_start_local, future_dead_end_local)
+            future_dead_stronger = bool(
+                future_dead_duration_value >= max(0.60, dead_duration_value + max(0.20, 4.0 * sample_dt))
+                and terminal_reset_score[future_dead_start_local] >= (terminal_reset_score[dead_start_local] - 0.05)
+            )
+
+            bridge_exchange_runs = slice_runs_between(
+                exchange_runs,
+                after_idx=dead_end_local,
+                before_idx=future_dead_start_local,
+            )
+            bridge_total_duration = runs_total_duration_sec(bridge_exchange_runs)
+            bridge_span = runs_span_sec(bridge_exchange_runs)
+            if bridge_exchange_runs:
+                bridge_slice_start = bridge_exchange_runs[0][0]
+                bridge_slice_end = bridge_exchange_runs[-1][1]
+                bridge_ball_peak = run_peak(interval_ball, bridge_slice_start, bridge_slice_end)
+                bridge_table_peak = run_peak(interval_table, bridge_slice_start, bridge_slice_end)
+                bridge_live_peak = run_peak(interval_live, bridge_slice_start, bridge_slice_end)
+                bridge_interaction_peak = run_peak(interval_interaction, bridge_slice_start, bridge_slice_end)
+                bridge_effective_interaction_peak = run_peak(effective_interaction, bridge_slice_start, bridge_slice_end)
+            else:
+                bridge_ball_peak = 0.0
+                bridge_table_peak = 0.0
+                bridge_live_peak = 0.0
+                bridge_interaction_peak = 0.0
+                bridge_effective_interaction_peak = 0.0
+
+            fragmented_continuation = bool(
+                bridge_total_duration >= max(0.40, 10.0 * sample_dt)
+                and bridge_span >= max(0.60, 12.0 * sample_dt)
+                and (
+                    bridge_live_peak >= 0.52
+                    or bridge_table_peak >= 0.55
+                    or bridge_effective_interaction_peak >= 0.24
+                    or bridge_interaction_peak >= 0.32
+                )
+            )
+            stable_follow_on_dead = bool(
+                future_dead_gap_sec <= max(0.70, 16.0 * sample_dt)
+                and bridge_total_duration <= max(0.10, 3.0 * sample_dt)
+                and future_dead_duration_value >= max(1.40, dead_duration_value + max(0.70, 18.0 * sample_dt))
+            )
+            short_blip_before_later_dead = bool(
+                current_dead_short
+                and future_dead_gap_sec <= max(1.25, 30.0 * sample_dt)
+                and future_dead_stronger
+            )
+
+            if fragmented_continuation or stable_follow_on_dead or short_blip_before_later_dead:
+                resume_found = True
+                break
+
+        if resume_found:
+            continue
+
+        if not resume_found:
+            tail_exchange_runs = slice_runs_between(
+                exchange_runs,
+                after_idx=dead_end_local,
+                before_idx=len(exchange_mask),
+            )
+            next_dead_exists = any(next_dead_start_local > dead_end_local for next_dead_start_local, _ in dead_runs[dead_run_idx + 1 :])
+            if tail_exchange_runs and not next_dead_exists:
+                tail_first_gap_sec = float(interval_times[tail_exchange_runs[0][0]] - dead_end_t)
+                tail_total_duration = runs_total_duration_sec(tail_exchange_runs)
+                tail_span = runs_span_sec(tail_exchange_runs)
+                tail_slice_start = tail_exchange_runs[0][0]
+                tail_slice_end = tail_exchange_runs[-1][1]
+                tail_ball_peak = run_peak(interval_ball, tail_slice_start, tail_slice_end)
+                tail_table_peak = run_peak(interval_table, tail_slice_start, tail_slice_end)
+                tail_live_peak = run_peak(interval_live, tail_slice_start, tail_slice_end)
+                tail_interaction_peak = run_peak(interval_interaction, tail_slice_start, tail_slice_end)
+                tail_effective_interaction_peak = run_peak(effective_interaction, tail_slice_start, tail_slice_end)
+                tail_reset_mean = run_mean(interval_reset, tail_slice_start, tail_slice_end)
+                if (
+                    dead_duration_value >= max(2.00, 42.0 * sample_dt)
+                    and tail_first_gap_sec <= max(1.05, 30.0 * sample_dt)
+                    and tail_total_duration >= max(0.45, 12.0 * sample_dt)
+                    and tail_span >= max(0.55, 14.0 * sample_dt)
+                    and tail_ball_peak >= 0.60
+                    and tail_table_peak >= 0.55
+                    and tail_live_peak >= 0.45
+                    and (
+                        tail_effective_interaction_peak >= 0.20
+                        or tail_interaction_peak >= 0.32
+                    )
+                    and tail_reset_mean <= 0.68
+                ):
+                    resume_found = True
+
+        if resume_found:
+            continue
+
+        refined_dead_start_t = dead_start_t
+        if (
+            not strong_dead
+            and dead_duration_value >= max(0.80, 24.0 * sample_dt)
+            and interval_ball[dead_start_local] >= 0.18
+            and terminal_reset_score[dead_start_local] < 0.82
+        ):
+            max_shift_samples = max(1, int(round(0.40 / max(sample_dt, 1e-6))))
+            buffered_dead_start_local = dead_start_local
+            for probe_local in range(dead_start_local, min(dead_end_local, dead_start_local + max_shift_samples) + 1):
+                if (
+                    terminal_reset_score[probe_local] >= 0.84
+                    and interval_ball[probe_local] <= 0.18
+                    and interval_interaction[probe_local] <= 0.05
+                    and interval_table[probe_local] <= 0.08
+                ):
+                    buffered_dead_start_local = probe_local
+                    break
+            refined_dead_start_t = float(interval_times[buffered_dead_start_local])
+
+        refined_end = float(np.clip(refined_dead_start_t, safe_start + 0.01, safe_upper))
         dead_len = dead_end_local - dead_start_local + 1
         endpoint_confidence = float(
             np.clip(
@@ -1169,11 +1340,25 @@ def _refine_endpoint_from_signals(
                 mean_effective_interaction = run_mean(effective_interaction, run_start_local, run_end_local)
                 mean_reset = run_mean(interval_reset, run_start_local, run_end_local)
                 peak_live = run_peak(interval_live, run_start_local, run_end_local)
+                peak_ball = run_peak(interval_ball, run_start_local, run_end_local)
+                peak_table = run_peak(interval_table, run_start_local, run_end_local)
                 if (
                     run_duration_value >= max(0.10, 3.0 * sample_dt)
-                    and mean_effective_interaction >= 0.28
-                    and mean_reset <= 0.62
-                    and peak_live >= 0.45
+                    and (
+                        (
+                            mean_effective_interaction >= 0.28
+                            and mean_reset <= 0.62
+                            and peak_live >= 0.45
+                        )
+                        or (
+                            run_duration_value >= max(0.90, 22.0 * sample_dt)
+                            and mean_effective_interaction >= 0.20
+                            and mean_reset <= 0.50
+                            and peak_live >= 0.75
+                            and peak_ball >= 0.80
+                            and peak_table >= 0.70
+                        )
+                    )
                 ):
                     strong_open_tail_runs.append((run_start_local, run_end_local))
             if strong_open_tail_runs:
@@ -1928,6 +2113,7 @@ def build_rally_timeline(
         video_end_sec = float(signals.timestamps[-1])
     if segments:
         video_end_sec = float(max(video_end_sec, max(float(seg.t_end) for seg in segments)))
+    video_end_sec = float(max(video_end_sec, _probe_video_duration_sec(video_path)))
 
     points, excluded_let_starts, unattached_trailing_let_starts = _build_points_with_active_windows(
         segments,

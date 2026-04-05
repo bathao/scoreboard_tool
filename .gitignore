@@ -18,6 +18,7 @@ renders/
 debug_report/
 models/
 matches/checks/*.json
+matches/checks/*.pkl
 yolov8x_table.pt
 yolov8n-pose.pt
 yolov8x-pose.pt

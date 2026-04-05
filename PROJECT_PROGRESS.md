@@ -13,6 +13,120 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-05` (Set4 Endtime Reopened)
+### What Was Confirmed
+- `set4 did not regress from later code drift`
+  - a clean rerun from `Vinh_set4.mp4` with current code reproduced the same `set4` rally boundaries as the accepted checkpoint
+  - a clean rerun using historical commit `ddb0ba8` also reproduced the same early-ending points
+  - conclusion:
+    - the problem is in the accepted `set4` baseline itself, not a later regression
+
+### Fresh Debug Inputs
+- `set4 signal bundle was extracted for direct endpoint debugging`
+  - local artifact:
+    - `matches/checks/_set4_signals_current.pkl`
+- `raw detector end is often much later than refined end`
+  - strongest pattern:
+    - `dead_reset_run_start` is deciding `19/20` points
+  - several operator-flagged points showed strong continuation after the chosen dead run
+    - the continuation often failed only because of:
+      - `gap`
+      - `duration`
+      - `reset_mean`
+    - or because a later stronger dead run existed but the scorer locked onto the first short dead blip
+
+### Patch Attempt
+- `dead_reset_run_start now skips some early dead blips`
+  - new logic:
+    - if a short/early dead run is followed by fragmented continuation
+    - or by a later stronger dead run shortly after
+    - let the loop continue and evaluate the later dead run instead of returning immediately
+- `fresh rerun was executed from source video`
+  - output timeline:
+    - `matches/checks/Vinh_set4_rally_timeline_set4_endtime_debug_current.json`
+  - fresh full-rally review artifact:
+    - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current`
+    - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current/rally_clips.csv`
+
+### Current Result Of The Patch
+- `moved later on several operator-flagged points`
+  - `pt_0003: 28.762 -> 30.664`
+  - `pt_0004: 37.237 -> 39.740`
+  - `pt_0006: 82.449 -> 85.552`
+  - `pt_0008: 102.536 -> 105.238`
+  - `pt_0010: 135.469 -> 139.306`
+  - `pt_0011: 146.113 -> 151.685`
+  - `pt_0017: 223.223 -> 225.992`
+  - `pt_0019: 241.742 -> 243.410`
+- `did not move some flagged points yet`
+  - `pt_0013`
+  - `pt_0018`
+  - `pt_0020`
+- `also moved several points the operator did not flag yet`
+  - `pt_0002: 15.949 -> 21.488`
+  - `pt_0005: 58.859 -> 66.967`
+  - `pt_0007: 93.760 -> 98.432`
+  - `pt_0009: 127.361 -> 128.595`
+  - `pt_0014: 180.080 -> 184.584`
+- `operator review after the fresh batch`
+  - remaining early-end points are now only:
+    - `pt_0013`
+    - `pt_0018`
+    - `pt_0020`
+  - all other shifted points in the fresh batch are currently acceptable
+
+### Follow-up Patch (`v2`)
+- `pt_0013 / pt_0018 / pt_0020 were targeted with narrower fixes`
+  - `pt_0013`
+    - buffered the chosen dead-run start slightly inside the same dead run
+  - `pt_0018`
+    - allow a very long dead run to reopen if a strong late exchange tail appears before the next accepted point
+  - `pt_0020`
+    - use the true video duration instead of `signals.timestamps[-1]`
+    - relax open-tail strong-run selection for long final runs
+- `fresh rerun v2 from source video was completed`
+  - timeline:
+    - `matches/checks/Vinh_set4_rally_timeline_set4_endtime_debug_current_v2.json`
+  - review batch:
+    - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2`
+    - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2/rally_clips.csv`
+- `v2 changes versus the previous fresh batch`
+  - `pt_0012: 156.990 -> 157.224`
+  - `pt_0013: 168.268 -> 168.435`
+  - `pt_0018: 232.766 -> 239.840`
+  - `pt_0020: 260.093 -> 264.731`
+- `operator decision after reviewing v2`
+  - `set4 rallies ok`
+  - current code is accepted to use for fresh reruns on:
+    - `set1`
+    - `set2`
+    - `set3`
+
+### Current Diagnosis
+- `the current set4 endtime patch is accepted for the next review cycle`
+  - winner work stays paused
+  - next step is no longer more set4 debugging
+  - next step is fresh end-to-end reruns for:
+    - `set1`
+    - `set2`
+    - `set3`
+- `set4 now appears to have at least three endtime archetypes`
+  - `early dead blip followed by fragmented continuation`
+  - `early short dead blip followed by a later stronger dead run`
+  - `cases still not improved`
+    - likely different archetypes:
+      - `pt_0013`
+      - `pt_0018`
+      - `pt_0020`
+
+### Exact Resume Point
+- commit the current set4-accepted code
+- then rerun fresh from source video:
+  - `set1`
+  - `set2`
+  - `set3`
+- export full rally clips from those fresh runs for operator review
+
 ## Current Status
 - Date:
   - `2026-04-03`
@@ -686,6 +800,70 @@ Do not use this file as the long-term architecture spec.
 - use only:
   - `debug_report/Vinh_set4_frozen_full_rallies`
 - re-check and fix the accepted `set4` endtime baseline before resuming any winner work
+
+## Work Log - `2026-04-05` (Set4 Drift Check Against Accepted Commit)
+### Experiments That Passed
+- `set4 was rerun cleanly from the original video with the current code`
+  - command path:
+    - `scripts/generate_rally_timeline.py`
+  - input:
+    - `Vinh_set4.mp4`
+  - output:
+    - `matches/checks/Vinh_set4_rally_timeline_rerun_current_code.json`
+
+### Result
+- `the current rerun matched the accepted checkpoint exactly`
+  - compare target:
+    - commit `4e70e0f`
+    - file `matches/Vinh_set4_rally_timeline.json`
+  - diff result:
+    - `20/20` points match
+    - `diff_count = 0`
+  - fields checked:
+    - `t_start`
+    - `t_end`
+    - `active_start`
+    - `active_end`
+    - `search_upper_bound`
+    - `endpoint_mode`
+    - `starter_role`
+    - `preceding_let_count`
+
+### Interpretation
+- the current code has not drifted away from the previously accepted `set4` checkpoint
+- if the current full-rally review still looks early-ended, then the issue is no longer:
+  - `current code drift`
+- it is instead one of:
+  - the accepted `set4` baseline itself was wrong
+  - or the earlier operator acceptance missed those early-cut rallies
+
+## Work Log - `2026-04-05` (Historical Commit ddb0ba8 Rechecked)
+### Experiments That Passed
+- `set4 was also rerun fresh from the original video with historical commit ddb0ba8`
+  - review artifact:
+    - `debug_report/Vinh_set4_fresh_full_rallies_ddb0ba8`
+  - CSV:
+    - `debug_report/Vinh_set4_fresh_full_rallies_ddb0ba8/rally_clips.csv`
+
+### Result
+- `ddb0ba8 reproduces the same early-ending set4 rallies`
+- practical conclusion:
+  - `ddb0ba8` should no longer be treated as a trustworthy “correct set4 baseline”
+
+### Decision
+- stop winner work completely for now
+- return the project focus to `set4 endtime / rally boundary` debugging only
+
+## Work Log - `2026-04-05` (New Export Rule)
+### Rule Added
+- for any operator-requested rally export on `set1 / set2 / set3 / set4`:
+  - rerun from the original video input end-to-end
+  - do not reuse intermediate JSON from earlier partial runs
+
+### Consequence
+- the recent `set4` full-rally export should be treated only as a temporary diagnostic artifact
+  - it was built from the frozen timeline JSON
+  - so it does not satisfy the new stricter export rule
   - evidence image:
     - `debug_report/Vinh_set1_local_vlm_evidence_run3/pt_0001_winner_evidence_grid.jpg`
   - result with a simple descriptive prompt:

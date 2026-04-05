@@ -85,6 +85,11 @@ The production system should:
   - detector / tracker bugs -> detector / tracker design
   - state / score bugs -> state / score logic
   - rendering must not hide upstream failures
+- When the operator asks to export review rallies for `set1 / set2 / set3 / set4`, the export must be a clean end-to-end rerun:
+  - start from the original input video
+  - rerun the required pipeline stages from scratch
+  - produce the final rally clips from that fresh run
+  - do not reuse intermediate JSON artifacts from earlier partial runs
 - Always verify important claims and requests against the code in this repository before treating them as true.
 - A statement from the operator should be accepted as true only when:
   - it matches the current code
