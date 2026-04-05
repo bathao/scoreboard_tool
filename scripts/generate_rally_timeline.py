@@ -511,6 +511,38 @@ def _refine_endpoint_from_signals(
             )
         )
 
+    def is_strong_post_body_continuation_fragment(run_start_idx: int, run_end_idx: int) -> bool:
+        run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
+        mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
+        mean_live = run_mean(interval_live, run_start_idx, run_end_idx)
+        mean_effective_interaction = run_mean(effective_interaction, run_start_idx, run_end_idx)
+        mean_reset = run_mean(interval_reset, run_start_idx, run_end_idx)
+        peak_table = run_peak(interval_table, run_start_idx, run_end_idx)
+        peak_live = run_peak(interval_live, run_start_idx, run_end_idx)
+        peak_interaction = run_peak(interval_interaction, run_start_idx, run_end_idx)
+        return bool(
+            (
+                run_duration_value >= max(0.70, 22.0 * sample_dt)
+                and mean_effective_interaction >= 0.18
+                and mean_live >= 0.38
+                and mean_reset <= 0.58
+                and peak_live >= 0.58
+                and (
+                    mean_table >= 0.18
+                    or peak_table >= 0.30
+                    or peak_interaction >= 0.36
+                )
+            )
+            or (
+                run_duration_value >= max(0.45, 12.0 * sample_dt)
+                and mean_effective_interaction >= 0.20
+                and mean_reset <= 0.56
+                and peak_live >= 0.55
+                and peak_table >= 0.58
+                and peak_interaction >= 0.32
+            )
+        )
+
     def is_post_body_pseudo_live_fragment(run_start_idx: int, run_end_idx: int) -> bool:
         run_duration_value = run_duration_sec(run_start_idx, run_end_idx)
         mean_table = run_mean(interval_table, run_start_idx, run_end_idx)
@@ -561,6 +593,12 @@ def _refine_endpoint_from_signals(
             if body_peak < 0.58:
                 continue
 
+            body_mean_ball = run_mean(interval_ball, body_start_local, body_end_local)
+            body_mean_table = run_mean(interval_table, body_start_local, body_end_local)
+            body_mean_eff = run_mean(effective_interaction, body_start_local, body_end_local)
+            if body_mean_ball >= 0.32 or body_mean_table >= 0.16 or body_mean_eff >= 0.18:
+                continue
+
             prior_peak = float(prior_exchange_peak[body_start_local - 1]) if body_start_local > 0 else 0.0
             if prior_peak < 0.40:
                 continue
@@ -595,7 +633,8 @@ def _refine_endpoint_from_signals(
                     break
                 tail_run_start = max(run_start_local, body_start_local)
                 if (
-                    not is_weak_tail_fragment(tail_run_start, run_end_local)
+                    is_strong_post_body_continuation_fragment(tail_run_start, run_end_local)
+                    or not is_weak_tail_fragment(tail_run_start, run_end_local)
                     and not is_long_gap_pseudo_resume_fragment(
                         tail_run_start,
                         run_end_local,
@@ -675,7 +714,10 @@ def _refine_endpoint_from_signals(
                 tail_mean_table = run_mean(interval_table, tail_run_start, run_end_local)
                 if tail_mean_table >= 0.24:
                     saw_table_dominant_pseudo_tail = True
-                if not is_post_body_pseudo_live_fragment(tail_run_start, run_end_local):
+                if (
+                    is_strong_post_body_continuation_fragment(tail_run_start, run_end_local)
+                    or not is_post_body_pseudo_live_fragment(tail_run_start, run_end_local)
+                ):
                     pseudo_tail_only = False
                     break
 
@@ -993,6 +1035,27 @@ def _refine_endpoint_from_signals(
             resume_mean_ball_threshold = 0.14
             resume_reset_mean_threshold = 0.62
 
+        embedded_exchange_tail_end_local: int | None = None
+        overlap_horizon_sec = max(1.00, 24.0 * sample_dt)
+        for run_start_local, run_end_local in exchange_runs:
+            if run_end_local <= dead_start_local:
+                continue
+            run_start_t = float(interval_times[run_start_local])
+            if run_start_t - dead_start_t > overlap_horizon_sec:
+                break
+            overlap_start_local = max(run_start_local, dead_start_local)
+            overlap_duration_value = run_duration_sec(overlap_start_local, run_end_local)
+            if (
+                overlap_duration_value >= max(sample_dt, 0.03)
+                and run_peak(interval_live, overlap_start_local, run_end_local) >= 0.20
+                and (
+                    run_peak(interval_ball, overlap_start_local, run_end_local) >= 0.18
+                    or run_peak(interval_table, overlap_start_local, run_end_local) >= 0.12
+                )
+                and run_mean(interval_reset, overlap_start_local, run_end_local) <= 0.74
+            ):
+                embedded_exchange_tail_end_local = run_end_local
+
         resume_found = False
         for run_start_local, run_end_local in competitive_runs:
             if run_start_local <= dead_end_local:
@@ -1033,6 +1096,17 @@ def _refine_endpoint_from_signals(
                 and future_one_sided_mean <= 0.22
             ):
                 continue
+            if (
+                strong_dead
+                and run_duration_value >= max(0.28, 4.0 * sample_dt)
+                and future_ball_peak >= 0.30
+                and future_table_mean >= 0.42
+                and future_live_peak >= 0.50
+                and future_effective_interaction_mean >= 0.18
+                and future_reset_mean <= 0.58
+            ):
+                resume_found = True
+                break
             if (
                 run_duration_value >= resume_duration_sec
                 and future_peak >= resume_peak_threshold
@@ -1314,6 +1388,33 @@ def _refine_endpoint_from_signals(
                     break
             refined_dead_start_t = float(interval_times[buffered_dead_start_local])
 
+        if embedded_exchange_tail_end_local is not None and embedded_exchange_tail_end_local < dead_end_local:
+            delayed_dead_start_local = min(dead_end_local, embedded_exchange_tail_end_local + 1)
+            refined_dead_start_t = float(max(refined_dead_start_t, float(interval_times[delayed_dead_start_local])))
+
+        overlapping_competitive_continuation = False
+        overlap_comp_horizon_sec = max(1.00, 24.0 * sample_dt)
+        for run_start_local, run_end_local in competitive_runs:
+            if run_end_local <= dead_end_local:
+                continue
+            run_start_t = float(interval_times[run_start_local])
+            if run_start_t - dead_start_t > overlap_comp_horizon_sec:
+                break
+            overlap_start_local = max(run_start_local, dead_start_local)
+            overlap_duration_value = run_duration_sec(overlap_start_local, run_end_local)
+            if (
+                overlap_duration_value >= max(0.28, 4.0 * sample_dt)
+                and run_peak(interval_ball, overlap_start_local, run_end_local) >= 0.30
+                and run_peak(interval_table, overlap_start_local, run_end_local) >= 0.70
+                and run_peak(interval_live, overlap_start_local, run_end_local) >= 0.50
+                and run_mean(effective_interaction, overlap_start_local, run_end_local) >= 0.18
+                and run_mean(interval_reset, overlap_start_local, run_end_local) <= 0.60
+            ):
+                overlapping_competitive_continuation = True
+                break
+        if overlapping_competitive_continuation:
+            continue
+
         refined_end = float(np.clip(refined_dead_start_t, safe_start + 0.01, safe_upper))
         dead_len = dead_end_local - dead_start_local + 1
         endpoint_confidence = float(
@@ -1365,6 +1466,42 @@ def _refine_endpoint_from_signals(
                 selected_fallback_runs = strong_open_tail_runs
 
         _, last_live_local = selected_fallback_runs[-1]
+        if competitive_runs and terminal_body_runs:
+            last_run_start_local, last_run_end_local = selected_fallback_runs[-1]
+            last_run_table_peak = run_peak(interval_table, last_run_start_local, last_run_end_local)
+            last_run_interaction_peak = run_peak(interval_interaction, last_run_start_local, last_run_end_local)
+            for body_start_local, body_end_local in terminal_body_runs:
+                if body_end_local <= last_live_local:
+                    continue
+                if body_start_local > last_live_local + max(1, int(round(0.12 / max(sample_dt, 1e-6)))):
+                    break
+                body_duration_value = run_duration_sec(body_start_local, body_end_local)
+                body_mean_ball = run_mean(interval_ball, body_start_local, body_end_local)
+                body_mean_reset = run_mean(interval_reset, body_start_local, body_end_local)
+                body_mean_table = run_mean(interval_table, body_start_local, body_end_local)
+                body_mean_eff = run_mean(effective_interaction, body_start_local, body_end_local)
+                if (
+                    body_duration_value >= max(1.00, 28.0 * sample_dt)
+                    and body_mean_ball >= 0.45
+                    and body_mean_reset >= 0.62
+                    and body_mean_table <= 0.06
+                    and body_mean_eff <= 0.08
+                    and last_run_table_peak >= 0.85
+                    and last_run_interaction_peak >= 0.70
+                ):
+                    refined_end = float(np.clip(float(interval_times[body_end_local]), safe_start + 0.01, safe_upper))
+                    endpoint_confidence = float(
+                        np.clip(
+                            0.30
+                            + (0.18 * body_mean_ball)
+                            + (0.10 * body_mean_reset)
+                            + (0.12 * last_run_table_peak)
+                            + (0.10 * last_run_interaction_peak),
+                            0.24,
+                            0.86,
+                        )
+                    )
+                    return refined_end, "last_exchange_body_tail_end", endpoint_confidence
         refined_end = float(np.clip(float(interval_times[last_live_local]), safe_start + 0.01, safe_upper))
         endpoint_confidence = float(np.clip(0.24 + (0.62 * combined_live[last_live_local]), 0.20, 0.88))
         return refined_end, "last_exchange_support", endpoint_confidence

@@ -127,6 +127,199 @@ Do not use this file as the long-term architecture spec.
   - `set3`
 - export full rally clips from those fresh runs for operator review
 
+## Work Log - `2026-04-05` (Fresh Set1-3 Review Runs)
+### What Was Completed
+- `current set4-accepted code was committed`
+  - commit:
+    - `3ec0d2a`
+  - message:
+    - `Accept set4 rally endtime fixes`
+- `set1 / set2 / set3 were rerun fresh from original videos`
+  - `set1`
+    - timeline:
+      - `matches/checks/Vinh_set1_rally_timeline_fresh_review_current.json`
+    - total rallies:
+      - `14`
+  - `set2`
+    - timeline:
+      - `matches/checks/Vinh_set2_rally_timeline_fresh_review_current.json`
+    - total rallies:
+      - `19`
+  - `set3`
+    - timeline:
+      - `matches/checks/Vinh_set3_rally_timeline_fresh_review_current.json`
+    - total rallies:
+      - `18`
+- `full review clips were exported from those fresh runs`
+  - `set1`
+    - `debug_report/Vinh_set1_fresh_full_rallies_current`
+    - `debug_report/Vinh_set1_fresh_full_rallies_current/rally_clips.csv`
+  - `set2`
+    - `debug_report/Vinh_set2_fresh_full_rallies_current`
+    - `debug_report/Vinh_set2_fresh_full_rallies_current/rally_clips.csv`
+  - `set3`
+    - `debug_report/Vinh_set3_fresh_full_rallies_current`
+    - `debug_report/Vinh_set3_fresh_full_rallies_current/rally_clips.csv`
+
+### Exact Resume Point
+- operator should review the fresh full-rally batches:
+  - `set1`
+  - `set2`
+  - `set3`
+- next debugging cycle should follow operator feedback on those fresh exports
+
+## Work Log - `2026-04-05` (Set2/Set3 Endtime Follow-up)
+### Operator Feedback
+- fresh reruns still had three obvious early-end points:
+  - `set2 pt_0019`
+  - `set3 pt_0001`
+  - `set3 pt_0002`
+
+### Debug Diagnosis
+- `set3 pt_0002`
+  - `terminal_body_split_start` was still firing on body runs that overlapped real continuation
+  - the immediate post-body continuation around `31.465 -> 32.499` was being mislabeled as weak tail
+  - a later dead run around `37.304 -> 38.138` also overlapped a real late continuation run
+- `set3 pt_0001`
+  - `dead_reset_run_start` was starting inside an exchange that still ran past `6.139`
+  - the correct fix was not to skip to a much later dead run, but to delay the chosen dead start inside the same dead run past the embedded exchange blips
+- `set2 pt_0019`
+  - `last_exchange_support` was ending at the last competitive run even though a narrow body-supported tail persisted after it
+
+### Patch Summary
+- added a stronger guard against `terminal_body_split_start` on body runs whose own window still looks live
+- added a `strong_post_body_continuation` check so immediate post-body continuation is not treated as weak pseudo-tail
+- changed dead-run handling so embedded exchange blips within the chosen dead run delay the dead start instead of skipping to a much later dead run
+- added an overlap guard so a dead run is rejected when a strong competitive continuation still overlaps it
+- added a narrow `last_exchange_body_tail_end` fallback for the `set2 pt_0019` archetype
+
+### Fresh Rerun Result
+- reran fresh from source video again:
+  - `matches/checks/Vinh_set2_rally_timeline_endtime_followup_current.json`
+  - `matches/checks/Vinh_set3_rally_timeline_endtime_followup_current.json`
+- updated target points now land at:
+  - `set2 pt_0019: 203.737 -> 205.038`
+    - mode:
+      - `last_exchange_body_tail_end`
+  - `set3 pt_0001: 6.139 -> 7.074`
+    - mode:
+      - `dead_reset_run_start`
+  - `set3 pt_0002: 31.431 -> 38.372`
+    - mode:
+      - `last_exchange_support`
+
+### Review Artifact
+- targeted fresh clips from source video were exported for the three points only:
+  - `debug_report/targeted_set2_set3_endtime_followup_current`
+  - `debug_report/targeted_set2_set3_endtime_followup_current/rally_clips.csv`
+
+### Exact Resume Point
+- operator should review only:
+  - `set2 pt_0019`
+  - `set3 pt_0001`
+  - `set3 pt_0002`
+- if all three are accepted:
+  - expand review back to the fresh full-rally batches for `set2` and `set3`
+
+## Work Log - `2026-04-05` (Cross-Set Timing Verification After Follow-up Patch)
+### What Was Checked
+- reran fresh from source video again for all four sets with the current follow-up patch:
+  - `matches/checks/Vinh_set1_rally_timeline_post_followup_verify.json`
+  - `matches/checks/Vinh_set2_rally_timeline_post_followup_verify.json`
+  - `matches/checks/Vinh_set3_rally_timeline_post_followup_verify.json`
+  - `matches/checks/Vinh_set4_rally_timeline_post_followup_verify.json`
+- compared only `t_start / t_end` against the current review baselines
+
+### Result
+- `t_start`
+  - unchanged on all four sets
+- `t_end`
+  - changed on extra points outside the three target points, so the patch is not globally safe yet
+
+### Time Diff Summary
+- `set1`
+  - `pt_0005: 52.452 -> 52.753`
+  - `pt_0007: 69.336 -> 71.471`
+- `set2`
+  - `pt_0005: 36.270 -> 37.004`
+  - `pt_0008: 76.243 -> 76.576`
+  - `pt_0009: 86.386 -> 86.920`
+  - `pt_0016: 174.574 -> 174.941`
+  - `pt_0017: 186.820 -> 187.220`
+  - `pt_0019: 203.737 -> 205.038`
+- `set3`
+  - `pt_0001: 6.139 -> 7.074`
+  - `pt_0002: 31.431 -> 38.372`
+  - `pt_0008: 93.760 -> 94.628`
+  - `pt_0010: 126.393 -> 126.493`
+  - `pt_0013: 169.803 -> 170.337`
+- `set4`
+  - `pt_0001: 7.474 -> 8.408`
+  - `pt_0004: 39.740 -> 40.641`
+  - `pt_0007: 98.432 -> 99.166`
+  - `pt_0016: 202.402 -> 202.836`
+  - `pt_0017: 225.992 -> 226.660`
+
+### Conclusion
+- the follow-up patch fixed the three target points in the right direction
+- but it also pulled later on multiple non-target points across `set1..4`
+- current patch should be treated as a narrow debug branch, not the new global baseline
+
+## Work Log - `2026-04-05` (Fresh Full-Rally Exports After Follow-up Patch)
+### What Was Completed
+- reran all four sets fresh from source video again with the current follow-up patch:
+  - `matches/checks/Vinh_set1_rally_timeline_fresh_review_post_followup_full.json`
+  - `matches/checks/Vinh_set2_rally_timeline_fresh_review_post_followup_full.json`
+  - `matches/checks/Vinh_set3_rally_timeline_fresh_review_post_followup_full.json`
+  - `matches/checks/Vinh_set4_rally_timeline_fresh_review_post_followup_full.json`
+- exported fresh full-rally review clips from those new runs:
+  - `debug_report/Vinh_set1_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set2_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set3_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set4_fresh_full_rallies_post_followup_current`
+
+### Exact Resume Point
+- operator should review the fresh post-followup full-rally batches for:
+  - `set1`
+  - `set2`
+  - `set3`
+  - `set4`
+- next step should be decided from operator review of whether the current patch trends positive or negative overall
+
+## Work Log - `2026-04-05` (Temporary Freeze Of Current Set1-4 Timestamps)
+### Operator Decision
+- the current post-followup full-rally batches are now temporarily accepted as the working baseline
+- freeze the current rally timestamps for:
+  - `set1`
+  - `set2`
+  - `set3`
+  - `set4`
+- winner work remains paused
+
+### Freeze Action
+- copied the current fresh post-followup timelines into the canonical files:
+  - `matches/Vinh_set1_rally_timeline.json`
+  - `matches/Vinh_set2_rally_timeline.json`
+  - `matches/Vinh_set3_rally_timeline.json`
+  - `matches/Vinh_set4_rally_timeline.json`
+- regenerated the regression manifest from those canonical timelines:
+  - `matches/ground_truth/timeline_regression_suite.json`
+  - version:
+    - `2026-04-05`
+
+### Frozen Review Artifacts
+- keep only these full-rally review folders in `debug_report`:
+  - `debug_report/Vinh_set1_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set2_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set3_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set4_fresh_full_rallies_post_followup_current`
+
+### Exact Resume Point
+- boundary timestamps for `set1..4` are now frozen again at this temporary checkpoint
+- if work resumes later:
+  - start from this frozen checkpoint
+  - and treat any new boundary edit as a deliberate re-open of the baseline
+
 ## Current Status
 - Date:
   - `2026-04-03`

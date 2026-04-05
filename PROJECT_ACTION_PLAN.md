@@ -37,6 +37,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Latest pushed checkpoint:
   - commit `4e70e0f`
   - `Detect rallies correctly for all four reviewed sets`
+- Latest local checkpoint:
+  - commit `3ec0d2a`
+  - `Accept set4 rally endtime fixes`
 - Endpoint regression suite baseline:
   - `set1_frozen_full` = required no-regression suite
   - `set2_frozen_full` = required no-regression suite
@@ -44,8 +47,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `set4_frozen_full` = required no-regression suite
 - Current focus:
   - stop winner work completely for now
-  - current `set4` rally endtime patch is now operator-accepted
-  - use this code to rerun fresh full-rally exports for `set1 / set2 / set3`
+  - current post-followup rally timestamps for `set1..4` are temporarily accepted
+  - freeze the current `set1 / set2 / set3 / set4` rally timestamps before touching winner again
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -97,14 +100,22 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[done]` current `set4` rally endtime patch is operator-accepted for review use
 - `[done]` accepted current fresh `set4` review batch:
   - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2`
+- `[done]` current post-followup full-rally review batches are temporarily accepted:
+  - `debug_report/Vinh_set1_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set2_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set3_fresh_full_rallies_post_followup_current`
+  - `debug_report/Vinh_set4_fresh_full_rallies_post_followup_current`
+- `[done]` freeze the current post-followup rally timestamps into:
+  - `matches/Vinh_set1_rally_timeline.json`
+  - `matches/Vinh_set2_rally_timeline.json`
+  - `matches/Vinh_set3_rally_timeline.json`
+  - `matches/Vinh_set4_rally_timeline.json`
+  - `matches/ground_truth/timeline_regression_suite.json`
 
 ## Doing
 - `[doing]` pause winner work completely until rally endtime is trusted again
-- `[doing]` rerun `set1 / set2 / set3` fresh from source video with the current accepted code
-  - do not reuse older timeline JSON artifacts
-  - export full rally clips from the fresh runs for operator review
-- `[doing]` keep current `set4` accepted batch as the reference review artifact
-  - `debug_report/Vinh_set4_fresh_full_rallies_endtime_debug_current_v2`
+- `[doing]` keep winner work paused until the newly frozen `set1..4` boundary baseline is revisited deliberately
+- `[doing]` treat the current post-followup `set1..4` timelines as the temporary frozen timestamp baseline
 - `[doing]` treat current `winner_fusion_v2_layer_ab` as an unsuccessful research branch
   - keep it only as a reference baseline
   - do not spend the next cycle trying to rescue it with more threshold tuning

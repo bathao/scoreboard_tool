@@ -1,7 +1,7 @@
 {
-  "version": "2026-04-03",
+  "version": "2026-04-05",
   "notes": [
-    "All four reviewed sets are now frozen as required no-regression rally timeline suites.",
+    "All four reviewed sets are now frozen again after the latest endtime follow-up review.",
     "Winner and score work must preserve the accepted set1..4 rally boundaries."
   ],
   "suites": [
@@ -12,20 +12,76 @@
       "timeline_json": "matches/Vinh_set1_rally_timeline.json",
       "default_tolerance_sec": 0.05,
       "points": [
-        { "id": "pt_0001", "t_end": 9.175833702087402, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0002", "t_end": 12.879533767700195, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0003", "t_end": 29.629600524902344, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0004", "t_end": 38.405033111572266, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0005", "t_end": 47.981266021728516, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0006", "t_end": 57.8577995300293, "endpoint_mode": "ball_only_false_tail_start" },
-        { "id": "pt_0007", "t_end": 69.33592987060547, "endpoint_mode": "terminal_body_split_start" },
-        { "id": "pt_0008", "t_end": 74.80806732177734, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0009", "t_end": 85.68560028076172, "endpoint_mode": "post_body_pseudo_live_start" },
-        { "id": "pt_0010", "t_end": 95.6622314453125, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0011", "t_end": 113.0462646484375, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0012", "t_end": 128.4282989501953, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0013", "t_end": 140.03990173339844, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0014", "t_end": 150.51702880859375, "endpoint_mode": "dead_reset_run_start" }
+        {
+          "id": "pt_0001",
+          "t_end": 9.175833702087402,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0002",
+          "t_end": 17.617599487304688,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0003",
+          "t_end": 33.733699798583984,
+          "endpoint_mode": "last_exchange_support"
+        },
+        {
+          "id": "pt_0004",
+          "t_end": 38.405033111572266,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0005",
+          "t_end": 52.75270080566406,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0006",
+          "t_end": 57.8577995300293,
+          "endpoint_mode": "ball_only_false_tail_start"
+        },
+        {
+          "id": "pt_0007",
+          "t_end": 71.47139739990234,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0008",
+          "t_end": 74.80806732177734,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0009",
+          "t_end": 85.68560028076172,
+          "endpoint_mode": "post_body_pseudo_live_start"
+        },
+        {
+          "id": "pt_0010",
+          "t_end": 95.6622314453125,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0011",
+          "t_end": 118.28483581542969,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0012",
+          "t_end": 132.66586303710938,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0013",
+          "t_end": 143.61013793945312,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0014",
+          "t_end": 150.51702880859375,
+          "endpoint_mode": "dead_reset_run_start"
+        }
       ]
     },
     {
@@ -35,25 +91,101 @@
       "timeline_json": "matches/Vinh_set2_rally_timeline.json",
       "default_tolerance_sec": 0.05,
       "points": [
-        { "id": "pt_0001", "t_end": 3.4367666244506836, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0002", "t_end": 11.177833557128906, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0003", "t_end": 21.98863410949707, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0004", "t_end": 31.231199264526367, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0005", "t_end": 36.26956558227539, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0006", "t_end": 43.877166748046875, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0007", "t_end": 58.05799865722656, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0008", "t_end": 75.8424301147461, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0009", "t_end": 85.18509674072266, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0010", "t_end": 94.86143493652344, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0011", "t_end": 113.11299896240234, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0012", "t_end": 124.92479705810547, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0013", "t_end": 139.1056365966797, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0014", "t_end": 149.64950561523438, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0015", "t_end": 164.43093872070312, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0016", "t_end": 174.57440185546875, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0017", "t_end": 186.81996154785156, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0018", "t_end": 195.69549560546875, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0019", "t_end": 203.7368621826172, "endpoint_mode": "last_exchange_support" }
+        {
+          "id": "pt_0001",
+          "t_end": 5.038366794586182,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0002",
+          "t_end": 12.245566368103027,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0003",
+          "t_end": 24.491132736206055,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0004",
+          "t_end": 31.664966583251953,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0005",
+          "t_end": 37.003631591796875,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0006",
+          "t_end": 48.41503143310547,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0007",
+          "t_end": 58.05799865722656,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0008",
+          "t_end": 76.57649993896484,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0009",
+          "t_end": 86.920166015625,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0010",
+          "t_end": 94.86143493652344,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0011",
+          "t_end": 113.11299896240234,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0012",
+          "t_end": 130.8640594482422,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0013",
+          "t_end": 139.1056365966797,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0014",
+          "t_end": 154.5543975830078,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0015",
+          "t_end": 170.003173828125,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0016",
+          "t_end": 174.94143676757812,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0017",
+          "t_end": 187.22036743164062,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0018",
+          "t_end": 200.1666259765625,
+          "endpoint_mode": "last_exchange_support"
+        },
+        {
+          "id": "pt_0019",
+          "t_end": 205.0381622314453,
+          "endpoint_mode": "last_exchange_body_tail_end"
+        }
       ]
     },
     {
@@ -63,24 +195,96 @@
       "timeline_json": "matches/Vinh_set3_rally_timeline.json",
       "default_tolerance_sec": 0.05,
       "points": [
-        { "id": "pt_0001", "t_end": 6.139466762542725, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0002", "t_end": 31.431400299072266, "endpoint_mode": "terminal_body_split_start" },
-        { "id": "pt_0003", "t_end": 43.4100341796875, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0004", "t_end": 54.22083282470703, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0005", "t_end": 63.36330032348633, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0006", "t_end": 73.94053649902344, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0007", "t_end": 86.61986541748047, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0008", "t_end": 93.76033020019531, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0009", "t_end": 110.21009826660156, "endpoint_mode": "post_dead_plateau_start" },
-        { "id": "pt_0010", "t_end": 126.39293670654297, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0011", "t_end": 138.23809814453125, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0012", "t_end": 148.81533813476562, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0013", "t_end": 162.76260375976562, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0014", "t_end": 179.61276245117188, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0015", "t_end": 192.4589385986328, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0016", "t_end": 201.73486328125, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0017", "t_end": 228.9954376220703, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0018", "t_end": 237.40383911132812, "endpoint_mode": "dead_reset_run_start" }
+        {
+          "id": "pt_0001",
+          "t_end": 7.073733329772949,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0002",
+          "t_end": 38.371665954589844,
+          "endpoint_mode": "last_exchange_support"
+        },
+        {
+          "id": "pt_0003",
+          "t_end": 44.51113510131836,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0004",
+          "t_end": 57.157100677490234,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0005",
+          "t_end": 63.36330032348633,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0006",
+          "t_end": 83.01626586914062,
+          "endpoint_mode": "last_exchange_support"
+        },
+        {
+          "id": "pt_0007",
+          "t_end": 88.6885986328125,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0008",
+          "t_end": 94.62786865234375,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0009",
+          "t_end": 110.21009826660156,
+          "endpoint_mode": "post_dead_plateau_start"
+        },
+        {
+          "id": "pt_0010",
+          "t_end": 126.49303436279297,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0011",
+          "t_end": 138.9387969970703,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0012",
+          "t_end": 150.9174346923828,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0013",
+          "t_end": 170.3368377685547,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0014",
+          "t_end": 179.61276245117188,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0015",
+          "t_end": 195.96243286132812,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0016",
+          "t_end": 201.73486328125,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0017",
+          "t_end": 230.02980041503906,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0018",
+          "t_end": 238.4048309326172,
+          "endpoint_mode": "dead_reset_run_start"
+        }
       ]
     },
     {
@@ -90,26 +294,106 @@
       "timeline_json": "matches/Vinh_set4_rally_timeline.json",
       "default_tolerance_sec": 0.05,
       "points": [
-        { "id": "pt_0001", "t_end": 7.474133491516113, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0002", "t_end": 15.94926643371582, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0003", "t_end": 28.762065887451172, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0004", "t_end": 37.23720169067383, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0005", "t_end": 58.85879898071289, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0006", "t_end": 82.44903564453125, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0007", "t_end": 93.76033020019531, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0008", "t_end": 102.5357666015625, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0009", "t_end": 127.36056518554688, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0010", "t_end": 135.4686737060547, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0011", "t_end": 146.11264038085938, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0012", "t_end": 156.99017333984375, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0013", "t_end": 168.26809692382812, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0014", "t_end": 180.07989501953125, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0015", "t_end": 191.224365234375, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0016", "t_end": 202.40220642089844, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0017", "t_end": 223.22300720214844, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0018", "t_end": 232.765869140625, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0019", "t_end": 241.7415008544922, "endpoint_mode": "dead_reset_run_start" },
-        { "id": "pt_0020", "t_end": 260.0931701660156, "endpoint_mode": "last_exchange_support" }
+        {
+          "id": "pt_0001",
+          "t_end": 8.40839958190918,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0002",
+          "t_end": 21.48813247680664,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0003",
+          "t_end": 30.66396713256836,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0004",
+          "t_end": 40.64059829711914,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0005",
+          "t_end": 66.96690368652344,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0006",
+          "t_end": 85.55213165283203,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0007",
+          "t_end": 99.16573333740234,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0008",
+          "t_end": 105.23846435546875,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0009",
+          "t_end": 128.5951385498047,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0010",
+          "t_end": 139.3058319091797,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0011",
+          "t_end": 151.6848602294922,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0012",
+          "t_end": 157.22373962402344,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0013",
+          "t_end": 168.4349365234375,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0014",
+          "t_end": 184.5843963623047,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0015",
+          "t_end": 191.224365234375,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0016",
+          "t_end": 202.83596801757812,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0017",
+          "t_end": 226.65975952148438,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0018",
+          "t_end": 239.839599609375,
+          "endpoint_mode": "last_exchange_support"
+        },
+        {
+          "id": "pt_0019",
+          "t_end": 243.4098358154297,
+          "endpoint_mode": "dead_reset_run_start"
+        },
+        {
+          "id": "pt_0020",
+          "t_end": 264.73114013671875,
+          "endpoint_mode": "last_exchange_support"
+        }
       ]
     }
   ]
