@@ -123,6 +123,37 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `pairwise + composite tiebreak`
   - `ROI table x = 40%, y = 90%` as the main pass
   - current code config sampling
+- `[doing]` the latest cross-set check on `set3` is poor
+  - reviewed result is only about:
+    - `7/18`
+  - so `ROI x = 40%, y = 90%` cannot yet be treated as a reliable cross-set default even if it looked strong on `set4`
+- `[doing]` the denser `cfg420` sampling ablation on `set3` also failed to help
+  - same `ROI x = 40%, y = 90%`
+  - same full-rally input
+  - but with:
+    - `fps_sample = 4.0`
+    - `min_frames = 12`
+    - `max_frames = 20`
+    - `size_shortest_edge = 600`
+    - `max_pixels = 1572864`
+  - result:
+    - `winner_changes = 0` versus the previous `set3` batch
+- `[doing]` `augmented_v1` is now the most promising new winner direction for `4B`
+  - current POC:
+    - `green table box`
+    - `red ball trail`
+    - on top of `ROI x = 40%, y = 90%`
+  - on the four remaining wrong `set4` points it corrected:
+    - `pt_0015`
+    - `pt_0017`
+    - `pt_0018`
+  - and left only:
+    - `pt_0020`
+  - next useful expansion should start from `augmented_v1`, not from more raw sampling tweaks
+- `[doing]` do not over-trust the current in-script `augmented_v1` ball trail yet
+  - direct frame inspection shows the trail is cleaner than before
+  - but still not a truly trustworthy ball path
+  - next overlay work should prioritize trail correctness over winner score gains
 - `[doing]` comparative-composite prompt family is no longer the active direction
   - it collapsed toward `player_b / far`
   - keep it only as a logged failed ablation in `PROJECT_PROGRESS.md`

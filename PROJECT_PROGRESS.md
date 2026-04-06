@@ -344,6 +344,147 @@ Do not use this file as the long-term architecture spec.
 - keep the frozen `set1..4` rally timestamps unchanged
 - do not promote `8B` to default full-set use yet
 
+## Work Log - `2026-04-06` (`set3` Cross-Set Check for ROI X40 Y90)
+### What Was Run
+- reran winner inference on the frozen `set3` timeline with:
+  - `Qwen3-VL-4B-Instruct`
+  - full rally input
+  - `ROI x = 40%, y = 90%` as the main pass
+- output:
+  - `matches/checks/Vinh_set3_rally_timeline_winner_qwen3vl4b_roi40y90_fullrally.json`
+  - `debug_report/Vinh_set3_winner_qwen3vl4b_roi40y90_fullrally`
+
+### Result
+- raw prediction pattern was highly collapsed toward `far/player_b`:
+  - `16/18` picked `player_b`
+  - `2/18` picked `player_a`
+- operator review marked these points wrong:
+  - `pt_0001`
+  - `pt_0004`
+  - `pt_0006`
+  - `pt_0007`
+  - `pt_0009`
+  - `pt_0010`
+  - `pt_0012`
+  - `pt_0013`
+  - `pt_0014`
+  - `pt_0017`
+  - `pt_0018`
+- this means the current run is only about:
+  - `7/18`
+  - and should be treated as poor / not usable
+
+### Conclusion
+- `ROI x = 40%, y = 90%` helped the reviewed `set4` batch
+- but it does **not** generalize cleanly to `set3`
+- therefore the current `4B` config is still:
+  - `set4-local positive`
+  - but **not yet** a reliable cross-set main winner baseline
+
+## Work Log - `2026-04-06` (`set3` Dense Sampling Ablation)
+### What Was Run
+- reran the same frozen `set3` winner batch again, keeping:
+  - `Qwen3-VL-4B-Instruct`
+  - full rally input
+  - `ROI x = 40%, y = 90%`
+- but changing only the video sampling package to:
+  - `fps_sample = 4.0`
+  - `min_frames = 12`
+  - `max_frames = 20`
+  - `size_shortest_edge = 600`
+  - `max_pixels = 1572864`
+- output:
+  - `matches/checks/Vinh_set3_rally_timeline_winner_qwen3vl4b_roi40y90_cfg420_fullrally.json`
+  - `debug_report/Vinh_set3_winner_qwen3vl4b_roi40y90_cfg420_fullrally`
+
+### Result
+- winner predictions did not change at all versus the previous `set3` `ROI x40 / y90` batch:
+  - `winner_changes = 0`
+- the dense sampling package therefore produced no measurable improvement on this run
+
+### Conclusion
+- simply increasing:
+  - fps
+  - frame count
+  - pixel budget
+- is **not** fixing the current `set3` failure mode for `4B`
+- the blocker is likely downstream:
+  - prompt / reasoning pattern
+  - or set-specific bias
+  - not only sparse video sampling
+
+## Work Log - `2026-04-06` (Augmented Vision V1 Wrong-Point POC)
+### What Was Run
+- added a narrow `augmented_v1` mode into:
+  - `scripts/refine_rally_winners_native_video.py`
+- `augmented_v1` builds a main-pass clip with:
+  - `ROI x = 40%, y = 90%`
+  - green table box overlay
+  - red ball-trail overlay from a lightweight in-script tracker
+- then reran the four remaining wrong `set4` points only:
+  - `pt_0015`
+  - `pt_0017`
+  - `pt_0018`
+  - `pt_0020`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_qwen3vl4b_augv1_wrong4_probe.json`
+  - `debug_report/set4_wrong_augv1_review`
+
+### Result
+- `augmented_v1` corrected:
+  - `pt_0015`
+  - `pt_0017`
+  - `pt_0018`
+- `pt_0020` still stayed wrong
+- therefore this POC improved the previous wrong-4 subset from:
+  - `0/4`
+  - to `3/4`
+
+### Interpretation
+- this is the strongest evidence so far that `4B` benefits more from:
+  - explicit geometric overlays
+  - than from further raw-video sampling tweaks alone
+- `pt_0018` is especially important:
+  - it stayed wrong under multiple raw-video crop/tail experiments
+  - but flipped to correct under `augmented_v1`
+- `pt_0020` remains the main stubborn failure after this overlay pass
+
+### Review Artifact
+- cleaned review folder with both the original full rally and the actual augmented clip seen by the model:
+  - `debug_report/set4_wrong_augv1_review_clean`
+
+### Important Correction After Visual Inspection
+- the first `augmented_v1` overlay was **not yet a trustworthy true ball trail**
+- direct frame inspection showed the red trail still latching onto:
+  - player shoulder / torso motion
+  - and some implausible jumps
+- therefore the `3/4` result above should be treated only as:
+  - a promising POC signal
+  - not as proof that the current overlay tracker is correct
+
+## Work Log - `2026-04-06` (Augmented V1 Trail Tightening)
+### What Changed
+- tightened the in-script overlay tracker in:
+  - `scripts/refine_rally_winners_native_video.py`
+- added:
+  - extra whiteness / saturation filtering
+  - tighter trail-zone gating around the table
+  - jump suppression so the trail no longer connects huge implausible leaps
+
+### Result
+- on `pt_0018`, the augmented clip stayed winner-correct (`player_a`)
+- the trail became visibly cleaner than before
+- but it is still **not yet a true production-grade ball trail**
+  - it now looks more like short red fragments near the table
+  - not a full trustworthy ball path
+
+### Conclusion
+- `augmented_v1` is still promising
+- but the current in-script tracker remains too weak to be called a reliable ball-trail source
+- next real improvement would require:
+  - either a stronger dedicated ball center tracker
+  - or saving actual ball positions from upstream tracking for overlay reuse
+
 ## Work Log - `2026-04-05` (4B Winner Config Reframed)
 ### Operator Direction
 - keep `Qwen3-VL-4B-Instruct` as the active main winner model
