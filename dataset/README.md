@@ -2,6 +2,13 @@
 
 Root-level reviewed data and future train/eval collections live here.
 
+See also:
+- `DATASET_CONVENTIONS.md`
+  - naming rules
+  - folder layout
+  - reviewed label schema
+  - how to add more matches / sets
+
 Recommended structure:
 - `reviewed_matches/`
   - canonical reviewed assets grouped by `match_id` and `set_id`
