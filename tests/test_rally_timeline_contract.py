@@ -71,6 +71,9 @@ def test_rally_timeline_point_roundtrip_preserves_starter_role():
         winner_decision="auto",
         winner_reason="clear last shot",
         winner_model="Qwen3-VL-4B-Instruct",
+        winner_end_category="touched_but_out",
+        winner_loser_candidate="player_b",
+        winner_last_hitter_candidate="player_a",
         winner="unknown",
         confidence=0.8,
         flags=["player_only"],
@@ -94,4 +97,7 @@ def test_rally_timeline_point_roundtrip_preserves_starter_role():
     assert restored.winner_decision == "auto"
     assert restored.winner_reason == "clear last shot"
     assert restored.winner_model == "Qwen3-VL-4B-Instruct"
+    assert restored.winner_end_category == "touched_but_out"
+    assert restored.winner_loser_candidate == "player_b"
+    assert restored.winner_last_hitter_candidate == "player_a"
 

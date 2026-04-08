@@ -49,6 +49,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - keep the current post-followup rally timestamps for `set1..4` frozen
   - resume winner detection using `Transformers native-video`
   - use `Qwen3-VL-4B-Instruct` as the main model
+  - pass the full frozen rally clip into the winner model
   - only escalate to `Qwen3-VL-8B-Instruct` on hard rallies after `4B` custom config is exhausted
 
 ## Done
@@ -119,10 +120,225 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[doing]` use `Qwen3-VL-4B-Instruct` as the active main path for winner work
 - `[doing]` treat `Qwen3-VL-8B-Instruct` as escalation only for hard rallies after `4B`
 - `[doing]` the current main task is to improve `4B` config/customization before spending more time on `8B`
+- `[doing]` latest clean `set4` rerun now starts from raw `Vinh_set4.mp4`, regenerates rally timeline fresh, then runs winner refine on that new JSON only
+  - fresh raw timeline:
+    - `matches/checks/Vinh_set4_rally_timeline_fromraw_20260408.json`
+  - fresh winner batch:
+    - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_augv1_fullrally_20260408.json`
+  - review clips:
+    - `debug_report/Vinh_set4_winner_fromraw_augv1_fullrally_20260408`
+  - boundary check against frozen `matches/Vinh_set4_rally_timeline.json`:
+    - `0` diffs in `t_start / t_end`
 - `[doing]` active `4B` main branch is now:
   - `pairwise + composite tiebreak`
   - `ROI table x = 40%, y = 90%` as the main pass
   - current code config sampling
+  - full frozen rally input to the winner model
+  - latest raw-rerun result on reviewed `set4`:
+    - `13/20`
+- `[doing]` the current wrong-point analysis shows the real blocker is winner-logic instability, not rally-boundary drift
+  - on fresh `set4`:
+    - `augv1` batch = `13/20`
+    - `no-overlay` batch = `12/20`
+  - but they disagree on `11` rallies and those disagreements are highly informative
+  - latest `dual4b` check:
+    - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_dual4b_20260408.json`
+    - `9` rallies agree
+    - `11` rallies disagree
+    - merged result with `augv1` as the primary branch = `13/20`
+  - current read:
+    - `dual4b` is useful as a hard-case detector
+    - it is not yet a stronger automatic resolver than `augv1` alone
+  - latest positive probe on the disagreement bucket:
+    - `pt_0001` was corrected by a side-by-side dual-view arbiter:
+      - left = `raw ROI`
+      - right = `augmented_v1`
+  - latest follow-up read:
+    - the same dual-view arbiter also returned `player_b / far` on:
+      - `pt_0002`
+      - `pt_0004`
+      - `pt_0005`
+    - it was right on the far-win cases:
+      - `pt_0001`
+      - `pt_0004`
+    - and wrong on the near-win cases:
+      - `pt_0002`
+      - `pt_0005`
+    - so the current side-by-side arbiter looks `far`-biased and is not yet safe to promote
+    - the more symmetric structured version of that dual-view prompt also stayed `far`-biased
+    - so the current blocker is not only prompt wording
+  - a `raw main + augv1 PiP` variant also failed
+    - it still over-committed to `player_b / far`
+    - and even broke `pt_0001`
+  - `augmented_v2` is now implemented as a cleaner overlay experiment:
+    - hollow markers
+    - discrete time colors
+    - soft confidence alpha
+  - first four-point probe did not improve the current hard sample:
+    - only `1/4` correct on:
+      - `pt_0001`
+      - `pt_0002`
+      - `pt_0004`
+      - `pt_0005`
+  - latest evidence-only A/B probe is now more promising than the recent overlay/layout variants:
+    - new `table_only` main-pass view
+    - kept:
+      - `4B`
+      - full frozen rally
+      - existing pairwise + composite tiebreak
+    - changed only:
+      - the main crop to `table-only`
+    - four-point hard-sample probe result:
+      - `4/4` on:
+        - `pt_0001`
+        - `pt_0002`
+        - `pt_0004`
+        - `pt_0005`
+    - next honest check:
+      - run the same `table_only` config on full `set4`
+  - keep `8B` out of the active next loop for now
+  - full `set4` follow-up on that exact `table_only` config is now done:
+    - fresh rerun from raw video
+    - boundary diffs versus frozen `set4` = `0`
+    - winner result only:
+      - `10/20`
+    - so `table_only` is another strong local probe that does not generalize cleanly across full `set4`
+  - a less aggressive `table + upper-body` crop now looks more promising on the current hard follow-up:
+    - `pt_0007` and `pt_0008`
+  - current read from that probe:
+    - crop alone is not enough
+    - but on the same `table-upper` clip, a direct one-shot `Who won?` prompt outperformed the current `A?/B? + tiebreak` flow
+  - next honest check:
+    - test `table-upper + direct winner prompt` on a wider `set4` subset before another full-set run
+- `[doing]` category-based winner schema is now implemented end-to-end
+  - each point can now store:
+    - `winner_end_category`
+    - `winner_loser_candidate`
+    - `winner_last_hitter_candidate`
+  - new prompt family:
+    - `category_schema_direct`
+  - current taxonomy:
+    - `clean_winner_no_touch`
+    - `touched_but_out`
+    - `touched_but_no_net_cross`
+    - `attacker_direct_out`
+    - `attacker_into_net`
+    - `double_bounce_before_return`
+    - `ball_hits_player_or_body`
+    - `ball_hits_non_racket_object`
+    - `illegal_or_mishit_return`
+    - `blocked_by_visibility`
+    - `ambiguous_review`
+  - first `set4` probe proves the schema wiring works
+  - but the first category prompt is still too biased toward:
+    - `player_b wins / player_a attacked out`
+  - operator-confirmed taxonomy anchors now exist for `set4 pt_0001 .. pt_0009`
+  - use those anchors as the first real category-tuning target before trying to generalize the category prompt further
+  - two category-prompt tuning passes were tried directly on `set4 pt_0001 .. pt_0009`
+  - current result is still weak:
+    - `rules_v2`: winner `5/9`, category `1/9`
+    - `anchor4`: winner `5/9`, category `2/9`
+  - a repaired taxonomy-first prompt family is now added:
+    - `category_schema_taxonomy_first_anchor4`
+  - important parser fix:
+    - quoted JSON fields from the model output are now parsed correctly
+  - latest benchmark on the same reviewed `set4 pt_0001 .. pt_0009` anchors:
+    - winner `7/9`
+    - category `3/9`
+    - both `2/9`
+  - current read:
+    - this is the strongest category-path winner result so far
+    - but taxonomy is still collapsing too often to `touched_but_out`
+  - latest primitive probe on the two remaining winner errors:
+    - `pt_0001`
+    - `pt_0004`
+  - result:
+    - the model still misreads who touched the final ball
+    - and that error survives both:
+      - `table + upper-body`
+      - broader `ROI`
+  - current read:
+    - the next gain is unlikely to come from more taxonomy wording alone
+    - the next gain likely requires stronger final-touch evidence
+  - `augmented_v2 + touchprobe` was then tested as a stronger final-touch evidence branch
+  - small positive local signal:
+    - it corrected the winner on:
+      - `pt_0001`
+      - `pt_0004`
+  - but on the full reviewed anchor subset `pt_0001 .. pt_0009` it regressed overall:
+    - winner `4/9`
+    - category `3/9`
+    - both `2/9`
+  - current read:
+    - `augmented_v2` can rescue isolated hard cases
+    - but it still collapses too strongly toward:
+      - `player_b`
+      - `touched_but_out`
+  - a standalone `multi-slice final-touch probe` is now built:
+    - `scripts/probe_multislice_touch_native_video.py`
+  - first probe on:
+    - `pt_0001`
+    - `pt_0004`
+    shows that overlapping slices reveal more local variation
+  - but naive slices alone are not enough:
+    - late slices can still be dominated by dead-tail noise or ambiguous post-point motion
+  - current read:
+    - the next gain likely requires a slice-ranking / candidate-event proposal layer
+  - first slice-ranking layer is now added on top of that probe
+  - current read:
+    - it helps expose better local candidates
+    - but one single `best_slice` is still too brittle
+  - next likely gain:
+    - keep the top `2` candidate slices
+    - then run a second-stage verifier only on those candidates
+  - that second-stage verifier is now added
+  - current read from the first conflict-aware probe:
+    - `pt_0001` is recovered by choosing the latest agreeing candidate
+    - `pt_0004` is recovered by falling back to stage 1 when stage 2 candidates disagree
+  - this is a meaningful local win on the first two-point probe
+  - but the full anchor expansion on:
+    - `pt_0001 .. pt_0009`
+    regressed back to only:
+    - `stage1 = 4/9`
+    - `stage2 = 3/9`
+    - `stage3 = 4/9`
+  - stage 3 fixed:
+    - `pt_0001`
+    - `pt_0007`
+    but broke:
+    - `pt_0008`
+    - `pt_0009`
+  - current read:
+    - `agreeing_latest` is over-rewarding later touch candidates on several rallies
+    - so this branch is still useful for analysis, not yet for promotion
+  - current bottleneck:
+    - the model still confuses
+      - `touched_but_out`
+      - `touched_but_no_net_cross`
+      - `attacker_direct_out`
+  - latest honest extension from the `7/9` anchor subset is now done:
+    - first new point:
+      - `pt_0010`
+      - result:
+        - winner `player_a / near`
+        - taxonomy `touched_but_out`
+      - this is wrong because reviewed `pt_0010` is `far-win`
+    - full `set4` with the same exact baseline:
+      - `winner_prompt_family = category_schema_taxonomy_first_anchor4`
+      - `main_pass_view = table_only`
+      - `table_only_x_margin_ratio = 0.25`
+      - `table_only_top_margin_ratio = 0.8`
+      - `table_only_bottom_margin_ratio = 0.35`
+      - full frozen rally input
+      - result:
+        - `10/20`
+      - boundary check versus frozen `set4`:
+        - `0` diffs
+      - collapse pattern:
+        - taxonomy = `touched_but_out` on all `20/20` rallies
+    - current read:
+      - the anchor `7/9` result does not generalize to full `set4`
+      - the current taxonomy-first baseline is still the best anchor benchmark, but not yet a viable full-set winner path
 - `[doing]` the latest cross-set check on `set3` is poor
   - reviewed result is only about:
     - `7/18`
@@ -138,6 +354,42 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - `max_pixels = 1572864`
   - result:
     - `winner_changes = 0` versus the previous `set3` batch
+- `[doing]` a supervised `set4` taxonomy dataset scaffold now exists for benchmark + few-shot use
+  - canonical reviewed set bundle:
+    - `dataset/reviewed_matches/match_vinh_001/set_04`
+  - full frozen rally clips:
+    - `dataset/reviewed_matches/match_vinh_001/set_04/clips`
+  - full set labels:
+    - `dataset/reviewed_matches/match_vinh_001/set_04/labels.jsonl`
+  - reviewed few-shot seed file:
+    - `dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
+  - dataset registry:
+    - `dataset/registry.json`
+  - current label coverage:
+    - all `20/20` rallies now have reviewed winner labels
+    - all `20/20` rallies now also have reviewed taxonomy labels
+  - refreshed few-shot seed:
+    - now curated to cover the active taxonomy families with both near-win and far-win examples where possible
+  - use this dataset first for:
+    - benchmark
+    - prompt few-shot examples
+  - do not treat it as enough data for weight fine-tuning yet
+  - first prompt-time few-shot attempt is now tested:
+    - `winner_prompt_family = category_schema_taxonomy_first_anchor4_fewshot`
+    - `winner_fewshot_path = dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
+    - leave-one-out per point
+  - result:
+    - anchor `pt_0001 .. pt_0009` dropped to:
+      - winner `3/9`
+      - taxonomy `3/9`
+      - both `1/9`
+    - full `set4` ended at:
+      - winner `10/20`
+      - taxonomy collapsed to `touched_but_out` on `20/20`
+      - boundary diffs = `0`
+  - current read:
+    - naive prompt-time few-shot with only `set4` examples is overfitting to a single taxonomy pattern
+    - keep the dataset, but do not promote this first few-shot prompt branch
 - `[doing]` `augmented_v1` is now the most promising new winner direction for `4B`
   - current POC:
     - `green table box`
@@ -191,10 +443,10 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `pt_0018` still stays wrong and is now the clearest hard-case candidate
 - `[doing]` operator accepted `ROI x = 40%, y = 90%` as the next main default framing for `4B`
   - keep `8B` only as escalation for stubborn hard cases like `pt_0018`
-- `[doing]` do not trust the raw full-rally clip as winner input when `t_end` still contains a late dead tail
-  - some rallies currently reach the model as `12-13s` clips even though the point visibly ended `4-5s` earlier
-  - simply making only the last few seconds denser will not fix those cases if the model is still fed a stale post-point tail
-  - winner input must be an adaptive decision window built on top of the frozen rally, not a blind full-rally pass and not a blind fixed-tail crop
+- `[doing]` do not crop winner input away from the frozen rally boundaries in the active branch
+  - winner inference must receive the full frozen rally clip from `t_start -> t_end`
+  - if late dead tail remains a problem, fix that later via better rally boundaries or a separate hard-case strategy
+  - do not reintroduce `2/3` or adaptive winner-window cutting in the current main flow
 - `[doing]` immediate `set4` objective is to beat the current weak `4B` reference batch before any selective `8B` escalation
   - current best reviewed `4B` batch is:
     - `debug_report/Vinh_set4_winner_qwen3vl4b_fullrally_pairwise_tiebreak_full`
@@ -214,6 +466,11 @@ Put detailed explanations, experiments, failures, and resume notes in:
 ## Todo
 - `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
 - `[todo]` keep winner inference strictly downstream of the frozen `set1..4` timestamp checkpoint
+- `[todo]` find a better `4B` disagreement resolver than:
+  - always trusting `augv1`
+  - always trusting `raw`
+- `[todo]` test a side-by-side `raw + augmented_v1` arbiter on more of the `set4` disagreement bucket
+- `[todo]` if the side-by-side arbiter is kept, redesign it so it does not collapse toward `player_b / far`
 - `[todo]` build `score progression` on top of accepted rallies + inferred winners
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
 - `[todo]` start correction / UI flow only after rally + winner + score are usable
@@ -228,6 +485,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path
 - `[deferred]` do not spend the main next cycle on full-set `8B` runs until the `4B` path is tuned first
+- `[deferred]` do not use `8B` as the automatic resolver for current `4B` disagreement cases in this cycle
 - `[deferred]` do not keep the old `pairwise yes/no + tiebreak` prompt family as the assumed long-term winner design
 
 ## Rejected

@@ -13,6 +13,1236 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-08` (Taxonomy-First Anchor4 Prompt Repair)
+### Operator Direction
+- keep taxonomy as a model output, not a hard-coded code mapping
+- let the model commit to:
+  - `winner`
+  - `loser`
+  - `taxonomy`
+  - `last_hitter`
+- use code only to parse/store and flag contradictions
+
+### What Was Changed
+- updated:
+  - `scripts/refine_rally_winners_native_video.py`
+- added a new prompt family:
+  - `category_schema_taxonomy_first_anchor4`
+- this prompt:
+  - asks the model to choose taxonomy first
+  - keeps only the four reviewed taxonomy labels plus `ambiguous_review`
+  - returns strict JSON with:
+    - `taxonomy`
+    - `loser`
+    - `winner`
+    - `last_hitter`
+    - primitive yes/no fields
+- also fixed a real parser bug:
+  - the extractor now correctly reads quoted JSON fields such as:
+    - `"winner":"player_b"`
+    - `"loser":"player_a"`
+  - before this fix, the script was often reading the wrong player from the raw JSON string
+
+### What Was Verified
+- compile passes:
+  - `scripts/refine_rally_winners_native_video.py`
+- contract tests still pass:
+  - `tests/test_rally_timeline_contract.py`
+
+### Benchmark
+- reran on the operator-labeled `set4` anchor subset:
+  - `pt_0001 .. pt_0009`
+- config:
+  - `main_pass_view = table_only`
+  - `table_only_x_margin_ratio = 0.25`
+  - `table_only_top_margin_ratio = 0.8`
+  - `table_only_bottom_margin_ratio = 0.35`
+  - full frozen rally input
+  - `winner_mode = single`
+  - `winner_prompt_family = category_schema_taxonomy_first_anchor4`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_taxfirst_anchor4_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_taxfirst_anchor4_pt0001_0009_20260408`
+
+### Result
+- winner:
+  - `7/9`
+- taxonomy:
+  - `3/9`
+- winner + taxonomy both correct:
+  - `2/9`
+
+### Current Read
+- the parser bug fix mattered a lot:
+  - winner rose from the earlier `5/9` anchor-category runs to `7/9`
+- but taxonomy is still collapsing too often to:
+  - `touched_but_out`
+- so the current bottleneck has shifted:
+  - winner quality improved
+  - taxonomy discrimination is still weak
+
+## Work Log - `2026-04-08` (Taxonomy-First Anchor4 Extended To Pt_0010 And Full Set4)
+### Goal
+- test whether the repaired `taxonomy-first` anchor baseline can extend beyond:
+  - `pt_0001 .. pt_0009`
+
+### What Was Run
+- single-point extension:
+  - `pt_0010`
+- then full `set4`
+- config kept exactly the same as the anchor benchmark:
+  - `winner_mode = single`
+  - `winner_prompt_family = category_schema_taxonomy_first_anchor4`
+  - `main_pass_view = table_only`
+  - `table_only_x_margin_ratio = 0.25`
+  - `table_only_top_margin_ratio = 0.8`
+  - `table_only_bottom_margin_ratio = 0.35`
+  - `main_pass_overlay = none`
+  - full frozen rally input
+- outputs:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_taxfirst_anchor4_pt0010_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_taxfirst_anchor4_pt0010_20260408`
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_taxfirst_anchor4_fullset4_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_taxfirst_anchor4_fullset4_20260408`
+
+### Result
+- `pt_0010`
+  - predicted:
+    - `winner = player_a`
+    - `taxonomy = touched_but_out`
+  - reviewed truth:
+    - `winner = player_b`
+  - so the first extension point already failed
+- full `set4`
+  - winner:
+    - `10/20`
+  - taxonomy:
+    - `touched_but_out` on all `20/20`
+  - wrong winner points:
+    - `pt_0001`
+    - `pt_0004`
+    - `pt_0010`
+    - `pt_0011`
+    - `pt_0013`
+    - `pt_0014`
+    - `pt_0015`
+    - `pt_0017`
+    - `pt_0018`
+    - `pt_0020`
+- boundary verification:
+  - `0` diffs versus frozen `matches/Vinh_set4_rally_timeline.json`
+
+### Current Read
+- the repaired taxonomy-first branch is still the best anchor benchmark:
+  - `7/9`
+- but it does not generalize beyond the reviewed anchor subset
+- the real failure mode is now explicit:
+  - taxonomy collapses completely to:
+    - `touched_but_out`
+- this means the branch is useful as a controlled benchmark
+- but it is not yet a viable full-set main path
+- future improvements should be judged against:
+  - `7/9` on the anchor subset
+  - and must also avoid collapsing to one taxonomy on full `set4`
+
+## Work Log - `2026-04-08` (Set4 Gold Taxonomy Dataset Scaffold)
+### Operator Direction
+- start turning reviewed `set4` rallies into a reusable dataset rather than keeping the labels only in free-text notes
+- use `set4` first as:
+  - gold benchmark
+  - prompt few-shot seed
+- do not jump straight into weight fine-tuning from only one reviewed set
+
+### What Was Added
+- new files:
+  - `dataset/reviewed_matches/match_vinh_001/set_04/labels.jsonl`
+  - `dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
+  - `dataset/reviewed_matches/match_vinh_001/set_04/clips/pt_0001.mp4 .. pt_0020.mp4`
+  - `dataset/reviewed_matches/match_vinh_001/match_meta.json`
+  - `dataset/registry.json`
+
+### Dataset Schema
+- each JSONL row currently stores:
+  - `id`
+  - `t_start`
+  - `t_end`
+  - `winner`
+  - `loser`
+  - `taxonomy`
+  - `last_hitter`
+  - `winner_label_status`
+  - `taxonomy_label_status`
+  - `source`
+  - `note`
+
+### Current Label Coverage
+- `dataset/reviewed_matches/match_vinh_001/set_04/labels.jsonl`
+  - all `20/20` rallies now have reviewed winner labels
+  - all `20/20` rallies now have reviewed taxonomy labels
+- `dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
+  - refreshed into a curated seed set that covers:
+    - `clean_winner_no_touch`
+    - `touched_but_out`
+    - `touched_but_no_net_cross`
+    - `attacker_direct_out`
+    - `attacker_into_net`
+  - and includes both near-win and far-win examples where available
+
+### Current Read
+- this is the right first step for a data-centric loop
+- it gives the project:
+  - a stable reviewed benchmark
+  - a reusable few-shot seed
+  - a clean reviewed set4 dataset that is now complete for this split
+  - paired full-rally video assets for future training / eval
+- it is still not enough by itself for model weight fine-tuning across sets
+- the next data-centric gains should come from:
+  - wiring the few-shot seed into the taxonomy-first prompt path
+  - then repeating the same dataset-building process for `set1 .. set3`
+
+## Work Log - `2026-04-08` (Prompt-Time Few-Shot From Set4 Seed)
+### Goal
+- test whether the new reviewed `set4` seed file can improve taxonomy-first prompting without changing model weights
+
+### What Was Changed
+- updated:
+  - `scripts/refine_rally_winners_native_video.py`
+- added:
+  - `winner_prompt_family = category_schema_taxonomy_first_anchor4_fewshot`
+  - `--winner-fewshot-path`
+  - `--winner-fewshot-max-examples`
+- the prompt now:
+  - loads reviewed examples from JSONL
+  - excludes the current point id from the few-shot block
+  - injects reviewed examples directly into the taxonomy-first prompt
+ - default few-shot dataset path now points at:
+   - `dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
+
+### Verification
+- compile passes:
+  - `scripts/refine_rally_winners_native_video.py`
+- tests still pass:
+  - `tests/test_rally_timeline_contract.py`
+
+### Benchmarks
+- anchor subset:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_taxfirst_anchor4_fewshot_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_taxfirst_anchor4_fewshot_pt0001_0009_20260408`
+- full set4:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_taxfirst_anchor4_fewshot_fullset4_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_taxfirst_anchor4_fewshot_fullset4_20260408`
+
+### Result
+- anchor `pt_0001 .. pt_0009`
+  - winner:
+    - `3/9`
+  - taxonomy:
+    - `3/9`
+  - winner + taxonomy both correct:
+    - `1/9`
+- full `set4`
+  - winner:
+    - `10/20`
+  - taxonomy:
+    - `touched_but_out` on all `20/20`
+  - boundary diffs versus frozen `set4`:
+    - `0`
+
+### Current Read
+- the first prompt-time few-shot attempt is worse than the repaired no-few-shot anchor baseline:
+  - `7/9`
+- this looks like prompt-time overfitting:
+  - the model is copying the dominant pattern from the few-shot block
+  - and collapsing back to:
+    - `touched_but_out`
+- so the dataset itself is still valuable
+- but this first naive few-shot prompt is not safe to promote
+- the real next data-centric step is likely:
+  - more varied reviewed data from `set1 .. set3`
+  - or a more structured retrieval strategy instead of dumping a block of examples into the prompt
+
+## Work Log - `2026-04-08` (Primitive Final-Touch Probe On Set4 Pt_0001 Pt_0004)
+### Goal
+- test whether the remaining `pt_0001` and `pt_0004` errors are still caused by prompt wording
+- isolate the primitive:
+  - who touched the final ball
+
+### What Was Tried
+- added a narrower prompt family in:
+  - `scripts/refine_rally_winners_native_video.py`
+  - `category_schema_touchprobe_topbottom_anchor4`
+- this prompt asks only for:
+  - `top_touched_final_ball`
+  - `bottom_touched_final_ball`
+  - `final_touch_position`
+  - then taxonomy / loser / winner
+
+### Result On `table + upper-body`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_touchprobe_topbottom_pt0001_pt0004_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_touchprobe_topbottom_pt0001_pt0004_20260408`
+- `pt_0001`:
+  - model still says:
+    - `top_touched_final_ball = yes`
+    - `bottom_touched_final_ball = no`
+- `pt_0004`:
+  - model still says:
+    - `top_touched_final_ball = yes`
+    - `bottom_touched_final_ball = no`
+
+### ROI Cross-Check
+- reran the same primitive probe on a broader ROI crop:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_touchprobe_roi_pt0001_pt0004_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_touchprobe_roi_pt0001_pt0004_20260408`
+- result stayed effectively the same on both points
+
+### Current Read
+- this is now a stronger conclusion than the earlier prompt-family experiments
+- for `pt_0001` and `pt_0004`, the model is failing already at the primitive perception level:
+  - it is misreading who touched the final ball
+- and that failure persists across:
+  - taxonomy-first wording
+  - top/bottom wording
+  - `table + upper-body` crop
+  - broader ROI crop
+- so the next likely gain will not come from more taxonomy wording alone
+- the next likely gain must come from stronger evidence about the final touch:
+  - better overlay / ball-aware evidence
+  - or a separate final-touch detector/verifier
+
+## Work Log - `2026-04-08` (Augmented_V2 Touchprobe Recheck)
+### Why This Was Tried
+- after the raw primitive probes failed on:
+  - `pt_0001`
+  - `pt_0004`
+- the next cheapest test was:
+  - keep the same touchprobe prompt
+  - switch the evidence to `augmented_v2`
+
+### Small Positive Signal
+- on:
+  - `pt_0001`
+  - `pt_0004`
+- outputs:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_touchprobe_augv2_pt0001_pt0004_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_touchprobe_augv2_pt0001_pt0004_20260408`
+- read:
+  - `pt_0001` flips to the correct winner
+  - `pt_0004` also flips to the correct winner
+  - taxonomy is still wrong on `pt_0004`
+
+### Full Anchor Check
+- expanded the same branch to:
+  - `pt_0001 .. pt_0009`
+- outputs:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_touchprobe_augv2_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_touchprobe_augv2_pt0001_0009_20260408`
+- result against the current anchor truth:
+  - winner `4/9`
+  - taxonomy `3/9`
+  - both `2/9`
+
+### Current Read
+- `augmented_v2` can rescue isolated hard cases
+- but as a broader branch it still collapses too strongly toward:
+  - `player_b`
+  - `touched_but_out`
+- so it is useful as a local clue, not yet as a stable default
+
+## Work Log - `2026-04-08` (Multi-Slice Final-Touch Probe)
+### Why This Was Tried
+- the operator correctly called out that a tiny final-touch crop is not feasible if the real point-ending moment is unknown
+- so the next practical experiment was:
+  - cover the full rally with overlapping slices
+  - ask only for primitive touch evidence in each slice
+
+### What Was Built
+- added a standalone probe script:
+  - `scripts/probe_multislice_touch_native_video.py`
+- current probe setup:
+  - full frozen rally
+  - `table + upper-body` crop via:
+    - `table_only_x_margin_ratio = 0.25`
+    - `table_only_top_margin_ratio = 0.8`
+    - `table_only_bottom_margin_ratio = 0.35`
+  - overlapping windows:
+    - `slice_sec = 2.5`
+    - `slice_stride_sec = 1.25`
+- output:
+  - `matches/checks/Vinh_set4_multislice_touchprobe_pt0001_pt0004_20260408.json`
+  - `debug_report/Vinh_set4_multislice_touchprobe_pt0001_pt0004_20260408`
+
+### Result
+- `pt_0001`
+  - later slices still say:
+    - `latest_touch_position = top`
+- `pt_0004`
+  - slice results are mixed:
+    - some windows say `latest_touch_position = top`
+    - one later window says `latest_touch_position = bottom`
+
+### Current Read
+- naive overlapping slices do surface more local variation than one full-clip answer
+- but they do not yet solve the problem by themselves
+- the remaining issue is:
+  - the last few slices can still contain dead-tail noise or ambiguous post-point motion
+  - so the model may still report a misleading late touch
+- next likely gain:
+  - not more prompt changes
+  - but a better slice-ranking or candidate-event proposal layer before asking the verifier
+
+## Work Log - `2026-04-08` (Slice Ranking / Candidate-Event Proposal Layer)
+### What Was Added
+- updated:
+  - `scripts/probe_multislice_touch_native_video.py`
+- the probe now assigns each slice a:
+  - `candidate_event_score`
+- and stores a proposed:
+  - `best_slice`
+
+### Raw Multi-Slice Ranking
+- output:
+  - `matches/checks/Vinh_set4_multislice_touchprobe_pt0001_pt0004_20260408.json`
+- current best slices:
+  - `pt_0001 -> slice_02 -> latest_touch_position = top`
+  - `pt_0004 -> slice_03 -> latest_touch_position = top`
+- read:
+  - this helps `pt_0004`
+  - but still leaves `pt_0001` wrong
+
+### Augmented_V2 Multi-Slice Ranking
+- output:
+  - `matches/checks/Vinh_set4_multislice_touchprobe_augv2_pt0001_pt0004_20260408.json`
+- read:
+  - `pt_0001` now contains a later slice with:
+    - `latest_touch_position = bottom`
+  - but the current ranking still prefers an earlier `top` slice
+  - `pt_0004` also contains both `top` and later `bottom` candidates
+
+### Current Read
+- the candidate-event layer is useful:
+  - it exposes multiple plausible touch moments instead of forcing one full-clip answer
+- but the simple ranking heuristic is still not enough to separate:
+  - real final touch
+  - late dead-tail / post-point touch-like noise
+- next likely gain:
+  - a conflict-aware proposal layer
+  - or a second-stage verifier only on the top `2` candidate slices rather than a single `best_slice`
+
+## Work Log - `2026-04-08` (Conflict-Aware Stage 2 On Top-2 Candidate Slices)
+### What Was Added
+- updated:
+  - `scripts/probe_multislice_touch_native_video.py`
+- the probe now keeps:
+  - `best_slice` from stage 1
+  - `stage2_candidates` for the top `2` slices
+  - `best_slice_stage2`
+  - `best_slice_stage3`
+- stage 2 asks:
+  - does this candidate slice contain the actual point-ending touch
+  - or is it post-point noise
+- stage 3 uses a simple conflict-aware chooser:
+  - if stage 1 and stage 2 agree on the touch position, keep the latest agreeing slice
+  - if there is no agreeing candidate, fall back to stage 1
+
+### Probe Result
+- output:
+  - `matches/checks/Vinh_set4_multislice_touchprobe_augv2_stage2_pt0001_pt0004_20260408.json`
+  - `debug_report/Vinh_set4_multislice_touchprobe_augv2_stage2_pt0001_pt0004_20260408`
+- `pt_0001`
+  - stage 3 picks:
+    - `slice_03`
+    - `latest_touch_position = bottom`
+  - this matches the reviewed read better than the earlier single best-slice choice
+- `pt_0004`
+  - stage 3 falls back to stage 1:
+    - `slice_02`
+    - `latest_touch_position = top`
+  - that is also the better reviewed read for this point
+
+### Current Read
+- the new conflict-aware layer is the first probe in this branch that handles both:
+  - `pt_0001`
+  - `pt_0004`
+- this is still only a two-point probe
+- but it is a meaningful improvement over:
+  - single full-clip touch prompts
+  - single best-slice ranking
+
+## Work Log - `2026-04-08` (Conflict-Aware Stage 3 Expanded To Set4 Pt_0001..Pt_0009)
+### Goal
+- check whether the local success on:
+  - `pt_0001`
+  - `pt_0004`
+  generalizes to the reviewed anchor subset:
+  - `pt_0001 .. pt_0009`
+
+### What Was Run
+- expanded:
+  - `scripts/probe_multislice_touch_native_video.py`
+- config:
+  - full frozen rally
+  - `main_pass_view = roi`
+  - `main_pass_overlay = augmented_v2`
+  - `roi x = 40%`
+  - `roi y = 90%`
+  - `slice_sec = 2.5`
+  - `slice_stride_sec = 1.25`
+  - `stage2_top_k = 2`
+- output:
+  - `matches/checks/Vinh_set4_multislice_touchprobe_augv2_stage3_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_multislice_touchprobe_augv2_stage3_pt0001_0009_20260408`
+
+### Result
+- expected final-touch positions from the reviewed taxonomy anchors:
+  - `pt_0001 = bottom`
+  - `pt_0002 = top`
+  - `pt_0003 = top`
+  - `pt_0004 = top`
+  - `pt_0005 = top`
+  - `pt_0006 = bottom`
+  - `pt_0007 = top`
+  - `pt_0008 = bottom`
+  - `pt_0009 = bottom`
+- measured accuracy:
+  - `stage1 = 4/9`
+  - `stage2 = 3/9`
+  - `stage3 = 4/9`
+- `stage3` helped on:
+  - `pt_0001`
+  - `pt_0007`
+- but `stage3` also harmed:
+  - `pt_0008`
+  - `pt_0009`
+- final `stage3` correct points:
+  - `pt_0001`
+  - `pt_0004`
+  - `pt_0006`
+  - `pt_0007`
+
+### Current Read
+- the local `pt_0001 / pt_0004` win does not generalize cleanly
+- `agreeing_latest` is currently over-rewarding later candidate slices
+- the failure mode is now clearer:
+  - late agreeing slices often look plausible
+  - but they can still represent dead-tail or post-point motion rather than the real final event
+- so the current multi-slice branch is still valuable as an analysis tool
+- it is not yet strong enough to replace the current better winner baseline:
+  - `category_schema_taxonomy_first_anchor4 = 7/9` winner on the same anchor subset
+
+## Work Log - `2026-04-08` (Winner Input Reset To Full Frozen Rally)
+### Operator Direction
+- remove winner-window cutting from the active native-video path
+- pass the full frozen rally clip into the winner model
+- do not let winner work rewrite or reinterpret the frozen `t_start / t_end`
+
+### What Was Verified
+- current frozen `set3` still matches the regression suite exactly:
+  - `DIFF_COUNT = 0`
+- the recent winner batch:
+  - `matches/checks/Vinh_set3_rally_timeline_winner_augv1_current.json`
+  preserved the frozen rally boundaries exactly:
+  - `WINNER_BOUNDARY_DIFFS = 0`
+
+### Root Cause Of The Confusion
+- the recent `augv1` review clips were not changing the frozen boundaries
+- the confusion came from the active winner script still building a winner-view subclip on longer rallies
+- so:
+  - `__full.mp4` matched frozen `t_start -> t_end`
+  - but the model-view clip could still look cut because it was derived from the old winner-window rule
+
+### What Was Changed
+- updated:
+  - `scripts/refine_rally_winners_native_video.py`
+- the winner clip builder now always returns:
+  - `t_start -> t_end`
+- legacy CLI options remain for backward compatibility:
+  - `--window-ratio`
+  - `--full-rally-threshold-sec`
+  - `--min-window-sec`
+  - `--max-window-sec`
+- but they are now deprecated and ignored by the active full-rally logic
+
+### Current Read
+- the active winner path is now simpler and less confusing:
+  - frozen rally boundaries stay frozen
+  - winner model sees the full frozen rally
+- if some rallies still carry too much dead tail, that is now clearly a boundary-quality problem or a later hard-case optimization problem
+- it is no longer hidden behind an extra winner-window crop layer
+
+## Work Log - `2026-04-08` (Table-Only Crop Probe On Set4 Hard Sample)
+### Operator Direction
+- do the next cheapest evidence-only A/B test
+- keep:
+  - `Qwen3-VL-4B`
+  - full frozen rally input
+  - existing pairwise + composite tiebreak logic
+- change only the main evidence view:
+  - crop to table-only instead of the broader ROI view
+
+### What Was Changed
+- updated:
+  - `scripts/refine_rally_winners_native_video.py`
+- added a new main-pass view:
+  - `table_only`
+- current probe config:
+  - horizontal table margin = `0.2`
+  - top margin above table = `0.2`
+  - bottom margin below table = `0.0`
+
+### What Was Run
+- kept the fresh raw `set4` timeline:
+  - `matches/checks/Vinh_set4_rally_timeline_fromraw_20260408.json`
+- ran a focused winner probe on:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_tableonly_probe_4pts_20260408.json`
+- review clips:
+  - `debug_report/Vinh_set4_winner_tableonly_probe_4pts_20260408`
+
+### Result
+- the `table_only` probe hit:
+  - `4/4`
+- predictions:
+  - `pt_0001 -> player_b`
+  - `pt_0002 -> player_a`
+  - `pt_0004 -> player_b`
+  - `pt_0005 -> player_a`
+
+### Current Read
+- this is the strongest small-sample improvement since the fresh raw `set4` rerun
+- unlike the recent overlay/layout experiments, this one improved the hard sample without changing prompt family or model size
+- the likely gain comes from reducing body-language bias and forcing the model to look more directly at table-physics evidence
+- this is still only a `4`-point probe
+- the next honest check is:
+  - expand `table_only` to full `set4`
+  - before promoting it as a broader `4B` default
+
+## Work Log - `2026-04-08` (Full Set4 Rerun With Table-Only Main Pass)
+### What Was Run
+- reran `set4` fresh from raw:
+  - `Vinh_set4.mp4`
+- fresh timeline:
+  - `matches/checks/Vinh_set4_rally_timeline_fromraw_tableonly_full_20260408.json`
+- then ran winner refine on that fresh timeline with:
+  - `Qwen3-VL-4B-Instruct`
+  - `main_pass_view = table_only`
+  - `main_pass_overlay = none`
+  - `table_only_x_margin_ratio = 0.2`
+  - `table_only_top_margin_ratio = 0.2`
+  - `table_only_bottom_margin_ratio = 0.0`
+- winner output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_tableonly_full_20260408.json`
+- review clips:
+  - `debug_report/Vinh_set4_winner_fromraw_tableonly_full_20260408`
+
+### Boundary Verification
+- compared the fresh rerun timeline against:
+  - `matches/Vinh_set4_rally_timeline.json`
+- result:
+  - `BOUNDARY_DIFFS = 0`
+
+### Winner Result Against Reviewed Set4 Labels
+- full-set result:
+  - `10/20`
+- predicted distribution:
+  - `near = 7`
+  - `far = 13`
+- wrong points:
+  - `pt_0007`
+  - `pt_0008`
+  - `pt_0011`
+  - `pt_0012`
+  - `pt_0015`
+  - `pt_0016`
+  - `pt_0017`
+  - `pt_0018`
+  - `pt_0019`
+  - `pt_0020`
+
+### Current Read
+- the `table_only` crop looked excellent on the first front-cluster probe:
+  - `pt_0001 .. pt_0005`
+- but it did not generalize across the full reviewed `set4`
+- so this is now another example of:
+  - a strong local probe
+  - but a weak full-set default
+
+## Work Log - `2026-04-08` (Set4 Pt_0007 Pt_0008 Table-Upper Prompt Check)
+### Why This Was Tested
+- `table_only` failed badly on:
+  - `pt_0007`
+  - `pt_0008`
+- operator review clarified those are two clearly different near-win patterns:
+  - `pt_0007`: far shot fails to cross the net
+  - `pt_0008`: near hits a clean winner that far cannot reach
+
+### What Was Tested
+- built a less aggressive crop:
+  - table + upper-body context
+  - `x = 0.25`
+  - `top = 0.8`
+  - `bottom = 0.35`
+- first ran the existing pairwise+tiebreak flow on:
+  - `pt_0007`
+  - `pt_0008`
+- then asked a simpler direct prompt on the same crop:
+  - `Who won this rally?`
+
+### Result
+- with the current pairwise+tiebreak flow:
+  - `pt_0007 -> player_b` wrong
+  - `pt_0008 -> player_a` correct
+- with the simpler one-shot direct winner prompt on the same `table-upper` clip:
+  - `pt_0007 -> player_a` correct
+  - `pt_0008 -> player_a` correct
+
+### Current Read
+- for this crop, the prompt family now looks like the main bottleneck
+- the current `A?/B? + T?` flow can still mis-resolve a clear near-win like `pt_0007`
+- but a direct winner prompt on the same evidence can recover it
+- next honest check should be:
+  - test `table-upper + direct winner prompt` on a slightly wider `set4` subset
+  - before promoting it to a full-set rerun
+
+## Work Log - `2026-04-08` (Category Schema Added To Winner Output)
+### Operator Direction
+- stop thinking only in terms of `winner`
+- make the system classify each rally into an end-category so later fixes can target that category without disturbing unrelated cases
+
+### What Was Changed
+- updated contract:
+  - `backend/rally_timeline_contract.py`
+- each point can now store:
+  - `winner_end_category`
+  - `winner_loser_candidate`
+  - `winner_last_hitter_candidate`
+- updated winner runner:
+  - `scripts/refine_rally_winners_native_video.py`
+- added a new prompt family:
+  - `--winner-prompt-family category_schema_direct`
+
+### Current Category Taxonomy
+- `clean_winner_no_touch`
+- `touched_but_out`
+- `touched_but_no_net_cross`
+- `attacker_direct_out`
+- `attacker_into_net`
+- `double_bounce_before_return`
+- `ball_hits_player_or_body`
+- `ball_hits_non_racket_object`
+- `illegal_or_mishit_return`
+- `blocked_by_visibility`
+- `ambiguous_review`
+
+### What Was Verified
+- compile passes for:
+  - `backend/rally_timeline_contract.py`
+  - `scripts/refine_rally_winners_native_video.py`
+- `tests/test_rally_timeline_contract.py`:
+  - `3 passed`
+
+### First Probe
+- tested on representative `set4` points:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0007`
+  - `pt_0008`
+- used:
+  - `table + upper-body` crop
+  - `winner_prompt_family = category_schema_direct`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_probe_4pts_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_probe_4pts_20260408`
+
+### First Result
+- the schema fields are now populated correctly in JSON
+- but the model is still not classifying these four points well enough yet
+- current outputs were:
+  - `pt_0001 -> winner=player_b, loser=player_a, last_hitter=player_b, category=attacker_direct_out`
+  - `pt_0002 -> winner=player_b, loser=player_a, last_hitter=player_a, category=clean_winner_no_touch`
+  - `pt_0007 -> winner=player_b, loser=player_a, last_hitter=player_b, category=attacker_direct_out`
+  - `pt_0008 -> winner=player_b, loser=player_a, last_hitter=player_b, category=attacker_direct_out`
+
+### Current Read
+- category schema is now implemented end-to-end
+- this is useful even before accuracy is good, because:
+  - operator feedback can now target category labels directly
+  - later code can branch by category without inventing a new schema first
+- but the first prompt still collapses too hard toward:
+  - `player_b wins because player_a attacked out`
+- so the next work is no longer "add schema"
+- the next work is:
+  - make the category prompt actually discriminate the reviewed situations better
+
+### Operator-Confirmed Set4 Category Anchors So Far
+- `pt_0001`
+  - winner: `player_b / far`
+  - taxonomy: `touched_but_out`
+  - note:
+    - near touched the ball but sent it out
+- `pt_0002`
+  - winner: `player_a / near`
+  - taxonomy: `attacker_direct_out`
+  - note:
+    - far attacked out directly
+- `pt_0003`
+  - winner: `player_a / near`
+  - taxonomy: `touched_but_no_net_cross`
+  - note:
+    - far touched the ball but did not cross the net
+- `pt_0004`
+  - winner: `player_b / far`
+  - taxonomy: `clean_winner_no_touch`
+  - note:
+    - far hit a clean winner and near could not touch the ball
+- `pt_0005`
+  - winner: `player_a / near`
+  - taxonomy: `touched_but_out`
+  - note:
+    - far touched the ball but sent it out
+- `pt_0006`
+  - winner: `player_b / far`
+  - taxonomy: `touched_but_out`
+  - note:
+    - far attacked well, near touched the ball but sent it out
+- `pt_0007`
+  - winner: `player_a / near`
+  - taxonomy: `touched_but_no_net_cross`
+  - note:
+    - far touched the ball but did not cross the net
+- `pt_0008`
+  - winner: `player_a / near`
+  - taxonomy: `clean_winner_no_touch`
+  - note:
+    - near hit a clean winner and far could not touch the ball
+- `pt_0009`
+  - winner: `player_b / far`
+  - taxonomy: `attacker_direct_out`
+  - note:
+    - near attacked out directly
+
+## Work Log - `2026-04-08` (Category Prompt Tuning On Set4 Pt_0001..Pt_0009)
+### Goal
+- optimize the new category-based winner path directly against the first operator-confirmed `set4` anchors:
+  - `pt_0001 .. pt_0009`
+
+### Prompt Family Test 1
+- prompt family:
+  - `category_schema_rules_v2`
+- crop:
+  - `table + upper-body`
+  - `x = 0.25`
+  - `top = 0.8`
+  - `bottom = 0.35`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_rulesv2_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_rulesv2_pt0001_0009_20260408`
+- result against the current `pt_0001 .. pt_0009` anchors:
+  - winner: `5/9`
+  - category: `1/9`
+  - both correct together: `1/9`
+
+### Prompt Family Test 2
+- prompt family:
+  - `category_schema_anchor4`
+- this reduced the candidate category set to only the four currently seen in the anchor set:
+  - `clean_winner_no_touch`
+  - `touched_but_out`
+  - `touched_but_no_net_cross`
+  - `attacker_direct_out`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_category_anchor4_pt0001_0009_20260408.json`
+  - `debug_report/Vinh_set4_winner_category_anchor4_pt0001_0009_20260408`
+- result against the current `pt_0001 .. pt_0009` anchors:
+  - winner: `5/9`
+  - category: `2/9`
+  - both correct together: `1/9`
+
+### Current Read
+- narrowing the category set helped category accuracy slightly:
+  - from `1/9` to `2/9`
+- but it did not improve winner accuracy:
+  - still `5/9`
+- the dominant remaining confusion is:
+  - `touched_but_out`
+  - vs `touched_but_no_net_cross`
+  - vs `attacker_direct_out`
+- so the category-based path is now wired and benchmarked, but not yet tuned well enough to replace the earlier winner-only flows
+
+## Work Log - `2026-04-08` (Fresh Set4 Winner Rerun From Raw Video)
+### Operator Direction
+- start again from raw `set4` video input
+- do not reuse any older timeline JSON artifact
+- rerun the full set before reviewing winner quality further
+
+### What Was Run
+- generated a fresh rally timeline directly from:
+  - `Vinh_set4.mp4`
+- command path:
+  - `scripts/generate_rally_timeline.py`
+- fresh timeline output:
+  - `matches/checks/Vinh_set4_rally_timeline_fromraw_20260408.json`
+- then ran native-video winner refine only on that fresh JSON:
+  - `scripts/refine_rally_winners_native_video.py`
+  - `Qwen3-VL-4B-Instruct`
+  - `main_pass_overlay = augmented_v1`
+  - full frozen rally input
+- fresh winner output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_augv1_fullrally_20260408.json`
+- review clips:
+  - `debug_report/Vinh_set4_winner_fromraw_augv1_fullrally_20260408`
+
+### Boundary Verification
+- compared the fresh raw rerun against:
+  - `matches/Vinh_set4_rally_timeline.json`
+- result:
+  - `BOUNDARY_DIFFS = 0`
+- so the current raw rerun still reproduces the frozen `set4` boundaries exactly
+
+### Winner Result Against Current Reviewed Set4 Labels
+- current result:
+  - `13/20`
+- mismatches:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0003`
+  - `pt_0004`
+  - `pt_0008`
+  - `pt_0011`
+  - `pt_0020`
+
+### Current Read
+- this rerun removed the ambiguity about stale intermediate JSON
+- the boundary layer is still stable on `set4`
+- the remaining problem is winner quality, not a hidden boundary drift during the winner pass
+
+## Work Log - `2026-04-08` (Dual-4B Disagreement Run On Fresh Set4)
+### Operator Direction
+- do not use `8B` for the active next step
+- keep the current winner work on `4B`
+- try the best next improvement without reintroducing cropped winner windows
+
+### What Was Run
+- kept the fresh raw timeline:
+  - `matches/checks/Vinh_set4_rally_timeline_fromraw_20260408.json`
+- ran two `4B` winner branches on the same full frozen rally input:
+  - `raw / no-overlay`
+  - `augmented_v1`
+- wrote the merged result to:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_dual4b_20260408.json`
+- exported review clips to:
+  - `debug_report/Vinh_set4_winner_fromraw_dual4b_20260408`
+
+### Result
+- dual batch overall:
+  - `13/20`
+- branch agreement split:
+  - `9` rallies agreed
+  - `11` rallies disagreed
+- agreed subset quality:
+  - `7/9` correct
+- disagreed subset quality:
+  - `raw` branch correct on `5/11`
+  - `augv1` branch correct on `6/11`
+
+### Current Read
+- this did not beat the current `augmented_v1` single-branch result:
+  - `augv1` alone = `13/20`
+  - `dual4b` with `augv1` as primary branch = `13/20`
+- but it surfaced something useful:
+  - the two `4B` views are complementary
+  - they disagree on `11` rallies
+  - and those `11` rallies are now the clearest hard-case bucket
+- the disagreement bucket is currently more valuable as a triage signal than as an automatic winner resolver
+
+### Wrong Points In The Dual Batch
+- `pt_0001`
+- `pt_0002`
+- `pt_0003`
+- `pt_0004`
+- `pt_0008`
+- `pt_0011`
+- `pt_0020`
+
+### Resume Point
+- keep `8B` out of the main loop for now
+- keep winner input as full frozen rally
+- use the `dual4b` disagreement set as the next focused debug surface
+- do not assume that simply preferring `raw` or `augv1` globally will improve the full set
+
+## Work Log - `2026-04-08` (Set4 Pt_0001 Dual-View Arbiter Probe)
+### Why This Was Tested
+- `pt_0001` is a representative hard case:
+  - `raw` branch says `player_b`
+  - `augv1` branch says `player_a`
+- direct prompt-only fixes on `augv1` did not help:
+  - `var_overlay_json` still produced a confident wrong `player_a`
+  - a narrow `legal return verifier` on `augv1` still said the near-side touch was legal
+
+### What Was Tested
+- built a synchronized side-by-side review clip:
+  - left = `raw ROI` model-view clip
+  - right = `augmented_v1` model-view clip
+- asked a single focused prompt on that dual-view clip:
+  - decide the winner from the final legal / illegal touch
+  - do not decide from posture alone
+
+### Artifact
+- side-by-side clip:
+  - `debug_report/pt0001_set4_raw_aug_sidebyside/pt_0001__raw_left__augv1_right.mp4`
+
+### Result
+- `Qwen3-VL-4B-Instruct` answered:
+  - `Winner=player_b`
+- this matches the reviewed truth for `pt_0001`
+
+### Current Read
+- prompt-only changes on a single misleading view are not enough
+- but a dual-view arbiter that shows:
+  - clean raw ROI evidence
+  - and augmented overlay evidence
+  side-by-side may help the model resolve the exact kind of error seen on `pt_0001`
+- this is currently the strongest no-`8B` idea to test next on the disagreement bucket
+
+## Work Log - `2026-04-08` (Dual-View Arbiter Follow-Up On Set4 Disagreement Points)
+### What Was Tested
+- reused the same side-by-side arbiter prompt on additional disagreement points:
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+- dual-view format stayed the same:
+  - left = `raw ROI`
+  - right = `augmented_v1`
+
+### Result
+- `pt_0001`:
+  - dual-view arbiter = `player_b`
+  - correct
+- `pt_0002`:
+  - dual-view arbiter = `player_b`
+  - wrong
+- `pt_0004`:
+  - dual-view arbiter = `player_b`
+  - correct
+- `pt_0005`:
+  - dual-view arbiter = `player_b`
+  - wrong
+
+### Current Read
+- the current side-by-side dual-view arbiter does not generalize cleanly
+- on these first four probes it collapses toward:
+  - `player_b / far`
+- that means:
+  - it helps the far-win cases
+  - but it still misses the near-win cases
+- so this is not yet a safe automatic resolver for the full `11`-rally disagreement bucket
+
+## Work Log - `2026-04-08` (Structured Dual-View Arbiter Probe)
+### What Was Tested
+- kept the same side-by-side evidence:
+  - left = `raw ROI`
+  - right = `augmented_v1`
+- replaced the previous winner-only arbiter prompt with a more symmetric structured prompt:
+  - `last_touch_player`
+  - `last_touch_result`
+  - `winner`
+
+### Probe Result
+- `pt_0004`:
+  - `{"last_touch_player":"player_b","last_touch_result":"legal","winner":"player_b","confidence":0.98}`
+  - correct
+- `pt_0005`:
+  - `{"last_touch_player":"player_b","last_touch_result":"legal","winner":"player_b","confidence":0.98}`
+  - wrong
+
+### Current Read
+- the more symmetric structured prompt did not fix the far-bias of the current dual-view arbiter
+- the model still collapsed to:
+  - `player_b / far`
+- so the blocker is not just winner wording
+- it is more likely:
+  - evidence interpretation
+  - or the current overlay view dominating the joint clip in the wrong way
+
+## Work Log - `2026-04-08` (Raw-Main PiP Arbiter Probe)
+### What Was Tested
+- changed the dual-view evidence layout again:
+  - large main view = `raw ROI`
+  - small picture-in-picture inset = `augmented_v1`
+- prompt explicitly told the model:
+  - trust the raw main view first
+  - use the inset only as secondary support
+
+### Probe Result
+- `pt_0001`:
+  - `{"last_touch_player":"player_b","last_touch_result":"out","winner":"player_a","confidence":0.98}`
+  - wrong
+- `pt_0002`:
+  - `{"last_touch_player":"player_b","last_touch_result":"legal","winner":"player_b","confidence":0.98}`
+  - wrong
+- `pt_0004`:
+  - `{"last_touch_player":"player_b","last_touch_result":"legal","winner":"player_b","confidence":0.98}`
+  - correct
+- `pt_0005`:
+  - `{"last_touch_player":"player_b","last_touch_result":"legal","winner":"player_b","confidence":0.98}`
+  - wrong
+
+### Current Read
+- making `raw` the large main view and `augv1` the small inset did not solve the disagreement problem
+- the model still over-commits to:
+  - `last_touch_player = player_b`
+  - `winner = player_b`
+- and it can even hallucinate an incorrect `out` attribution, as seen on `pt_0001`
+- this means simple layout reweighting is not enough
+
+## Work Log - `2026-04-08` (Augmented_V2 Overlay Probe On Four Set4 Points)
+### What Was Implemented
+- added a new overlay mode:
+  - `augmented_v2`
+- compared with `augmented_v1`, this version changes the trail rendering:
+  - keeps original ball pixels visible
+  - uses hollow circle markers instead of filled dots / lines
+  - uses discrete time colors:
+    - yellow = older
+    - orange = middle
+    - red = newest
+  - uses soft confidence gating through alpha blending:
+    - roughly `alpha = confidence^2`
+- the tracker core stayed close to `v1`
+- the main goal was to change the data presentation, not the prompt family
+
+### What Was Run
+- probe points:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0004`
+  - `pt_0005`
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_augv2_probe_4pts_20260408.json`
+  - `debug_report/Vinh_set4_winner_augv2_probe_4pts_20260408`
+
+### Result
+- predictions:
+  - `pt_0001 -> player_a`
+  - `pt_0002 -> player_a`
+  - `pt_0004 -> player_a`
+  - `pt_0005 -> player_b`
+- against the reviewed truth on those four points, this is only:
+  - `1/4`
+
+### Current Read
+- `augmented_v2` as currently implemented did not improve the hard sample
+- it did preserve the intended evidence-design principles:
+  - no hard overwrite of the original ball pixels
+  - time-coded trail markers
+  - confidence-aware visibility
+- but the current `4B` prompt family still interprets that evidence poorly
+- so the next bottleneck is no longer just how the trail is drawn
+- it is how the model converts the overlay into a final winner decision
+
+## Work Log - `2026-04-08` (Set4 Wrong-Point Failure Analysis After Fresh Raw Rerun)
+### Target Batch
+- primary batch analyzed:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_augv1_fullrally_20260408.json`
+- reviewed mismatches:
+  - `pt_0001`
+  - `pt_0002`
+  - `pt_0003`
+  - `pt_0004`
+  - `pt_0008`
+  - `pt_0011`
+  - `pt_0020`
+
+### Main Failure Pattern
+- the current pairwise prompt family is structurally unstable
+- on the fresh `augv1` batch:
+  - `A?` answered `Yes` on all `20/20` rallies
+  - `B?` answered `Yes` on `13/20`
+  - `B?` answered `No` on `7/20`
+- so the current `A?/B?` branch is not giving two independent signals
+- in practice:
+  - `A?` is near-useless because it is almost always affirmative
+
+### Prompt Ablations On The 7 Wrong Points
+- tried a stricter `skeptical pairwise` prompt:
+  - result:
+    - collapsed to mostly `unknown`
+    - `0/7`
+- tried a direct `winner_only` prompt:
+  - result:
+    - collapsed to `player_a`
+    - `3/7`
+- tried a direct `loser_first` prompt:
+  - result:
+    - collapsed to `player_b`
+    - `4/7`
+- tried the same `loser_first` idea with `8B` on those same hard points:
+  - result:
+    - still collapsed to `player_b`
+    - `4/7`
+
+### Evidence Ablations On The 7 Wrong Points
+- tried a true raw composite tiebreak:
+  - built from the fresh full rally
+  - `LEFT = raw full frame`
+  - `RIGHT = raw zoom around the table`
+  - result:
+    - still collapsed to `player_b`
+    - `4/7`
+- tried a dual-view arbiter clip:
+  - `LEFT = raw full rally`
+  - `RIGHT = augv1 rally`
+  - result:
+    - collapsed to `player_a`
+    - `3/7`
+
+### Most Important New Insight
+- a full fresh `set4` rerun with:
+  - `main_pass_overlay = none`
+  produced:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_nooverlay_fullrally_20260408.json`
+- that no-overlay batch scored:
+  - `12/20`
+- the `augv1` batch scored:
+  - `13/20`
+- but they do **not** fail on the same points
+- on the `11` rallies where `augv1` and `no-overlay` disagree:
+  - one branch is correct and the other branch is wrong on every disagreement checked
+- this means the current best next direction is not more isolated prompt tweaking
+- the strongest next direction is:
+  - disagreement-aware ensemble
+  - and selective escalation only on disagreement cases
+
+### Current Read
+- the active blocker is no longer boundary drift
+- it is winner-logic instability under different evidence views
+- `augv1` is not a reliable global replacement for raw video
+- `no-overlay` is not reliable either
+- but the pair:
+  - `augv1`
+  - `no-overlay`
+  contains complementary signal that is likely more valuable than either branch alone
+
+### Selective 8B Escalation Check On The 11 Disagreement Points
+- tested:
+  - `Qwen3-VL-8B-Instruct`
+  - no-overlay
+  - only on the `11` `set4` rallies where `4B augv1` and `4B no-overlay` disagreed
+- output:
+  - `matches/checks/Vinh_set4_rally_timeline_winner_fromraw_8b_disagree11_nooverlay_20260408.json`
+  - `debug_report/Vinh_set4_winner_fromraw_8b_disagree11_nooverlay_20260408`
+- result:
+  - the `8B` disagreement arbiter was not reliable enough to promote
+  - on the disagreement subset it only aligned with the correct branch on about:
+    - `6/11`
+- practical conclusion:
+  - selective `8B` escalation is still a valid future tool
+  - but the current `8B` prompt family is not good enough to auto-resolve the `4B` disagreements yet
+
 ## Work Log - `2026-04-05` (4B Config Ablation After Freeze)
 ### Operator Direction
 - do not cut the dead tail for winner input in this cycle

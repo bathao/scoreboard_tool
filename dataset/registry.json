@@ -1,0 +1,12 @@
+{
+  "schema": "dataset_registry_v1",
+  "reviewed_matches": [
+    {
+      "match_id": "match_vinh_001",
+      "path": "dataset/reviewed_matches/match_vinh_001",
+      "sets": [
+        "set_04"
+      ]
+    }
+  ]
+}

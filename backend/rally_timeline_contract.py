@@ -47,6 +47,9 @@ class RallyTimelinePoint:
     winner_model: Optional[str] = None
     winner_score_a: float = 0.0
     winner_score_b: float = 0.0
+    winner_end_category: Optional[str] = None
+    winner_loser_candidate: RallyWinner = "unknown"
+    winner_last_hitter_candidate: RallyWinner = "unknown"
     winner: RallyWinner = "unknown"
     confidence: float = 0.0
     flags: List[str] = field(default_factory=list)
@@ -95,6 +98,9 @@ class RallyTimelinePoint:
             winner_model=(None if d.get("winner_model") in (None, "") else str(d.get("winner_model"))),
             winner_score_a=float(d.get("winner_score_a", 0.0)),
             winner_score_b=float(d.get("winner_score_b", 0.0)),
+            winner_end_category=(None if d.get("winner_end_category") in (None, "") else str(d.get("winner_end_category"))),
+            winner_loser_candidate=str(d.get("winner_loser_candidate", "unknown")),  # type: ignore
+            winner_last_hitter_candidate=str(d.get("winner_last_hitter_candidate", "unknown")),  # type: ignore
             winner=str(d.get("winner", "unknown")),  # type: ignore
             confidence=float(d.get("confidence", 0.0)),
             flags=list(d.get("flags", [])),

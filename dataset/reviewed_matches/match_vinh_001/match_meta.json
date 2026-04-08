@@ -1,0 +1,12 @@
+{
+  "schema": "reviewed_match_meta_v1",
+  "match_id": "match_vinh_001",
+  "display_name": "Vinh Match 001",
+  "source_video_relpaths": [
+    "Vinh_set4.mp4"
+  ],
+  "reviewed_sets": [
+    "set_04"
+  ],
+  "notes": "Initial reviewed taxonomy dataset created from the Vinh set4 split clip."
+}

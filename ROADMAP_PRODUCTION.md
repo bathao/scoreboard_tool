@@ -198,6 +198,37 @@ The production system should:
   - never ask the user to manually recalculate later points or sets
 - A user correction must be treated as authoritative input for that rally, and the pipeline must propagate the resulting scoreboard changes automatically.
 - Review-needed rallies may still be visible in a `preview render`, but they must block `final export` until resolved.
+- Winner taxonomy should be treated as first-class supervision, not only free-text reasoning:
+  - each reviewed rally should ideally store:
+    - `winner`
+    - `loser`
+    - `taxonomy`
+    - `last_hitter`
+- Near-term data target for a usable winner dataset:
+  - at least `100-150` rallies with high-quality reviewed winner + taxonomy labels
+  - spread across multiple sets / clips, not concentrated in one set only
+- A single reviewed set such as `20` rallies from one set is useful for:
+  - benchmark
+  - prompt few-shot seed
+  - taxonomy design
+  - but is not enough by itself for robust winner generalization across other sets
+- Maintain a versioned reviewed-data bundle for future training and evaluation:
+  - exported full frozen rally clips
+  - one matching reviewed JSONL / manifest
+  - stable ids and timestamps
+  - no dependence on temporary debug folders
+  - keep this bundle under a root-level dataset area such as:
+    - `dataset/reviewed_matches/<match_id>/set_<nn>/`
+  - do not hide reviewed training/eval assets under pipeline output folders such as `matches/`
+  - use globally unique reviewed ids such as:
+    - `record_id = <match_id>__<set_id>__<point_id>`
+- Treat this reviewed-data bundle as a production asset:
+  - it should be reproducible
+  - versionable
+  - and safe to reuse later for:
+    - prompt benchmarking
+    - retrieval / few-shot experiments
+    - future model fine-tuning
 
 ## Production Baseline Promotion Rule
 Do not promote a new algorithm direction unless it does all of the following:
@@ -221,6 +252,9 @@ Goal:
 
 Exit condition:
 - winner accuracy and rally quality reach operational target on labeled benchmarks
+- a reviewed winner dataset exists with enough diversity to support repeatable benchmark + training work
+- minimum short-term target:
+  - `100-150` reviewed rallies with winner + taxonomy labels
 
 ### Phase 3. Production Hardening
 Goal:

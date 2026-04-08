@@ -7,6 +7,10 @@ __pycache__/
 .env
 .venv
 .env.*
+.claude/
+.continue/
+_tmp_c1349b1_worktree/
+tmp_aug_debug/
 .vscode/
 .idea/
 dist/
