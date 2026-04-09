@@ -22,7 +22,10 @@ renders/
 debug_report/
 models/
 matches/checks/*.json
+matches/checks/*.jsonl
 matches/checks/*.pkl
+dataset/collections/finetune_dataset/cache/
+training_runs/
 yolov8x_table.pt
 yolov8n-pose.pt
 yolov8x-pose.pt

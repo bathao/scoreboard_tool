@@ -112,6 +112,37 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `matches/Vinh_set3_rally_timeline.json`
   - `matches/Vinh_set4_rally_timeline.json`
   - `matches/ground_truth/timeline_regression_suite.json`
+- `[done]` first local winner-training stack is now working end-to-end:
+  - grouped split builder:
+    - `scripts/create_finetune_splits.py`
+  - cache-clip builder:
+    - `scripts/create_cached_training_clips.py`
+  - train runner:
+    - `scripts/train_winner_adapter_qwen3vl.py`
+  - held-out eval runner:
+    - `scripts/eval_winner_adapter_qwen3vl.py`
+  - adapter inference runner:
+    - `scripts/predict_winner_adapter_qwen3vl.py`
+  - shared prompt/label helpers:
+    - `scripts/winner_finetune_common.py`
+- `[done]` grouped reviewed-training split `v1` created for the current `71` reviewed rallies:
+  - `dataset/collections/finetune_dataset/splits/v1/train.jsonl`
+  - `dataset/collections/finetune_dataset/splits/v1/val.jsonl`
+  - `dataset/collections/finetune_dataset/splits/v1/test.jsonl`
+  - original and `flip_h` stay in the same split by `record_id`
+- `[done]` lightweight cache-clips for local VLM training created:
+  - `dataset/collections/finetune_dataset/cache/qwen3vl4b_4f384_v1`
+- `[done]` first successful held-out adapter pilot completed:
+  - adapter:
+    - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
+  - held-out `test` on `original` only:
+    - winner `6/9`
+    - taxonomy `4/9`
+    - last_hitter `5/9`
+  - prompt-only baseline on the same cache representation:
+    - winner `5/9`
+    - taxonomy `1/9`
+    - last_hitter `5/9`
 
 ## Doing
 - `[doing]` keep the accepted `set1..4` rally timestamps frozen as the reviewed boundary baseline
@@ -148,10 +179,20 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - compare only on held-out reviewed rallies
     - compare against the current prompt-only baseline
 - `[doing]` current objective is to stand up the training stack end-to-end:
-  - train / val / test manifests
-  - dataset loader
-  - local adapter-train runner
-  - held-out eval runner
+  - completed for the first local pilot
+- `[doing]` treat `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2` as the active local winner-adapter candidate
+- `[doing]` next active model step is to use the trained adapter for future-match inference, not to continue winner iteration on `match_vinh_001`
+- `[doing]` keep the adapter path simple and reusable:
+  - split builder:
+    - `scripts/create_finetune_splits.py`
+  - cache builder:
+    - `scripts/create_cached_training_clips.py`
+  - train runner:
+    - `scripts/train_winner_adapter_qwen3vl.py`
+  - eval runner:
+    - `scripts/eval_winner_adapter_qwen3vl.py`
+  - inference runner:
+    - `scripts/predict_winner_adapter_qwen3vl.py`
 
 ## Archived Winner Exploration On `match_vinh_001`
 - The items below are historical winner-detection notes from the earlier prompt-engineering phase.
@@ -570,19 +611,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 ## Todo
 - `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
 - `[todo]` create grouped train / val / test manifests for the current reviewed training seed:
-  - split by `record_id`
-  - keep original and `flip_h` variants in the same split
-- `[todo]` build the first local adapter-training data loader for:
-  - `dataset/collections/finetune_dataset/manifest.jsonl`
-- `[todo]` scaffold the first local `Qwen3-VL-4B-Instruct` adapter-train runner:
-  - prefer `LoRA / QLoRA`
-  - keep the output target compact:
-    - `winner`
-    - `loser`
-    - `taxonomy`
-    - `last_hitter`
-- `[todo]` build the held-out evaluation runner for the adapted winner model
-- `[todo]` compare the first adapted model against the prompt-only baseline on held-out reviewed rallies
+  - done in `splits/v1`; keep only if a later `v2` split is needed
 - `[todo]` build `score progression` on top of accepted rallies + inferred winners
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
 - `[todo]` start correction / UI flow only after rally + winner + score are usable
@@ -596,23 +625,10 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `dataset/collections/finetune_dataset/` reaches about `200-500` reviewed rallies
 - `[todo]` keep a held-out reviewed benchmark split while growing `finetune_dataset`, so adapted winner models can be compared honestly
 - `[todo]` start the first local winner-model adapter-training pilot on the current dataset seed:
-  - base model:
-    - `Qwen3-VL-4B-Instruct`
-  - data:
-    - `71` reviewed rallies
-    - `71` `flip_h` augmented views
-  - split rule:
-    - group by `record_id`
-    - never leak original and flipped variants across splits
-  - objective:
-    - teach stable JSON outputs for:
-      - `winner`
-      - `loser`
-      - `taxonomy`
-      - `last_hitter`
-  - success criterion:
-    - beat the current prompt-only baseline on held-out reviewed rallies
-    - without claiming production-ready generalization yet
+  - completed for pilot `v1`; next iterations should train on additional reviewed matches and compare against this adapter
+- `[todo]` add the trained adapter as an optional winner inference branch in the future-match pipeline
+- `[todo]` create the next reviewed dataset from a second real match and retrain / compare against:
+  - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
 
 ## Deferred
 - `[deferred]` do not retune `table / ROI-first` in this cycle

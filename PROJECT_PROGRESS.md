@@ -13,6 +13,76 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-09` (First Local Winner Adapter Pilot Completed)
+### Goal
+- stop prompt-only winner iteration on the reviewed seed match
+- build the first local `Qwen3-VL-4B-Instruct` adapter-training stack
+- verify that a held-out adapter pilot can beat the prompt-only baseline
+
+### What Was Added
+- training / eval stack:
+  - `scripts/create_finetune_splits.py`
+  - `scripts/create_cached_training_clips.py`
+  - `scripts/train_winner_adapter_qwen3vl.py`
+  - `scripts/eval_winner_adapter_qwen3vl.py`
+  - `scripts/predict_winner_adapter_qwen3vl.py`
+  - `scripts/winner_finetune_common.py`
+- grouped split artifacts:
+  - `dataset/collections/finetune_dataset/splits/v1/train.jsonl`
+  - `dataset/collections/finetune_dataset/splits/v1/val.jsonl`
+  - `dataset/collections/finetune_dataset/splits/v1/test.jsonl`
+- cache clips for faster local training:
+  - `dataset/collections/finetune_dataset/cache/qwen3vl4b_4f384_v1`
+
+### Training Read
+- initial direct-video pilot was clearly CPU/video-decode bound:
+  - VRAM was full
+  - GPU util stayed near `0-3%`
+  - train/eval throughput was too slow for practical iteration
+- the useful optimization was not prompt-side:
+  - it was a media-side cache layer
+- cache build cost:
+  - `142` cache clips created in about `65s`
+- cache-smoke train speed improved sharply:
+  - about `6.4s` for `1` train step
+
+### First Successful Pilot
+- adapter:
+  - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
+- train config:
+  - `4` epochs
+  - `4` frames
+  - `shortest_edge = 384`
+  - `max_pixels = 262144`
+  - LoRA target modules:
+    - `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj`
+- train runtime:
+  - about `553.9s`
+  - about `9.2 minutes`
+
+### Held-Out Result
+- held-out `test` on `original` only:
+  - winner `6/9`
+  - loser `6/9`
+  - taxonomy `4/9`
+  - last_hitter `5/9`
+- prompt-only baseline on the same cache representation:
+  - winner `5/9`
+  - loser `5/9`
+  - taxonomy `1/9`
+  - last_hitter `5/9`
+
+### Current Read
+- the first local adapter pilot is now genuinely green:
+  - code works
+  - training works
+  - held-out eval works
+  - adapter inference works
+- the adapter is still only a first pilot:
+  - dataset is still from one reviewed match
+  - no claim of production-ready generalization yet
+- but it is already a better next branch than resuming prompt-only tuning on `match_vinh_001`
+
 ## Work Log - `2026-04-09` (Active Learning Dataset Loop Doctrine)
 ### Operator Direction
 - formalize the long-term data loop for winner improvement

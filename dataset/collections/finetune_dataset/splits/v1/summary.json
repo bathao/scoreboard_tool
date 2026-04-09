@@ -1,0 +1,66 @@
+{
+  "schema": "winner_finetune_split_summary_v1",
+  "source_manifest": "dataset/collections/finetune_dataset/manifest.jsonl",
+  "seed": 42,
+  "val_ratio": 0.12,
+  "test_ratio": 0.12,
+  "splits": {
+    "train": {
+      "sample_count": 106,
+      "unique_record_count": 53,
+      "view_variant_counts": {
+        "flip_h": 53,
+        "original": 53
+      },
+      "winner_counts_from_original_views": {
+        "player_a": 30,
+        "player_b": 23
+      },
+      "taxonomy_counts_from_original_views": {
+        "attacker_direct_out": 24,
+        "attacker_into_net": 5,
+        "clean_winner_no_touch": 11,
+        "touched_but_no_net_cross": 6,
+        "touched_but_out": 7
+      }
+    },
+    "val": {
+      "sample_count": 18,
+      "unique_record_count": 9,
+      "view_variant_counts": {
+        "flip_h": 9,
+        "original": 9
+      },
+      "winner_counts_from_original_views": {
+        "player_a": 6,
+        "player_b": 3
+      },
+      "taxonomy_counts_from_original_views": {
+        "attacker_direct_out": 4,
+        "attacker_into_net": 1,
+        "clean_winner_no_touch": 1,
+        "touched_but_no_net_cross": 2,
+        "touched_but_out": 1
+      }
+    },
+    "test": {
+      "sample_count": 18,
+      "unique_record_count": 9,
+      "view_variant_counts": {
+        "flip_h": 9,
+        "original": 9
+      },
+      "winner_counts_from_original_views": {
+        "player_a": 6,
+        "player_b": 3
+      },
+      "taxonomy_counts_from_original_views": {
+        "attacker_direct_out": 4,
+        "attacker_into_net": 1,
+        "clean_winner_no_touch": 1,
+        "touched_but_no_net_cross": 2,
+        "touched_but_out": 1
+      }
+    }
+  }
+}
