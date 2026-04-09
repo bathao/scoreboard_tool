@@ -225,7 +225,10 @@ The production system should:
     - `taxonomy`
     - `last_hitter`
   - prompt-only control is useful for debugging and bootstrapping
-  - but the long-term production path should assume a reviewed dataset plus model adaptation, not prompt engineering alone
+  - but once a reviewed adapter branch is green, the active winner path should move to the trained adapter, not keep prompt-only as a parallel production branch
+  - from that point forward:
+    - trained adapter = active winner inference path on new matches
+    - prompt-only = benchmark/debug only
 - A single reviewed set such as `20` rallies from one set is useful for:
   - benchmark
   - prompt few-shot seed

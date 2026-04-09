@@ -82,6 +82,9 @@ Do not use this file as the long-term architecture spec.
   - dataset is still from one reviewed match
   - no claim of production-ready generalization yet
 - but it is already a better next branch than resuming prompt-only tuning on `match_vinh_001`
+- new operating rule:
+  - for future matches, winner inference should use the trained adapter path only
+  - prompt-only runs should remain available only for benchmark/debug comparison
 
 ## Work Log - `2026-04-09` (Active Learning Dataset Loop Doctrine)
 ### Operator Direction

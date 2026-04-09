@@ -182,6 +182,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - completed for the first local pilot
 - `[doing]` treat `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2` as the active local winner-adapter candidate
 - `[doing]` next active model step is to use the trained adapter for future-match inference, not to continue winner iteration on `match_vinh_001`
+- `[doing]` from now on, all new winner inference runs should use only the trained adapter path:
+  - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
+  - prompt-only is no longer an active inference mode for new matches
 - `[doing]` keep the adapter path simple and reusable:
   - split builder:
     - `scripts/create_finetune_splits.py`
@@ -626,7 +629,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[todo]` keep a held-out reviewed benchmark split while growing `finetune_dataset`, so adapted winner models can be compared honestly
 - `[todo]` start the first local winner-model adapter-training pilot on the current dataset seed:
   - completed for pilot `v1`; next iterations should train on additional reviewed matches and compare against this adapter
-- `[todo]` add the trained adapter as an optional winner inference branch in the future-match pipeline
+- `[todo]` wire the trained adapter in as the default and only active winner inference branch for future-match runs
 - `[todo]` create the next reviewed dataset from a second real match and retrain / compare against:
   - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
 
@@ -667,5 +670,12 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Run `scripts/check_timeline_regression.py` after each endpoint patch.
 - Never infer winner from body-language cues alone.
 - Winner inference must be constrained by rally-end evidence and score/state validation.
+- For all future-match winner runs, use the trained adapter path as the only active inference path:
+  - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
+  - `scripts/predict_winner_adapter_qwen3vl.py`
+- Do not resume prompt-only winner inference as an active branch on new inputs.
+- Prompt-only winner runs are allowed only for:
+  - held-out benchmark comparison
+  - narrow debug / regression investigation
 - Keep winner iteration on `set1` from changing accepted rally boundaries.
 - Keep detailed experiment logs in `PROJECT_PROGRESS.md`, not here.
