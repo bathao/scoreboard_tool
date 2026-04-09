@@ -177,6 +177,29 @@ Do not use this file as the long-term architecture spec.
   - few-shot / retrieval experiments
   - future held-out split planning
 
+## Work Log - `2026-04-09` (Winner Detection On `match_vinh_001` Is Now Paused)
+### Decision
+- stop further winner-detection iteration on:
+  - `match_vinh_001 / set_01`
+  - `match_vinh_001 / set_02`
+  - `match_vinh_001 / set_03`
+  - `match_vinh_001 / set_04`
+- the operator has already reviewed and supplied winner / taxonomy labels for the full first match
+
+### New Role Of This Match
+- treat `match_vinh_001` as:
+  - canonical reviewed dataset
+  - benchmark seed
+  - first local winner-training seed
+- do not keep using this same match as the active prompt-engineering playground
+
+### Next Step
+- move to the first local `Qwen3-VL-4B-Instruct` adapter-training pilot
+- use:
+  - `71` unique reviewed rallies
+  - `71` `flip_h` augmented views
+- only return to new winner-detection review once a later match is introduced or the reviewed dataset is explicitly reopened
+
 ## Work Log - `2026-04-09` (First Winner Adapter-Training Pilot Is Now Green-Lit)
 ### Decision
 - the current reviewed dataset is now large enough to start the first local winner-model adapter-training pilot

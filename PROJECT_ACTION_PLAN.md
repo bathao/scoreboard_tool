@@ -46,11 +46,10 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `set3_frozen_full` = required no-regression suite
   - `set4_frozen_full` = required no-regression suite
 - Current focus:
-  - keep the current post-followup rally timestamps for `set1..4` frozen
-  - resume winner detection using `Transformers native-video`
-  - use `Qwen3-VL-4B-Instruct` as the main model
-  - pass the full frozen rally clip into the winner model
-  - only escalate to `Qwen3-VL-8B-Instruct` on hard rallies after `4B` custom config is exhausted
+  - keep `match_vinh_001 / set_01..set_04` frozen as reviewed dataset assets
+  - stop further winner-detection iteration on this input
+  - use the current `71` reviewed rallies as the first winner-training seed
+  - start the first local `Qwen3-VL-4B-Instruct` adapter-training pilot
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -115,6 +114,50 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `matches/ground_truth/timeline_regression_suite.json`
 
 ## Doing
+- `[doing]` keep the accepted `set1..4` rally timestamps frozen as the reviewed boundary baseline
+- `[doing]` treat `match_vinh_001 / set_01..set_04` as completed reviewed dataset input, not as active winner-detection input
+- `[doing]` stop all further winner-detection iteration on this match unless the reviewed dataset is explicitly reopened later
+- `[doing]` use the current reviewed bundle as the source of truth:
+  - `dataset/reviewed_matches/match_vinh_001/set_01`
+  - `dataset/reviewed_matches/match_vinh_001/set_02`
+  - `dataset/reviewed_matches/match_vinh_001/set_03`
+  - `dataset/reviewed_matches/match_vinh_001/set_04`
+  - total canonical reviewed rallies:
+    - `71`
+- `[doing]` use the seeded training queue as the active training input:
+  - `dataset/collections/finetune_dataset/manifest.jsonl`
+  - current training views:
+    - `142`
+  - composition:
+    - `71` original
+    - `71` `flip_h`
+- `[doing]` current main task is now the first local winner-model adapter-training pilot:
+  - base model:
+    - `Qwen3-VL-4B-Instruct`
+  - training style:
+    - `LoRA / QLoRA`
+  - supervision target:
+    - `winner`
+    - `loser`
+    - `taxonomy`
+    - `last_hitter`
+  - split rule:
+    - group by `record_id`
+    - keep original and `flip_h` variants in the same split
+  - evaluation rule:
+    - compare only on held-out reviewed rallies
+    - compare against the current prompt-only baseline
+- `[doing]` current objective is to stand up the training stack end-to-end:
+  - train / val / test manifests
+  - dataset loader
+  - local adapter-train runner
+  - held-out eval runner
+
+## Archived Winner Exploration On `match_vinh_001`
+- The items below are historical winner-detection notes from the earlier prompt-engineering phase.
+- They are kept only as archive context in this board.
+- They are not the current active task anymore.
+- The old status tags are preserved only for history; do not treat them as live work.
 - `[doing]` keep the current post-followup `set1..4` timelines frozen as the temporary accepted timestamp baseline
 - `[doing]` resume `detect winner = Transformers native-video` on top of the frozen `set1..4` rally boundaries
 - `[doing]` use `Qwen3-VL-4B-Instruct` as the active main path for winner work
@@ -526,12 +569,20 @@ Put detailed explanations, experiments, failures, and resume notes in:
 
 ## Todo
 - `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
-- `[todo]` keep winner inference strictly downstream of the frozen `set1..4` timestamp checkpoint
-- `[todo]` find a better `4B` disagreement resolver than:
-  - always trusting `augv1`
-  - always trusting `raw`
-- `[todo]` test a side-by-side `raw + augmented_v1` arbiter on more of the `set4` disagreement bucket
-- `[todo]` if the side-by-side arbiter is kept, redesign it so it does not collapse toward `player_b / far`
+- `[todo]` create grouped train / val / test manifests for the current reviewed training seed:
+  - split by `record_id`
+  - keep original and `flip_h` variants in the same split
+- `[todo]` build the first local adapter-training data loader for:
+  - `dataset/collections/finetune_dataset/manifest.jsonl`
+- `[todo]` scaffold the first local `Qwen3-VL-4B-Instruct` adapter-train runner:
+  - prefer `LoRA / QLoRA`
+  - keep the output target compact:
+    - `winner`
+    - `loser`
+    - `taxonomy`
+    - `last_hitter`
+- `[todo]` build the held-out evaluation runner for the adapted winner model
+- `[todo]` compare the first adapted model against the prompt-only baseline on held-out reviewed rallies
 - `[todo]` build `score progression` on top of accepted rallies + inferred winners
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
 - `[todo]` start correction / UI flow only after rally + winner + score are usable
@@ -568,6 +619,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not retune `ball tracking V0` in this cycle
 - `[deferred]` do not work on 3-detector fusion yet
 - `[deferred]` do not spend this cycle on `Qwen` boundary/split tuning
+- `[deferred]` do not resume winner-detection experiments on `match_vinh_001 / set_01..set_04` in this cycle
 - `[deferred]` do not start Web UI work yet
 - `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
 - `[deferred]` do not start full production-scale winner-model `SFT` job orchestration until the rolling fine-tune dataset is larger and held-out reviewed evaluation splits exist
@@ -594,6 +646,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Winner phase must preserve accepted rally `t_start / t_end` from the earlier detection phase `100%`.
 - Winner scripts may read frozen rally boundaries, but must never rewrite them.
 - When exporting review rallies for `set1 / set2 / set3 / set4`, always rerun from the original video input end-to-end.
+- `match_vinh_001 / set_01..set_04` is now a reviewed dataset asset first, not an active winner-detection playground.
 - Do not build review-rally exports from reused intermediate JSON artifacts from earlier partial runs.
 - Run `scripts/check_timeline_regression.py` after each endpoint patch.
 - Never infer winner from body-language cues alone.
