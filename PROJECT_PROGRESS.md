@@ -13,6 +13,249 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-09` (Active Learning Dataset Loop Doctrine)
+### Operator Direction
+- formalize the long-term data loop for winner improvement
+- treat reviewed rally correction as the source of a future fine-tune dataset
+- document a future `Train Now` workflow for winner-model `SFT`
+
+### What Was Updated
+- updated docs:
+  - `ROADMAP_PRODUCTION.md`
+  - `PROJECT_ACTION_PLAN.md`
+  - `dataset/README.md`
+  - `dataset/DATASET_CONVENTIONS.md`
+- added dataset collection docs:
+  - `dataset/collections/README.md`
+  - `dataset/collections/finetune_dataset/README.md`
+
+### New Doctrine
+- future winner improvement should follow an explicit active-learning loop:
+  1. run the current pipeline
+  2. review rally winners in the Web UI
+  3. keep correct AI picks or fix wrong picks with one click
+  4. auto-save those reviewed rallies into:
+     - canonical reviewed storage under `dataset/reviewed_matches/`
+     - the rolling training queue under `dataset/collections/finetune_dataset/`
+  5. once the rolling fine-tune queue reaches about:
+     - `200-500` reviewed rally examples
+     trigger local winner-model `SFT` / adapter tuning
+  6. use the newly adapted winner model to pre-label later matches
+
+### Current Read
+- the reviewed dataset is no longer only for:
+  - benchmark
+  - few-shot
+- it is now explicitly part of the future product loop:
+  - review -> dataset -> train -> upgraded model -> review
+- canonical truth must remain under:
+  - `dataset/reviewed_matches/`
+- the rolling training queue should live under:
+  - `dataset/collections/finetune_dataset/`
+- keep held-out reviewed data outside the rolling fine-tune queue for honest evaluation
+
+## Work Log - `2026-04-09` (Set3 Reviewed Winner Dataset Added)
+### Operator Review
+- the operator reviewed all `18` rallies of `set3`
+- reviewed winner + taxonomy labels were provided for:
+  - `pt_0001 .. pt_0018`
+
+### What Was Added
+- new canonical reviewed set bundle:
+  - `dataset/reviewed_matches/match_vinh_001/set_03`
+- included:
+  - `labels.jsonl`
+  - `fewshot_seed.jsonl`
+  - `clips/pt_0001.mp4 .. pt_0018.mp4`
+  - `README.md`
+- updated:
+  - `dataset/reviewed_matches/match_vinh_001/match_meta.json`
+  - `dataset/registry.json`
+
+### Current Coverage
+- `match_vinh_001 / set_03`
+  - `18/18` reviewed winner labels
+  - `18/18` reviewed taxonomy labels
+- `match_vinh_001 / set_04`
+  - `20/20` reviewed winner labels
+  - `20/20` reviewed taxonomy labels
+- total canonical reviewed dataset now:
+  - `38` rallies
+
+### Current Read
+- the project now has a second reviewed set in the canonical dataset layout
+- this is still not enough for winner-model `SFT`
+- but it is a meaningful step beyond the first `set4`-only seed:
+  - more rallies
+  - another reviewed set
+  - more taxonomy coverage for future benchmark / training work
+
+## Work Log - `2026-04-09` (Set2 Reviewed Winner Dataset Added)
+### Operator Review
+- the operator reviewed all `19` rallies of `set2`
+- reviewed winner + taxonomy labels were provided for:
+  - `pt_0001 .. pt_0019`
+
+### What Was Added
+- new canonical reviewed set bundle:
+  - `dataset/reviewed_matches/match_vinh_001/set_02`
+- included:
+  - `labels.jsonl`
+  - `fewshot_seed.jsonl`
+  - `clips/pt_0001.mp4 .. pt_0019.mp4`
+  - `README.md`
+- updated:
+  - `dataset/reviewed_matches/match_vinh_001/match_meta.json`
+  - `dataset/registry.json`
+
+### Current Coverage
+- `match_vinh_001 / set_02`
+  - `19/19` reviewed winner labels
+  - `19/19` reviewed taxonomy labels
+- `match_vinh_001 / set_03`
+  - `18/18` reviewed winner labels
+  - `18/18` reviewed taxonomy labels
+- `match_vinh_001 / set_04`
+  - `20/20` reviewed winner labels
+  - `20/20` reviewed taxonomy labels
+- total canonical reviewed dataset now:
+  - `57` rallies
+
+### Current Read
+- the canonical reviewed dataset now covers three reviewed sets from the same first match
+- this is still below the target needed for winner-model `SFT`
+- but it is now large enough to be materially more useful for:
+  - benchmark
+  - taxonomy consistency checks
+  - prompt benchmarking
+  - future train / val split planning
+
+## Work Log - `2026-04-09` (Set1 Reviewed Winner Dataset Added)
+### Operator Review
+- the operator reviewed all `14` rallies of `set1`
+- reviewed winner + taxonomy labels were provided for:
+  - `pt_0001 .. pt_0014`
+
+### What Was Added
+- new canonical reviewed set bundle:
+  - `dataset/reviewed_matches/match_vinh_001/set_01`
+- included:
+  - `labels.jsonl`
+  - `fewshot_seed.jsonl`
+  - `clips/pt_0001.mp4 .. pt_0014.mp4`
+  - `README.md`
+- updated:
+  - `dataset/reviewed_matches/match_vinh_001/match_meta.json`
+  - `dataset/registry.json`
+
+### Current Coverage
+- `match_vinh_001 / set_01`
+  - `14/14` reviewed winner labels
+  - `14/14` reviewed taxonomy labels
+- `match_vinh_001 / set_02`
+  - `19/19` reviewed winner labels
+  - `19/19` reviewed taxonomy labels
+- `match_vinh_001 / set_03`
+  - `18/18` reviewed winner labels
+  - `18/18` reviewed taxonomy labels
+- `match_vinh_001 / set_04`
+  - `20/20` reviewed winner labels
+  - `20/20` reviewed taxonomy labels
+- total canonical reviewed dataset now:
+  - `71` rallies
+
+### Current Read
+- the first debug match is now complete as a reviewed dataset:
+  - `set_01`
+  - `set_02`
+  - `set_03`
+  - `set_04`
+- this is still below the long-term target for winner-model `SFT`
+- but it is now a much stronger seed for:
+  - benchmark
+  - taxonomy consistency checks
+  - few-shot / retrieval experiments
+  - future held-out split planning
+
+## Work Log - `2026-04-09` (First Winner Adapter-Training Pilot Is Now Green-Lit)
+### Decision
+- the current reviewed dataset is now large enough to start the first local winner-model adapter-training pilot
+- current seed:
+  - `71` unique reviewed rallies
+  - `71` `flip_h` augmented views
+  - `142` training views total
+
+### Scope
+- treat this as a `LoRA / QLoRA sanity-check` on top of:
+  - `Qwen3-VL-4B-Instruct`
+- do not treat it as proof of production-ready generalization yet
+- keep the supervision target compact and structured:
+  - `winner`
+  - `loser`
+  - `taxonomy`
+  - `last_hitter`
+
+### Rules
+- train / val / test must be grouped by:
+  - `record_id`
+- original and `flip_h` variants of the same rally must never leak across splits
+- evaluate the adapted model only on held-out reviewed rallies
+- compare against the current prompt-only baseline, not only against training loss
+
+### Current Read
+- `71` unique rallies are not enough for a final winner model
+- but they are enough to validate:
+  - dataset loader
+  - local adapter-training stack
+  - output-format learning
+  - whether dataset-grounded supervision can beat the current prompt-only path on held-out reviewed data
+
+## Work Log - `2026-04-09` (Finetune Dataset Seeded With Horizontal Flip Augmentation)
+### Goal
+- seed the rolling `finetune_dataset` from the current canonical reviewed dataset
+- apply `flip_h` as a training augmentation without changing canonical rally labels
+
+### What Was Added
+- generated:
+  - `dataset/collections/finetune_dataset/manifest.jsonl`
+- generated flipped training clips under:
+  - `dataset/collections/finetune_dataset/clips/flip_h/`
+
+### Current Counts
+- canonical reviewed rallies:
+  - `71`
+- fine-tune manifest samples:
+  - `142`
+- composition:
+  - `71` original views
+  - `71` `flip_h` views
+
+### Flip Rule
+- `flip_h` is treated as an extra training view, not as a new reviewed rally
+- for this project, `flip_h` keeps:
+  - `winner`
+  - `loser`
+  - `taxonomy`
+  - `last_hitter`
+  unchanged
+- reason:
+  - `player_a` and `player_b` are role labels tied to near/far semantics
+  - horizontal flip changes image left/right only
+- current reviewed notes are already mostly role-based:
+  - `near`
+  - `far`
+  - `player_a`
+  - `player_b`
+  so almost all flip-variant notes remained unchanged
+
+### Current Read
+- this is the right way to use flip:
+  - as training augmentation only
+  - not as extra canonical reviewed labels
+- future train / val / test splits must stay grouped by:
+  - `record_id`
+  so original and flipped variants of the same rally never leak across splits
+
 ## Work Log - `2026-04-08` (Taxonomy-First Anchor4 Prompt Repair)
 ### Operator Direction
 - keep taxonomy as a model output, not a hard-coded code mapping
@@ -624,7 +867,7 @@ Do not use this file as the long-term architecture spec.
 ## Work Log - `2026-04-08` (Full Set4 Rerun With Table-Only Main Pass)
 ### What Was Run
 - reran `set4` fresh from raw:
-  - `Vinh_set4.mp4`
+  - `inputs/debug_sets/match_vinh_001/set_04.mp4`
 - fresh timeline:
   - `matches/checks/Vinh_set4_rally_timeline_fromraw_tableonly_full_20260408.json`
 - then ran winner refine on that fresh timeline with:
@@ -881,7 +1124,7 @@ Do not use this file as the long-term architecture spec.
 
 ### What Was Run
 - generated a fresh rally timeline directly from:
-  - `Vinh_set4.mp4`
+  - `inputs/debug_sets/match_vinh_001/set_04.mp4`
 - command path:
   - `scripts/generate_rally_timeline.py`
 - fresh timeline output:
@@ -2023,7 +2266,7 @@ Do not use this file as the long-term architecture spec.
 ## Work Log - `2026-04-05` (Set4 Endtime Reopened)
 ### What Was Confirmed
 - `set4 did not regress from later code drift`
-  - a clean rerun from `Vinh_set4.mp4` with current code reproduced the same `set4` rally boundaries as the accepted checkpoint
+  - a clean rerun from `inputs/debug_sets/match_vinh_001/set_04.mp4` with current code reproduced the same `set4` rally boundaries as the accepted checkpoint
   - a clean rerun using historical commit `ddb0ba8` also reproduced the same early-ending points
   - conclusion:
     - the problem is in the accepted `set4` baseline itself, not a later regression
@@ -3023,7 +3266,7 @@ Do not use this file as the long-term architecture spec.
   - command path:
     - `scripts/generate_rally_timeline.py`
   - input:
-    - `Vinh_set4.mp4`
+    - `inputs/debug_sets/match_vinh_001/set_04.mp4`
   - output:
     - `matches/checks/Vinh_set4_rally_timeline_rerun_current_code.json`
 
@@ -4846,3 +5089,5 @@ At the end of each work session:
   - then debug a small batch of `set2` blocked rallies that look obvious by eye
   - focus on increasing hypothesis coverage
   - do not spend the next cycle trying to promote more `auto`
+
+

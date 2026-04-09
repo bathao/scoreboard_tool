@@ -161,4 +161,4 @@ def run_debug_v5(video_path_str: str, weights_path_str: str):
     print(f"Check: {out_file.absolute()}")
 
 if __name__ == "__main__":
-    run_debug_v5("Vinh_set1.mp4", "weights/yolov8x_table.pt")
+    run_debug_v5("inputs/debug_sets/match_vinh_001/set_01.mp4", "weights/yolov8x_table.pt")

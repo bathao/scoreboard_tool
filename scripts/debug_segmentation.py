@@ -104,7 +104,7 @@ def run_segmentation_debug(video_path_str: str, weights_path_str: str):
 
 if __name__ == "__main__":
     # Configure your paths here
-    VIDEO_FILE = "Vinh_set1.mp4"
+    VIDEO_FILE = "inputs/debug_sets/match_vinh_001/set_01.mp4"
     YOLO_MODEL = "weights/yolov8x_table.pt"
     
     run_segmentation_debug(VIDEO_FILE, YOLO_MODEL)

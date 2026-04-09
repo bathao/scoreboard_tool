@@ -129,4 +129,4 @@ def run_ultra_logic_v5(video_path_str: str, table_weights_str: str):
     print("═"*75)
 
 if __name__ == "__main__":
-    run_ultra_logic_v5("Vinh_set1.mp4", "weights/yolov8x_table.pt")
+    run_ultra_logic_v5("inputs/debug_sets/match_vinh_001/set_01.mp4", "weights/yolov8x_table.pt")

@@ -103,6 +103,7 @@ def run_debug(json_path_str: str, video_path_str: str):
 if __name__ == "__main__":
     # Point to your latest rally timeline JSON and source video
     TARGET_JSON = "matches/Vinh_set1_rally_timeline.json"
-    TARGET_VIDEO = "Vinh_set1.mp4"
+    TARGET_VIDEO = "inputs/debug_sets/match_vinh_001/set_01.mp4"
     
     run_debug(TARGET_JSON, TARGET_VIDEO)
+

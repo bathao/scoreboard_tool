@@ -120,7 +120,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[doing]` use `Qwen3-VL-4B-Instruct` as the active main path for winner work
 - `[doing]` treat `Qwen3-VL-8B-Instruct` as escalation only for hard rallies after `4B`
 - `[doing]` the current main task is to improve `4B` config/customization before spending more time on `8B`
-- `[doing]` latest clean `set4` rerun now starts from raw `Vinh_set4.mp4`, regenerates rally timeline fresh, then runs winner refine on that new JSON only
+- `[doing]` latest clean `set4` rerun now starts from:
+  - `inputs/debug_sets/match_vinh_001/set_04.mp4`
+  - regenerates rally timeline fresh, then runs winner refine on that new JSON only
   - fresh raw timeline:
     - `matches/checks/Vinh_set4_rally_timeline_fromraw_20260408.json`
   - fresh winner batch:
@@ -355,7 +357,10 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - result:
     - `winner_changes = 0` versus the previous `set3` batch
 - `[doing]` a supervised `set4` taxonomy dataset scaffold now exists for benchmark + few-shot use
-  - canonical reviewed set bundle:
+  - canonical reviewed set bundles:
+    - `dataset/reviewed_matches/match_vinh_001/set_01`
+    - `dataset/reviewed_matches/match_vinh_001/set_02`
+    - `dataset/reviewed_matches/match_vinh_001/set_03`
     - `dataset/reviewed_matches/match_vinh_001/set_04`
   - full frozen rally clips:
     - `dataset/reviewed_matches/match_vinh_001/set_04/clips`
@@ -366,14 +371,55 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - dataset registry:
     - `dataset/registry.json`
   - current label coverage:
-    - all `20/20` rallies now have reviewed winner labels
-    - all `20/20` rallies now also have reviewed taxonomy labels
+    - `set_01`:
+      - all `14/14` rallies now have reviewed winner labels
+      - all `14/14` rallies now also have reviewed taxonomy labels
+    - `set_02`:
+      - all `19/19` rallies now have reviewed winner labels
+      - all `19/19` rallies now also have reviewed taxonomy labels
+    - `set_03`:
+      - all `18/18` rallies now have reviewed winner labels
+      - all `18/18` rallies now also have reviewed taxonomy labels
+    - `set_04`:
+      - all `20/20` rallies now have reviewed winner labels
+      - all `20/20` rallies now also have reviewed taxonomy labels
+    - current total canonical reviewed dataset:
+      - `71` rallies
+  - rolling training collection is now seeded under:
+    - `dataset/collections/finetune_dataset/manifest.jsonl`
+  - current fine-tune sample count:
+    - `142` training samples
+  - composition:
+    - `71` canonical original views
+    - `71` horizontal-flip augmented views
+  - flip rule now applied:
+    - `flip_h` changes image left/right only
+    - it does not change:
+      - `winner`
+      - `loser`
+      - `taxonomy`
+      - `last_hitter`
+    - original and flipped variants must stay in the same train/val/test split
   - refreshed few-shot seed:
     - now curated to cover the active taxonomy families with both near-win and far-win examples where possible
   - use this dataset first for:
     - benchmark
     - prompt few-shot examples
   - do not treat it as enough data for weight fine-tuning yet
+  - do treat it as enough to start the first local adapter-training pilot:
+    - `71` unique reviewed rallies
+    - `71` `flip_h` augmented views
+    - `142` training views total
+  - pilot scope should be:
+    - `Qwen3-VL-4B` `LoRA / QLoRA`
+    - strict JSON supervision:
+      - `winner`
+      - `loser`
+      - `taxonomy`
+      - `last_hitter`
+    - grouped split by:
+      - `record_id`
+    - held-out benchmark comparison against the current prompt-only baseline
   - first prompt-time few-shot attempt is now tested:
     - `winner_prompt_family = category_schema_taxonomy_first_anchor4_fewshot`
     - `winner_fewshot_path = dataset/reviewed_matches/match_vinh_001/set_04/fewshot_seed.jsonl`
@@ -390,6 +436,21 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - current read:
     - naive prompt-time few-shot with only `set4` examples is overfitting to a single taxonomy pattern
     - keep the dataset, but do not promote this first few-shot prompt branch
+  - taxonomy consistency rule is now explicit for future reviewed sets:
+    - reuse the same canonical taxonomy for the same losing event across all datasets
+    - store point-specific nuance in `note`, not in a new near-duplicate taxonomy label
+  - planned long-term product loop from this dataset is now explicit:
+    - run the current pipeline on a new match
+    - review rally winners in the future Web UI
+    - if AI is correct, keep it with one click
+    - if AI is wrong, correct it with one click
+    - auto-save the reviewed label + clip into:
+      - `dataset/reviewed_matches/<match_id>/set_<nn>/`
+      - `dataset/collections/finetune_dataset/`
+    - once the rolling fine-tune collection reaches about:
+      - `200-500` reviewed rallies
+    - trigger a local `Train Now` flow for winner `SFT` / adapter tuning
+    - then use the newer adapted winner model as the next pre-labeler on later matches
 - `[doing]` `augmented_v1` is now the most promising new winner direction for `4B`
   - current POC:
     - `green table box`
@@ -474,6 +535,33 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[todo]` build `score progression` on top of accepted rallies + inferred winners
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
 - `[todo]` start correction / UI flow only after rally + winner + score are usable
+- `[todo]` define the future Web UI review flow so each reviewed rally can be:
+  - accepted as correct with one click
+  - or corrected with one click
+  - then auto-saved into:
+    - `dataset/reviewed_matches/<match_id>/set_<nn>/`
+    - `dataset/collections/finetune_dataset/`
+- `[todo]` define the first `Train Now` winner-training path for when:
+  - `dataset/collections/finetune_dataset/` reaches about `200-500` reviewed rallies
+- `[todo]` keep a held-out reviewed benchmark split while growing `finetune_dataset`, so adapted winner models can be compared honestly
+- `[todo]` start the first local winner-model adapter-training pilot on the current dataset seed:
+  - base model:
+    - `Qwen3-VL-4B-Instruct`
+  - data:
+    - `71` reviewed rallies
+    - `71` `flip_h` augmented views
+  - split rule:
+    - group by `record_id`
+    - never leak original and flipped variants across splits
+  - objective:
+    - teach stable JSON outputs for:
+      - `winner`
+      - `loser`
+      - `taxonomy`
+      - `last_hitter`
+  - success criterion:
+    - beat the current prompt-only baseline on held-out reviewed rallies
+    - without claiming production-ready generalization yet
 
 ## Deferred
 - `[deferred]` do not retune `table / ROI-first` in this cycle
@@ -482,6 +570,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not spend this cycle on `Qwen` boundary/split tuning
 - `[deferred]` do not start Web UI work yet
 - `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
+- `[deferred]` do not start full production-scale winner-model `SFT` job orchestration until the rolling fine-tune dataset is larger and held-out reviewed evaluation splits exist
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path
 - `[deferred]` do not spend the main next cycle on full-set `8B` runs until the `4B` path is tuned first

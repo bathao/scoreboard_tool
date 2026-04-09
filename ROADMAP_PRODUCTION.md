@@ -50,6 +50,14 @@ The production system should:
   - select the input video
   - run the processing pipeline
   - review only low-confidence rally outcomes
+- The review flow should support active learning:
+  - if the AI result is correct, the operator should be able to keep it with one click
+  - if the AI result is wrong, the operator should be able to correct it with one click
+- After review, the system should automatically persist the reviewed rally as a reusable training asset:
+  - reviewed JSON / manifest row
+  - matching full frozen rally clip
+  - enrollment into a rolling fine-tune collection such as:
+    - `dataset/collections/finetune_dataset/`
 - The default review asset should be a short rally clip.
 - Human input should be exception-driven, not full manual annotation.
 - If AI confidence for a rally winner is too low, the system should ask only:
@@ -204,9 +212,20 @@ The production system should:
     - `loser`
     - `taxonomy`
     - `last_hitter`
+- Winner taxonomy must stay consistent across reviewed datasets:
+  - the same underlying rally-ending event should reuse the same taxonomy label across different sets and matches
+  - point-specific nuance should go into notes / metadata, not into a new near-duplicate taxonomy label
 - Near-term data target for a usable winner dataset:
   - at least `100-150` rallies with high-quality reviewed winner + taxonomy labels
   - spread across multiple sets / clips, not concentrated in one set only
+- To make the winner path production-complete, the project should plan for `SFT` (`Supervised Fine-Tuning`) or equivalent adapter-style tuning on the currently used local `Qwen3-VL-4B` line:
+  - the reviewed dataset should be the supervision source for:
+    - `winner`
+    - `loser`
+    - `taxonomy`
+    - `last_hitter`
+  - prompt-only control is useful for debugging and bootstrapping
+  - but the long-term production path should assume a reviewed dataset plus model adaptation, not prompt engineering alone
 - A single reviewed set such as `20` rallies from one set is useful for:
   - benchmark
   - prompt few-shot seed
@@ -229,6 +248,32 @@ The production system should:
     - prompt benchmarking
     - retrieval / few-shot experiments
     - future model fine-tuning
+- The reviewed dataset should also support an explicit active-learning loop:
+  1. run the current pipeline on a new match
+  2. review the predicted rally winners in the Web UI
+  3. keep correct rallies or fix wrong rallies with one click
+  4. automatically append those reviewed rallies into the rolling fine-tune dataset
+  5. once the reviewed fine-tune collection is large enough, train a new adapted model
+  6. use that newer model as the next pre-labeler for later matches
+- Practical fine-tune collection target for the first usable training loop:
+  - roughly `200-500` reviewed rally examples in the rolling `finetune_dataset`
+  - in addition to keeping clean held-out reviewed sets for evaluation
+- Training-time augmentation such as `horizontal flip` is allowed for winner-model training:
+  - treat it as an extra training view, not as a new reviewed rally label
+  - keep canonical role-based labels unchanged under horizontal flip
+- Current practical training stance:
+  - the current reviewed seed of:
+    - `71` unique reviewed rallies
+    - plus `71` `flip_h` augmented views
+  - is enough to start a first local adapter-training pilot on `Qwen3-VL-4B`
+  - but it is not enough to claim robust cross-match winner generalization yet
+- The first training cycle should be framed as:
+  - `LoRA / QLoRA sanity-check`
+  - not as a production-ready winner model release
+- The first training split rule must be:
+  - group by canonical `record_id`
+  - keep original and flipped variants in the same split
+  - compare the adapted model only against held-out reviewed rallies
 
 ## Production Baseline Promotion Rule
 Do not promote a new algorithm direction unless it does all of the following:
@@ -252,11 +297,41 @@ Goal:
 
 Exit condition:
 - winner accuracy and rally quality reach operational target on labeled benchmarks
-- a reviewed winner dataset exists with enough diversity to support repeatable benchmark + training work
-- minimum short-term target:
-  - `100-150` reviewed rallies with winner + taxonomy labels
+- winner taxonomy is stable enough to review consistently
+- a reviewed winner dataset seed exists and is being expanded under the reviewed-dataset layout
 
-### Phase 3. Production Hardening
+### Phase 3. Reviewed Dataset + SFT
+Goal:
+- build a reviewed winner dataset large enough for real supervision
+- use that dataset to fine-tune or adapter-tune the current `Qwen3-VL-4B` winner model
+- move winner inference from prompt-only behavior toward dataset-grounded behavior
+- establish a repeatable active-learning loop from review UI -> reviewed dataset -> training -> upgraded model
+
+Near-term first step inside this phase:
+- use the current `71` reviewed rallies plus `flip_h` augmentation to stand up a first local `LoRA / QLoRA` training pilot
+- validate:
+  - dataset loader
+  - grouped train / val / test split by `record_id`
+  - adapter training stability on local hardware
+  - honest held-out evaluation against the prompt-only baseline
+- do not promote that first pilot as the final winner model unless it beats the baseline on held-out reviewed data
+
+Exit condition:
+- at least `100-150` reviewed rallies exist with high-quality:
+  - `winner`
+  - `loser`
+  - `taxonomy`
+  - `last_hitter`
+- labels come from multiple sets / clips, not one reviewed set only
+- an `SFT` / adapted `Qwen3-VL-4B` candidate beats the prompt-only baseline on held-out reviewed benchmarks
+- the adapted winner model improves taxonomy and winner quality without weakening rally-boundary guardrails
+- the Web UI correction flow can automatically feed reviewed rallies into:
+  - canonical reviewed storage under `dataset/reviewed_matches/`
+  - the rolling training collection under `dataset/collections/finetune_dataset/`
+- a first practical `Train Now` path is defined for when the rolling fine-tune collection reaches about:
+  - `200-500` reviewed rally examples
+
+### Phase 4. Production Hardening
 Goal:
 - make the system repeatable across new venues and clips
 

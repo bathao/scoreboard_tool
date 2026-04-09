@@ -16,7 +16,7 @@ from backend.ai_table_roi import TableROI
 
 def run_unified_debug():
     # --- CONFIGURATION ---
-    VIDEO_INPUT = "Vinh_set1.mp4"
+    VIDEO_INPUT = "inputs/debug_sets/match_vinh_001/set_01.mp4"
     YOLO_WEIGHTS = "weights/yolov8x_table.pt"
     
     # PARAMETERS TO TWEAK (Update these to stabilize segmentation)

@@ -154,4 +154,4 @@ def run_hyper_turbo_sync(video_path_str: str, table_weights_str: str):
     print_res("LAYER 1 + 2: MERGED (Table + Players)", merged_res)
 
 if __name__ == "__main__":
-    run_hyper_turbo_sync("Vinh_set1.mp4", "weights/yolov8x_table.pt")
+    run_hyper_turbo_sync("inputs/debug_sets/match_vinh_001/set_01.mp4", "weights/yolov8x_table.pt")

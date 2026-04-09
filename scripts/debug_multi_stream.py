@@ -160,7 +160,7 @@ def run_multi_stream_debug(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export a debug video with table ROI and offline player tracking.")
-    parser.add_argument("--video", default="Vinh_set1.mp4", help="Input video path")
+    parser.add_argument("--video", default="inputs/debug_sets/match_vinh_001/set_01.mp4", help="Input video path")
     parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Table YOLO weights path")
     parser.add_argument("--person-weights", default="weights/yolov8s.pt", help="Person YOLO weights path")
     parser.add_argument("--out", default="debug_report/multi_stream_tracking_v2.mp4", help="Output video path")
@@ -183,3 +183,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

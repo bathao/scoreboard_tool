@@ -2,11 +2,21 @@
   "schema": "reviewed_match_meta_v1",
   "match_id": "match_vinh_001",
   "display_name": "Vinh Match 001",
+  "source_original_filename": "inputs/raw_matches/match_vinh_001__full.mp4",
+  "raw_full_match_relpath": "inputs/raw_matches/match_vinh_001__full.mp4",
   "source_video_relpaths": [
-    "Vinh_set4.mp4"
+    "inputs/debug_sets/match_vinh_001/set_01.mp4",
+    "inputs/debug_sets/match_vinh_001/set_02.mp4",
+    "inputs/debug_sets/match_vinh_001/set_03.mp4",
+    "inputs/debug_sets/match_vinh_001/set_04.mp4"
   ],
   "reviewed_sets": [
+    "set_01",
+    "set_02",
+    "set_03",
     "set_04"
   ],
-  "notes": "Initial reviewed taxonomy dataset created from the Vinh set4 split clip."
+  "notes": "Reviewed taxonomy dataset currently includes set_01, set_02, set_03, and set_04 from the Vinh split clips."
 }
+
+
