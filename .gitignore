@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.log
 .pytest_cache/
+.pytest_tmp/
 .env
 .venv
 .env.*
@@ -26,6 +27,7 @@ matches/checks/*.jsonl
 matches/checks/*.pkl
 dataset/collections/finetune_dataset/cache/
 training_runs/
+runtime_jobs/
 yolov8x_table.pt
 yolov8n-pose.pt
 yolov8x-pose.pt

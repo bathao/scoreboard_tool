@@ -47,9 +47,70 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `set4_frozen_full` = required no-regression suite
 - Current focus:
   - keep `match_vinh_001 / set_01..set_04` frozen as reviewed dataset assets
-  - stop further winner-detection iteration on this input
-  - use the current `71` reviewed rallies as the first winner-training seed
-  - start the first local `Qwen3-VL-4B-Instruct` adapter-training pilot
+  - stop further winner-detection iteration on this input as a standalone task
+  - treat winner inference as one stage inside a full production pipeline
+  - build the first local single-video workflow:
+    - raw input video
+    - optional trim to skip pre-match warmup
+    - rally timeline
+    - trained-adapter winner inference
+    - score progression
+    - preview render
+    - review UI for point correction
+    - final scoreboard export
+  - make `match_vinh_001` the first vertical-slice validation input for that end-to-end product flow
+
+## Current Product Build Plan
+- Goal:
+  - move from `winner-detection experiments` to one usable local product flow
+- Product input:
+  - one raw full-match clip
+  - `Player A` name for `near`
+  - `Player B` name for `far`
+  - one trim-start timestamp so pre-match warmup can be removed
+- Product output:
+  - `preview render` with scoreboard
+  - `final export` with scoreboard after all required winner reviews are resolved
+- Local Web UI v1 scope:
+  - local only
+  - one operator
+  - one video at a time
+  - no remote/multi-user workflow
+- Ordered implementation slices:
+  1. define a persistent local `match job` that stores:
+     - raw video path
+     - trimmed working video path
+     - `trim_start_sec`
+     - `player_a_name`
+     - `player_b_name`
+     - `best_of`
+     - pipeline status
+     - artifact paths for JSON / clips / preview / final export
+  2. add an ingest stage that trims the raw input video from the user-provided start time before downstream processing
+  3. refactor the current CLI-only flow into reusable Python services for:
+     - trim
+     - rally timeline generation
+     - trained-adapter winner inference
+     - score progression / validation
+     - render
+  4. build a local Web UI with these screens:
+     - `New Job`
+     - `Job Detail`
+     - `Review`
+     - `Preview / Export`
+  5. make review winner-only in `v1`:
+     - the operator chooses only who won the point
+     - downstream score / set / match state must recompute automatically
+  6. allow `preview render` while review-needed rallies still exist, but clearly warn the operator
+  7. block `final export` until all scoring rallies have resolved winners
+  8. persist reviewed corrections and reusable review assets so later matches can feed the dataset / training loop
+- First acceptance target:
+  - from the local Web UI, run one raw `match_vinh_001` video end-to-end
+  - enter player names
+  - enter trim start
+  - generate preview video with scoreboard
+  - correct wrong / unknown rallies in the UI
+  - export one final scoreboard video without the pre-match warmup segment
 
 ## Done
 - `[done]` starter detection accepted on reviewed `set1..4`
@@ -143,8 +204,75 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - winner `5/9`
     - taxonomy `1/9`
     - last_hitter `5/9`
+- `[done]` first local product vertical slice is now implemented:
+  - `backend/production_jobs.py`
+  - `backend/production_pipeline.py`
+  - `backend/rendering.py`
+  - `backend/local_web_ui.py`
+  - `scripts/run_local_web_ui.py`
+- `[done]` persistent local `match job` schema now exists for production runs:
+  - raw video path
+  - trim-start seconds
+  - working video path
+  - player names
+  - `best_of`
+  - pipeline status
+  - artifact paths
+- `[done]` raw-video ingest / trim stage now exists for the product flow
+- `[done]` the current CLI-heavy render path is now factored into reusable rendering helpers
+- `[done]` the first local Web UI skeleton now exists with:
+  - job-creation form
+  - player-name fields
+  - trim-start input
+  - job-status page
+  - review page
+  - preview/export page
+- `[done]` renderer now supports operator-provided scoreboard names:
+  - `Player A = near`
+  - `Player B = far`
+- `[done]` preview / final export gating now exists in the product flow:
+  - preview render is separated from final export
+  - final export is blocked while scoring rallies still have unresolved winners
+- `[done]` focused production-job tests now exist:
+  - `tests/test_production_jobs.py`
+  - current result:
+    - `5 passed`
 
 ## Doing
+- `[doing]` the main product direction is now an end-to-end local single-video pipeline, not further standalone winner iteration on `match_vinh_001`
+- `[doing]` winner inference remains required, but it is now only one stage inside the product flow:
+  - input trim
+  - rally timeline
+  - winner inference
+  - score progression
+  - preview render
+  - review / correction
+  - final export
+- `[doing]` the first product build must satisfy this local operator workflow:
+  - select one raw video
+  - enter `Player A = near`
+  - enter `Player B = far`
+  - enter trim-start timestamp
+  - review only low-confidence / wrong winner points
+  - export the scoreboard render
+- `[doing]` local Web UI scope is now active:
+  - local machine only
+  - single operator only
+  - one video at a time only
+- `[doing]` the current local UI is a real working skeleton, but it still needs first raw-match validation:
+  - create job
+  - trim input
+  - run pipeline
+  - render preview
+  - review winners
+  - export final video
+- `[doing]` practical operator rule right now:
+  - the local UI server must be running in the background before the browser opens it
+- `[doing]` next hardening targets inside the new product slice are:
+  - run one real raw `match_vinh_001` vertical slice end-to-end
+  - improve background server startup ergonomics
+  - tighten real runtime failure handling and job-status reporting
+  - wire reviewed-correction writeback into dataset assets
 - `[doing]` keep the accepted `set1..4` rally timestamps frozen as the reviewed boundary baseline
 - `[doing]` treat `match_vinh_001 / set_01..set_04` as completed reviewed dataset input, not as active winner-detection input
 - `[doing]` stop all further winner-detection iteration on this match unless the reviewed dataset is explicitly reopened later
@@ -185,6 +313,13 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[doing]` from now on, all new winner inference runs should use only the trained adapter path:
   - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
   - prompt-only is no longer an active inference mode for new matches
+- `[doing]` the first implementation order for the product flow is:
+  1. persistent `match job` model + artifact layout
+  2. raw-video trim stage
+  3. score progression wiring on top of accepted rallies + reviewed winners
+  4. local Web UI
+  5. preview/final render gating
+  6. reviewed-data writeback
 - `[doing]` keep the adapter path simple and reusable:
   - split builder:
     - `scripts/create_finetune_splits.py`
@@ -615,15 +750,29 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
 - `[todo]` create grouped train / val / test manifests for the current reviewed training seed:
   - done in `splits/v1`; keep only if a later `v2` split is needed
-- `[todo]` build `score progression` on top of accepted rallies + inferred winners
+- `[todo]` harden `score progression` and validation on top of accepted rallies + reviewed winners during a real raw-match rerun
 - `[todo]` run the same pipeline on a single long multi-set input, not only split sets
-- `[todo]` start correction / UI flow only after rally + winner + score are usable
-- `[todo]` define the future Web UI review flow so each reviewed rally can be:
-  - accepted as correct with one click
-  - or corrected with one click
-  - then auto-saved into:
-    - `dataset/reviewed_matches/<match_id>/set_<nn>/`
-    - `dataset/collections/finetune_dataset/`
+- `[todo]` validate the first full vertical slice on one raw `match_vinh_001` video from:
+  - UI job creation
+  - trim
+  - pipeline run
+  - review corrections
+  - final scoreboard export
+- `[todo]` after that first raw-match rerun, fix every runtime issue found in:
+  - trim
+  - rally timeline generation
+  - review-clip export
+  - adapter prediction
+  - preview render
+  - final export
+- `[todo]` harden the local UI operator ergonomics so background server startup is less manual
+- `[todo]` improve UI status / warning surfaces for:
+  - running jobs
+  - failed jobs
+  - preview-ready but review-blocked exports
+- `[todo]` persist reviewed winner corrections from the UI into:
+  - canonical reviewed storage
+  - rolling fine-tune collection
 - `[todo]` define the first `Train Now` winner-training path for when:
   - `dataset/collections/finetune_dataset/` reaches about `200-500` reviewed rallies
 - `[todo]` keep a held-out reviewed benchmark split while growing `finetune_dataset`, so adapted winner models can be compared honestly
@@ -639,8 +788,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not work on 3-detector fusion yet
 - `[deferred]` do not spend this cycle on `Qwen` boundary/split tuning
 - `[deferred]` do not resume winner-detection experiments on `match_vinh_001 / set_01..set_04` in this cycle
-- `[deferred]` do not start Web UI work yet
-- `[deferred]` do not start Web UI / correction UX work until winner / score logic is usable enough
+- `[deferred]` do not build a remote, multi-user, or cloud-first UI in this cycle
+- `[deferred]` do not widen the first correction UX beyond winner-only point review in this cycle
 - `[deferred]` do not start full production-scale winner-model `SFT` job orchestration until the rolling fine-tune dataset is larger and held-out reviewed evaluation splits exist
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path

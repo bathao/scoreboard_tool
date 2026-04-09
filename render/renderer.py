@@ -5,10 +5,19 @@ from backend.models import MatchSnapshot
 
 class ScoreboardRenderer:
 
-    def __init__(self, input_path: str, output_path: str, timeline: List[MatchSnapshot]):
+    def __init__(
+        self,
+        input_path: str,
+        output_path: str,
+        timeline: List[MatchSnapshot],
+        player_a_name: str = "PLAYER A",
+        player_b_name: str = "PLAYER B",
+    ):
         self.input_path = input_path
         self.output_path = output_path
         self.timeline = timeline
+        self.player_a_name = self._display_name(player_a_name, "PLAYER A")
+        self.player_b_name = self._display_name(player_b_name, "PLAYER B")
 
         if not self.timeline:
             raise ValueError("Timeline cannot be empty")
@@ -22,6 +31,21 @@ class ScoreboardRenderer:
             is_finished=False,
             winner=None,
         )
+
+    def _display_name(self, value: str, fallback: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return fallback
+        if len(text) > 20:
+            return f"{text[:17]}..."
+        return text
+
+    def _winner_label(self, winner: str | None) -> str:
+        if winner == "player_a":
+            return self.player_a_name
+        if winner == "player_b":
+            return self.player_b_name
+        return "Unknown"
 
     def state_for_time(self, current_time: float, state_index: int) -> tuple[MatchSnapshot, int]:
         while (
@@ -75,7 +99,7 @@ class ScoreboardRenderer:
 
     def _draw_scoreboard(self, frame, state: MatchSnapshot, width: int, height: int):
 
-        scoreboard_width = 280
+        scoreboard_width = 420
         scoreboard_height = 110
 
         margin = 20
@@ -96,8 +120,8 @@ class ScoreboardRenderer:
         white = (255, 255, 255)
 
         # Titles
-        cv2.putText(frame, "PLAYER A", (x1 + 15, y1 + 30), font, 0.6, white, 2)
-        cv2.putText(frame, "PLAYER B", (x1 + 15, y1 + 60), font, 0.6, white, 2)
+        cv2.putText(frame, f"NEAR  {self.player_a_name}", (x1 + 15, y1 + 30), font, 0.6, white, 2)
+        cv2.putText(frame, f"FAR   {self.player_b_name}", (x1 + 15, y1 + 60), font, 0.6, white, 2)
 
         # Scores
         cv2.putText(
@@ -134,7 +158,7 @@ class ScoreboardRenderer:
 
         # If match finished
         if state.is_finished:
-            winner_text = f"Winner: {state.winner}"
+            winner_text = f"Winner: {self._winner_label(state.winner)}"
             cv2.putText(
                 frame,
                 winner_text,

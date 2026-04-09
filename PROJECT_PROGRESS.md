@@ -13,6 +13,108 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-10` (Local Production UI Vertical Slice Added)
+### Goal
+- stop treating the next step as `winner detection` only
+- stand up the first usable local product skeleton:
+  - raw video input
+  - trim-start support
+  - rally timeline
+  - trained-adapter winner prefill
+  - score progression for render
+  - preview render
+  - local review UI
+  - final-export gate
+
+### What Was Added
+- persistent local job / artifact layer:
+  - `backend/production_jobs.py`
+- reusable production services:
+  - `backend/production_pipeline.py`
+  - `backend/rendering.py`
+- first local web UI:
+  - `backend/local_web_ui.py`
+  - `scripts/run_local_web_ui.py`
+- renderer updates:
+  - `render/renderer.py`
+  - `scripts/final_render.py`
+- focused tests:
+  - `tests/test_production_jobs.py`
+
+### Product Behavior Now Implemented
+- the local UI can now create one `match job` with:
+  - raw video path
+  - `Player A` display name for `near`
+  - `Player B` display name for `far`
+  - trim-start timestamp
+  - `best_of`
+- the product skeleton now has these stages:
+  1. trim raw input into a working video
+  2. generate rally timeline on that trimmed working video
+  3. export one review clip per rally
+  4. run the active trained adapter to prefill rally winners
+  5. save a reviewable timeline JSON inside the job folder
+  6. render a preview scoreboard video
+  7. let the operator keep / correct each rally winner in the UI
+  8. block final export until all scoring rallies have resolved winners
+- preview and final export are now separated:
+  - preview can exist before every rally is fully reviewed
+  - final export is gated by unresolved scoring rallies
+- scoreboard render now uses operator-provided player names instead of hard-coded:
+  - `PLAYER A`
+  - `PLAYER B`
+
+### What Was Verified
+- compile checks passed for the new production/UI files
+- focused tests passed:
+  - `tests/test_production_jobs.py`
+  - `5 passed`
+- the local web UI entrypoint starts successfully:
+  - `scripts/run_local_web_ui.py`
+- practical operator note:
+  - the UI must be served by a background server process before opening it in the browser
+  - opening the URL without the server running does not work
+
+### Current Read
+- this is now a real product vertical slice, not just a plan:
+  - job state exists
+  - trim stage exists
+  - render path exists
+  - review UI exists
+  - final-export gate exists
+- but it is still only the first product skeleton:
+  - it has **not** yet been fully validated on one raw `match_vinh_001` video end-to-end
+  - real runtime issues may still appear in:
+    - trim
+    - timeline generation
+    - review-clip export
+    - adapter prediction
+    - preview render
+    - final export
+- reviewed-dataset writeback from UI corrections is still not wired yet
+- background server startup is still manual:
+  - run the UI server first
+  - then open the browser
+
+### Resume Point For The Next Session
+1. run the new local UI flow on one real raw `match_vinh_001` input end-to-end:
+   - create job
+   - trim
+   - pipeline run
+   - preview render
+   - review
+   - final export
+2. fix every real runtime issue found in that vertical slice before widening scope
+3. harden the local operator ergonomics:
+   - background server startup
+   - clearer job status / failure messages
+4. wire reviewed winner corrections from the UI into:
+   - canonical reviewed storage
+   - rolling fine-tune collection
+5. only after the first raw-match rerun is green, continue to:
+   - long multi-set raw input
+   - further UX polish
+
 ## Work Log - `2026-04-09` (First Local Winner Adapter Pilot Completed)
 ### Goal
 - stop prompt-only winner iteration on the reviewed seed match
