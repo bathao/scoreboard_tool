@@ -929,6 +929,9 @@ def _build_role_feature_series(
     return values
 
 
+_POSE_BATCH_SIZE = 16
+
+
 def _collect_role_tracker_energies(
     cap: cv2.VideoCapture,
     person_model: YOLO,
@@ -950,6 +953,52 @@ def _collect_role_tracker_energies(
     prev_table_gray: Optional[np.ndarray] = None
     frame_idx = 0
 
+    # Batch buffers
+    batch_frames: List[np.ndarray] = []
+    batch_fidx: List[int] = []
+    batch_ts: List[float] = []
+    batch_te: List[float] = []
+
+    def _flush_batch() -> None:
+        if not batch_frames:
+            return
+        results = person_model.predict(
+            batch_frames,
+            classes=[0],
+            device=device,
+            verbose=False,
+            half=True,
+        )
+        for result, fidx, frame in zip(results, batch_fidx, batch_frames):
+            if result.boxes is not None and len(result.boxes) > 0:
+                boxes = result.boxes.xyxy.cpu().numpy()
+                confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else None
+                keypoints = result.keypoints.xy.cpu().numpy() if result.keypoints is not None else None
+                if boxes.size > 0:
+                    near_mask = [_is_player_near_table(box, roi, player_margin_px) for box in boxes]
+                    mask_arr = np.asarray(near_mask, dtype=bool)
+                    boxes = boxes[mask_arr]
+                    if confs is not None:
+                        confs = confs[mask_arr]
+                    if keypoints is not None:
+                        keypoints = keypoints[mask_arr]
+                if boxes.size > 0:
+                    detections = tracker.build_detections(
+                        frame,
+                        frame_idx=fidx,
+                        boxes_xyxy=boxes,
+                        keypoints_xy=keypoints,
+                        confidences=confs,
+                    )
+                    tracker.add_frame_detections(detections)
+        timestamps.extend(batch_ts)
+        frame_indices.extend(batch_fidx)
+        table_energies.extend(batch_te)
+        batch_frames.clear()
+        batch_fidx.clear()
+        batch_ts.clear()
+        batch_te.clear()
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -958,45 +1007,22 @@ def _collect_role_tracker_energies(
             frame_idx += 1
             continue
 
-        timestamps.append(float(frame_idx / fps))
-        frame_indices.append(int(frame_idx))
-
         table_crop = frame[ty : ty + th, tx : tx + tw]
         table_gray = cv2.cvtColor(table_crop, cv2.COLOR_BGR2GRAY)
-        if prev_table_gray is None:
-            table_energies.append(0.0)
-        else:
-            table_energies.append(float(np.mean(cv2.absdiff(table_gray, prev_table_gray))))
+        te = 0.0 if prev_table_gray is None else float(np.mean(cv2.absdiff(table_gray, prev_table_gray)))
         prev_table_gray = table_gray
 
-        result = person_model.predict(
-            frame,
-            classes=[0],
-            device=device,
-            verbose=False,
-        )[0]
-        if result.boxes is not None and len(result.boxes) > 0:
-            boxes = result.boxes.xyxy.cpu().numpy()
-            confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else None
-            keypoints = result.keypoints.xy.cpu().numpy() if result.keypoints is not None else None
-            if boxes.size > 0:
-                near_mask = [_is_player_near_table(box, roi, player_margin_px) for box in boxes]
-                boxes = boxes[np.asarray(near_mask, dtype=bool)]
-                if confs is not None:
-                    confs = confs[np.asarray(near_mask, dtype=bool)]
-                if keypoints is not None:
-                    keypoints = keypoints[np.asarray(near_mask, dtype=bool)]
-            if boxes.size > 0:
-                detections = tracker.build_detections(
-                    frame,
-                    frame_idx=frame_idx,
-                    boxes_xyxy=boxes,
-                    keypoints_xy=keypoints,
-                    confidences=confs,
-                )
-                tracker.add_frame_detections(detections)
+        batch_frames.append(frame.copy())
+        batch_fidx.append(int(frame_idx))
+        batch_ts.append(float(frame_idx / fps))
+        batch_te.append(te)
+
+        if len(batch_frames) >= _POSE_BATCH_SIZE:
+            _flush_batch()
 
         frame_idx += 1
+
+    _flush_batch()
 
     tracking_result = tracker.finish()
     role_hold_samples = max(2, int(round(6 / max(1, stride))))
@@ -2721,6 +2747,7 @@ def _collect_nearest_two_energies(
             classes=[0],
             device=device,
             verbose=False,
+            half=True,
         )
 
         frame_player_vels: List[float] = []

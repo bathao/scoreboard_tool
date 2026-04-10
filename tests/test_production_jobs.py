@@ -4,6 +4,7 @@ import uuid
 
 from backend.production_jobs import (
     accept_point_prediction,
+    apply_point_no_score,
     apply_point_review,
     build_review_status,
     create_match_job,
@@ -93,6 +94,19 @@ def test_accept_point_prediction_promotes_review_to_auto():
     assert point.winner == "player_a"
     assert point.winner_decision == "auto"
     assert point.source == "human"
+
+
+def test_apply_point_no_score_marks_point_as_let_and_removes_it_from_score_gate():
+    timeline = _make_timeline()
+
+    point = apply_point_no_score(timeline, point_id="pt_0001", reviewer="tester")
+    status = build_review_status(timeline)
+
+    assert point.winner == "unknown"
+    assert point.winner_decision == "auto"
+    assert "let_no_score" in point.flags
+    assert status["scoring_points"] == 1
+    assert status["final_export_ready"] is True
 
 
 def test_create_and_load_match_job_roundtrip():

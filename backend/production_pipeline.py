@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import json
 import shutil
@@ -13,6 +14,7 @@ from backend.production_jobs import (
     KNOWN_WINNERS,
     MatchJob,
     accept_point_prediction,
+    apply_point_no_score,
     apply_point_review,
     build_review_status,
     load_match_job,
@@ -87,26 +89,16 @@ def trim_input_video(raw_video_path: str, working_video_path: str, trim_start_se
         return str(working_path)
 
     cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{float(trim_start_sec):.3f}",
-        "-i",
-        str(raw_path),
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-movflags",
-        "+faststart",
+        "ffmpeg", "-y",
+        "-ss", f"{float(trim_start_sec):.3f}",
+        "-i", str(raw_path),
+        "-map", "0:v:0",
+        "-map", "0:a?",
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-movflags", "+faststart",
         str(working_path),
     ]
     _run_ffmpeg(cmd)
@@ -116,33 +108,33 @@ def trim_input_video(raw_video_path: str, working_video_path: str, trim_start_se
 def export_review_clips(timeline: RallyTimeline, *, working_video_path: str, review_clips_dir: str) -> dict[str, str]:
     review_dir = Path(review_clips_dir).resolve()
     review_dir.mkdir(parents=True, exist_ok=True)
-    exported: dict[str, str] = {}
+    src = str(Path(working_video_path).resolve())
 
-    for point in timeline.points:
+    def _export_one(point) -> tuple[str, str]:
         clip_path = review_dir / f"{point.id}.mp4"
         cmd = [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            f"{float(point.t_start):.3f}",
-            "-to",
-            f"{float(point.t_end):.3f}",
-            "-i",
-            str(Path(working_video_path).resolve()),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
+            "ffmpeg", "-y",
+            "-ss", f"{float(point.t_start):.3f}",
+            "-to", f"{float(point.t_end):.3f}",
+            "-i", src,
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-threads", "2",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
             str(clip_path),
         ]
         _run_ffmpeg(cmd)
-        exported[point.id] = str(clip_path).replace("\\", "/")
+        return point.id, str(clip_path).replace("\\", "/")
+
+    workers = min(len(timeline.points), 8)
+    exported: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_export_one, point): point.id for point in timeline.points}
+        for future in as_completed(futures):
+            point_id, path = future.result()
+            exported[point_id] = path
     return exported
 
 
@@ -383,6 +375,8 @@ def review_job_point(
         if winner not in KNOWN_WINNERS:
             raise ValueError("winner must be player_a or player_b for set_winner action")
         apply_point_review(timeline, point_id=point_id, winner=winner, reviewer=reviewer, note=note)
+    elif action == "mark_let":
+        apply_point_no_score(timeline, point_id=point_id, reviewer=reviewer, note=note)
     else:
         raise ValueError(f"Unsupported review action: {action}")
 

@@ -50,26 +50,38 @@ def render_to_1080p(renderer: ScoreboardRenderer) -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     target_w, target_h = 1920, 1080
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(renderer.output_path, fourcc, fps, (target_w, target_h))
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-s", f"{target_w}x{target_h}",
+        "-pix_fmt", "bgr24",
+        "-r", str(fps),
+        "-i", "pipe:0",
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-pix_fmt", "yuv420p",
+        renderer.output_path,
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     frame_count = 0
     state_index = 0
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-        current_time = frame_count / fps
-        current_state, state_index = renderer.state_for_time(current_time, state_index)
-        renderer._draw_scoreboard(frame, current_state, target_w, target_h)
-        out.write(frame)
-        frame_count += 1
-
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            current_time = frame_count / fps
+            current_state, state_index = renderer.state_for_time(current_time, state_index)
+            renderer._draw_scoreboard(frame, current_state, target_w, target_h)
+            proc.stdin.write(frame.tobytes())
+            frame_count += 1
+    finally:
+        proc.stdin.close()
+        proc.wait()
     cap.release()
-    out.release()
 
 
 def merge_audio(video_no_audio: str, audio_source: str, output_file: str) -> None:

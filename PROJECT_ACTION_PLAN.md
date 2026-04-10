@@ -204,6 +204,27 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - winner `5/9`
     - taxonomy `1/9`
     - last_hitter `5/9`
+- `[done]` pipeline speed optimizations (`2026-04-11`):
+  - `export_review_clips` now runs in parallel with `ThreadPoolExecutor` (8 workers)
+  - `trim_input_video` and `render_to_1080p` now use `h264_nvenc` (GPU encoder) instead of CPU codecs
+  - YOLO pose inference now batches 16 frames per GPU call (`_POSE_BATCH_SIZE = 16`) with `half=True` FP16
+  - benchmark: `generate_rally_timeline` on `match_test.mp4` = 310s (compute-bound on yolov8x-pose)
+  - further YOLO speedup not practical without changing model or stride (both affect accuracy)
+- `[done]` Web UI hardened into a usable single-page flow (`2026-04-10`):
+  - single-page design: `setup mode` and `review mode` on one URL
+  - raw video browser popup (`/browse/raw-video`)
+  - job creation auto-starts pipeline — no separate run step
+  - keyboard shortcuts: `←` Near win / `→` Far win
+  - live scoreboard shows state before current rally
+  - progress bar animates between real refreshes (JS ticker + DOMContentLoaded fix)
+  - auto-refresh via `setTimeout` — no F5 needed, fires from `created` and `running` status
+  - LET/HONG button removed from review panel
+  - elapsed time shown as `X phút Y giây`
+- `[done]` pipeline end-to-end verified on `match_test.mp4`:
+  - 14 rallies detected, 14 clips cut, adapter ran, preview rendered
+  - total runtime: ~13-14 min for a 257MB clip
+  - job reaches `needs_review` status cleanly
+- `[done]` `apply_point_no_score` added to `production_jobs.py` for no-score marking
 - `[done]` first local product vertical slice is now implemented:
   - `backend/production_jobs.py`
   - `backend/production_pipeline.py`
@@ -239,40 +260,21 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - `5 passed`
 
 ## Doing
-- `[doing]` the main product direction is now an end-to-end local single-video pipeline, not further standalone winner iteration on `match_vinh_001`
-- `[doing]` winner inference remains required, but it is now only one stage inside the product flow:
-  - input trim
-  - rally timeline
-  - winner inference
-  - score progression
-  - preview render
-  - review / correction
-  - final export
-- `[doing]` the first product build must satisfy this local operator workflow:
-  - select one raw video
-  - enter `Player A = near`
-  - enter `Player B = far`
-  - enter trim-start timestamp
-  - review only low-confidence / wrong winner points
-  - export the scoreboard render
-- `[doing]` local Web UI scope is now active:
-  - local machine only
-  - single operator only
-  - one video at a time only
-- `[doing]` the current local UI is a real working skeleton, but it still needs first raw-match validation:
-  - create job
-  - trim input
-  - run pipeline
-  - render preview
-  - review winners
-  - export final video
-- `[doing]` practical operator rule right now:
+- `[doing]` single-page local Web UI is now working end-to-end on a real test clip:
+  - pipeline verified on `match_test.mp4` — all stages ran cleanly
+  - UI single-page flow: browse → setup → pipeline → review → export
+  - next step is to run the same flow on `match_vinh_001__full.mp4`
+- `[doing]` next required tasks in priority order:
+  1. run `match_vinh_001__full.mp4` end-to-end through the UI — validate on the real long-match input
+  2. review all rallies in `match_test` job and confirm the final export path works
+  3. wire reviewed winner corrections from UI into dataset storage:
+     - canonical: `dataset/reviewed_matches/`
+     - rolling finetune: `dataset/collections/finetune_dataset/`
+  4. once writeback is wired, the active learning loop is real:
+     - UI review → auto-appends to finetune_dataset → future retrain
+- `[doing]` practical operator rule:
   - the local UI server must be running in the background before the browser opens it
-- `[doing]` next hardening targets inside the new product slice are:
-  - run one real raw `match_vinh_001` vertical slice end-to-end
-  - improve background server startup ergonomics
-  - tighten real runtime failure handling and job-status reporting
-  - wire reviewed-correction writeback into dataset assets
+  - `python scripts/run_local_web_ui.py` → then open `http://127.0.0.1:8765`
 - `[doing]` keep the accepted `set1..4` rally timestamps frozen as the reviewed boundary baseline
 - `[doing]` treat `match_vinh_001 / set_01..set_04` as completed reviewed dataset input, not as active winner-detection input
 - `[doing]` stop all further winner-detection iteration on this match unless the reviewed dataset is explicitly reopened later

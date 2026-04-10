@@ -13,6 +13,111 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-11` (Pipeline Speed Optimizations — Parallel Clips, NVENC, Batch YOLO)
+
+### Goal
+- reduce total pipeline runtime, which was ~13–14 min for `match_test.mp4` (257MB, 14 rallies)
+- identify and fix bottlenecks without touching rally detection accuracy
+
+### What Was Changed
+
+**`backend/production_pipeline.py`**
+- `export_review_clips`: replaced sequential ffmpeg export with `ThreadPoolExecutor` (up to 8 workers, each ffmpeg uses `-threads 2`)
+- `trim_input_video`: switched from `libx264` to `h264_nvenc` (`preset p4`) — GPU-accelerated trim
+
+**`backend/rendering.py`**
+- `render_to_1080p`: replaced `cv2.VideoWriter` (mp4v CPU) with raw frame pipe → ffmpeg `h264_nvenc` — GPU-accelerated scoreboard render
+
+**`backend/ai_multistream_rally.py`** (YOLO pose detection)
+- `_collect_role_tracker_energies`: changed from single-frame `predict(frame)` to batch inference `predict(batch_of_16_frames)` — accumulates 16 frames before each GPU call
+- added `half=True` to all `predict()` and `track()` calls — FP16 inference on GPU
+- `_POSE_BATCH_SIZE = 16` constant controls batch size
+
+### Benchmark Results on `match_test.mp4` (257MB, 14 rallies, 2m40s)
+- `generate_rally_timeline` with batch=8: **313s**
+- `generate_rally_timeline` with batch=16: **310s** (no meaningful difference)
+- Conclusion: batch size doesn't matter — model is compute-bound (yolov8x-pose ~130ms/frame), not launch-overhead-bound
+- The batch + FP16 changes do improve GPU utilization vs the original single-frame path
+- Further speedup without accuracy loss is not practical without changing the model or stride
+
+### What Was NOT Changed
+- `stride=2` kept — increasing stride reduces accuracy (fewer frames sampled)
+- `yolov8x-pose` kept — smaller model would reduce accuracy
+- `generate_rally_timeline` remains the dominant bottleneck (~5 min for 2m40s video)
+
+### Current Read
+- pipeline is now faster for clip export and render, but YOLO inference is still the wall
+- batch inference + FP16 is in place for future GPU upgrades to benefit automatically
+
+### Resume Point
+- same as previous session — need to run `match_vinh_001__full.mp4` end-to-end and wire UI review writeback
+
+---
+
+## Work Log - `2026-04-10` (Web UI Hardened — Single-Page, Auto-Refresh, Pipeline Verified)
+
+### Goal
+- harden the first UI skeleton into a usable single-page flow
+- verify the full pipeline runs end-to-end on a real input
+- fix operator ergonomics (auto-refresh, progress animation, format cleanup)
+
+### What Was Changed
+- `backend/local_web_ui.py` — major UI overhaul:
+  - redesigned into a single-page app with two modes:
+    - `setup mode`: form + raw video browser + trim preview player
+    - `review mode`: video player + live scoreboard + action panel + timeline list
+  - job creation now auto-starts the full pipeline immediately on form submit — no separate "Run Pipeline" step
+  - added raw video browser popup (`/browse/raw-video`) that browses `inputs/raw_matches/`
+  - keyboard shortcuts in review mode: `←` = Near win, `→` = Far win
+  - live scoreboard shows score state before the current rally being reviewed
+  - timeline list shows status badges per rally (pending / resolved-near / resolved-far)
+  - progress bar and percent label now animate between real refreshes (JS ticker, +0.1% every 300ms)
+  - auto-refresh now fires via `setTimeout(location.reload, 5000)` — no F5 needed
+  - auto-refresh now also fires when job status is `created`, not only `running`
+  - `DOMContentLoaded` wrapper fixed the progress ticker (was failing silently in `<head>`)
+  - LET/HONG action button removed from review panel — rally detection handles it upstream
+  - elapsed time format changed from `5.4 min` to `5 phút 23 giây`
+  - `/jobs/{id}` GET now redirects to `/?job_id={id}` — one URL for everything
+- `backend/production_jobs.py`:
+  - added `apply_point_no_score` function for marking a rally as no-score from the UI
+  - added `LET_FLAGS` constant
+- `backend/production_pipeline.py`:
+  - `review_job_point` now handles `action = "mark_let"` via `apply_point_no_score`
+- `tests/test_production_jobs.py`:
+  - added `test_apply_point_no_score_marks_point_as_let_and_removes_it_from_score_gate`
+
+### Pipeline Verified End-to-End on `match_test.mp4`
+- input: `inputs/raw_matches/match_test.mp4` (257MB)
+- result: `14` rallies detected, `14` review clips cut, winner adapter ran on all 14
+- `preview_scoreboard.mp4` produced successfully
+- status: `needs_review` — waiting for operator to confirm rally winners before export
+- timing breakdown:
+  - trim + timeline + export_review_clips: ~6 min
+  - predict_winners_with_adapter: ~2.7 min
+  - render_preview: ~4.7 min
+  - **total: ~13-14 min** for a `257MB` test clip
+- GPU note: `export_review_clips` uses ffmpeg CPU-only — GPU 0% during that step is expected; GPU runs during adapter inference step only
+
+### Current Read
+- the single-page UI now works end-to-end on a real video:
+  - browse → select → fill form → Run AI Pipeline → progress animates → review queue appears
+- no F5 needed during pipeline — page auto-refreshes every 5s
+- progress bar visually advances even within a step (fake ticker)
+- LET/HONG button is gone — UI is cleaner, review is now Near win / Far win only
+- the pipeline has not yet been run on `match_vinh_001__full.mp4` (the full long match)
+- reviewed-dataset writeback from UI corrections is still not wired
+
+### Resume Point For The Next Session
+1. run the full pipeline on `match_vinh_001__full.mp4` end-to-end:
+   - the test clip proved the stack works; now validate on the real long-match input
+   - check if trim, timeline, clips, adapter, and preview all behave correctly on a longer input
+2. review all 14 rallies in `match_test` job and test final export path
+3. wire reviewed winner corrections from UI into dataset storage:
+   - canonical: `dataset/reviewed_matches/`
+   - rolling finetune: `dataset/collections/finetune_dataset/`
+4. after writeback is wired, the active learning loop becomes real:
+   - review in UI → auto-appends to finetune_dataset → future retrain
+
 ## Work Log - `2026-04-10` (Local Production UI Vertical Slice Added)
 ### Goal
 - stop treating the next step as `winner detection` only

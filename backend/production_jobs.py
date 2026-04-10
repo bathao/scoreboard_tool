@@ -14,6 +14,7 @@ from backend.rally_timeline_contract import Correction, RallyTimeline, RallyTime
 JOB_SCHEMA_VERSION = "local_match_job_v1"
 DEFAULT_JOBS_ROOT = PROJECT_ROOT / "runtime_jobs"
 KNOWN_WINNERS = {"player_a", "player_b"}
+LET_FLAGS = {"let_no_score", "rally_label_let"}
 
 
 def _utc_now_iso() -> str:
@@ -359,6 +360,57 @@ def apply_point_review(
     _record_change(changes, "winner_loser_candidate", old_values["winner_loser_candidate"], point.winner_loser_candidate)
     _record_change(changes, "source", old_values["source"], point.source)
     _append_correction(point, reviewer=reviewer, note=note or "operator reviewed winner", changes=changes)
+    return point
+
+
+def apply_point_no_score(
+    timeline: RallyTimeline,
+    *,
+    point_id: str,
+    reviewer: str,
+    note: str = "",
+) -> RallyTimelinePoint:
+    point = get_point_by_id(timeline, point_id)
+    old_values = {
+        "winner": point.winner,
+        "winner_candidate": point.winner_candidate,
+        "winner_decision": point.winner_decision,
+        "winner_confidence": point.winner_confidence,
+        "winner_reason": point.winner_reason,
+        "winner_loser_candidate": point.winner_loser_candidate,
+        "winner_last_hitter_candidate": point.winner_last_hitter_candidate,
+        "source": point.source,
+        "flags": list(point.flags),
+    }
+
+    point.winner = "unknown"
+    point.winner_candidate = "unknown"
+    point.winner_loser_candidate = "unknown"
+    point.winner_last_hitter_candidate = "unknown"
+    point.winner_confidence = 1.0
+    point.winner_decision = "auto"
+    point.winner_reason = "human_marked_let"
+    point.source = "human"
+    for flag in sorted(LET_FLAGS):
+        if flag not in point.flags:
+            point.flags.append(flag)
+
+    changes: dict[str, dict[str, Any]] = {}
+    _record_change(changes, "winner", old_values["winner"], point.winner)
+    _record_change(changes, "winner_candidate", old_values["winner_candidate"], point.winner_candidate)
+    _record_change(changes, "winner_decision", old_values["winner_decision"], point.winner_decision)
+    _record_change(changes, "winner_confidence", old_values["winner_confidence"], point.winner_confidence)
+    _record_change(changes, "winner_reason", old_values["winner_reason"], point.winner_reason)
+    _record_change(changes, "winner_loser_candidate", old_values["winner_loser_candidate"], point.winner_loser_candidate)
+    _record_change(
+        changes,
+        "winner_last_hitter_candidate",
+        old_values["winner_last_hitter_candidate"],
+        point.winner_last_hitter_candidate,
+    )
+    _record_change(changes, "source", old_values["source"], point.source)
+    _record_change(changes, "flags", old_values["flags"], list(point.flags))
+    _append_correction(point, reviewer=reviewer, note=note or "operator marked let / no score", changes=changes)
     return point
 
 
