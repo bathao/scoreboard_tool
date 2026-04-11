@@ -348,12 +348,24 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - complete one usable scoreboard output
   - enlarge the reviewed dataset for later retraining
 - `[doing]` next required tasks in priority order:
-  1. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
-  2. wire reviewed winner corrections từ UI vào dataset storage:
+  1. **Side-swap awareness** — NEAR/FAR không map cố định với player_a/player_b sau Set 1:
+     a. Thêm `player_a_starts_near: bool = True` vào `MatchJob`
+     b. Setup UI: đổi label "Player A" → "Player NEAR (Set 1)", "Player B" → "Player FAR (Set 1)"
+        — giúp operator biết đang nhập ai ở vị trí nào trong Set 1
+     c. Viết `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near) -> str`
+        — rule: đổi bên sau mỗi set; set cuối đổi thêm khi max(score_a, score_b) >= 5
+     d. Remap AI adapter output (NEAR/FAR-relative) → player identity trong `_apply_adapter_predictions`
+        — score trước mỗi rally dùng ScoreEngine để xác định ai đang ở NEAR
+     e. Review UI: bỏ "NEAR WIN" / "FAR WIN", thay bằng "[Tên VĐV] WIN"
+        — tên rút gọn: lấy 2 từ cuối của tên (VD: "Nguyễn Thị Thu Hương" → "Thu Hương")
+        — button label cập nhật theo rally đang chọn (qua `selectPoint()` JS)
+        — thêm dòng context: "NEAR: [tên]  ·  FAR: [tên]" phía trên 2 button
+  2. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
+  3. wire reviewed winner corrections từ UI vào dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
-  3. extend review flow để nhập thêm per-rally fields khi `job_purpose = Output + Dataset`
-  4. once writeback wired, active learning loop hoàn chỉnh:
+  4. extend review flow để nhập thêm per-rally fields khi `job_purpose = Output + Dataset`
+  5. once writeback wired, active learning loop hoàn chỉnh:
      - UI review → auto-appends to finetune_dataset → future retrain
 - `[doing]` dataset-growth milestones should now be treated as active product goals:
   - current reviewed canonical base:
