@@ -365,7 +365,17 @@ Put detailed explanations, experiments, failures, and resume notes in:
      - **Signal 2 — Long gap (thời gian):** gap giữa `rally[i].t_end` và `rally[i+1].t_start` trong timeline. Gap trong set thường < 15s; gap giữa 2 set thường 60-120s (HLV hội ý, uống nước). Ngưỡng cần calibrate trên thực tế
      - **Signal 3 — Side swap (YOLO position):** so sánh vị trí X của 2 player trong rally cuối set N vs rally đầu set N+1. Nếu player ở vị trí NEAR → FAR và ngược lại, xác nhận đây là ranh giới set thật. Đổi sân giữa set cuối (khi max score ≥ 5) là temporary swap, cần phân biệt với set-boundary swap
      - **Ứng dụng:** 3 tín hiệu dùng để cross-validate nhau → tăng confidence cho set label; phát hiện anomaly khi ScoreEngine đặt set boundary sai (do winner assignment lỗi); auto-mark set boundary candidates cho operator review trong UI
-  3. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
+  3. **Per-set rally labeling + Review UI redesign theo set:**
+     - Khi set boundary detection (mục 2) xác định được ranh giới, mỗi rally trong timeline được gán `set_number` chính xác
+       - VD: rally 1-15 → Set 1, rally 16-34 → Set 2, rally 35-52 → Set 3...
+     - `RallyTimelinePoint` đã có field `set_number` — cần đảm bảo nó được ghi đúng từ pipeline (hiện đang dựa vào ScoreEngine, chưa dùng 3 signal)
+     - **Review UI redesign:**
+       - Timeline list tách thành các nhóm theo set: `── SET 1 ──`, `── SET 2 ──`, `── SET 3 ──`...
+       - Mỗi nhóm có header hiển thị tổng điểm của set đó (sau khi tất cả rally trong set đã resolved)
+       - Operator có thể review từng set riêng biệt thay vì cuộn 1 list dài hàng chục rally
+       - Filter "pending" vẫn hoạt động trong phạm vi từng set
+       - `selectPoint()` JS cập nhật set context khi click sang set khác
+  4. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
   3. wire reviewed winner corrections từ UI vào dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
