@@ -55,6 +55,11 @@ class RallyTimelinePoint:
     flags: List[str] = field(default_factory=list)
     source: EventSource = "ai"
     corrections: List[Correction] = field(default_factory=list)
+    # Set assignment — populated by set boundary detection after winner prediction
+    set_number: int = 1
+    # Optional YOLO-derived side positions (populated by pipeline for Signal 3)
+    near_mean_x: Optional[float] = None
+    far_mean_x: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -106,6 +111,9 @@ class RallyTimelinePoint:
             flags=list(d.get("flags", [])),
             source=str(d.get("source", "ai")),  # type: ignore
             corrections=corrections,
+            set_number=int(d.get("set_number", 1)),
+            near_mean_x=(None if d.get("near_mean_x") is None else float(d["near_mean_x"])),
+            far_mean_x=(None if d.get("far_mean_x") is None else float(d["far_mean_x"])),
         )
 
 

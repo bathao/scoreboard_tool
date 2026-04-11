@@ -26,6 +26,7 @@ from backend.production_jobs import (
 from backend.rally_timeline_contract import RallyTimeline, counts_toward_score, load_rally_timeline, save_rally_timeline
 from backend.rendering import render_scoreboard_video
 from backend.score_validation import build_score_validation
+from backend.set_boundary import apply_set_numbers
 
 
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -459,6 +460,7 @@ def run_initial_job_pipeline(
         best_of=job.best_of,
         player_a_starts_near=job.player_a_starts_near,
     )
+    apply_set_numbers(timeline, best_of=job.best_of)
     timeline.score_validation = build_score_validation(timeline, expected_scope="any")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
     _job_log(job_dir, "Step 4/4: predict_winners_with_adapter — done")
