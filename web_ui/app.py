@@ -358,6 +358,85 @@ def create_local_web_app(
             clip_path = Path(job.artifacts.review_clips_dir) / f"{clip_match.group(2)}.mp4"
             return _serve_file(start_response, clip_path)
 
+        if path == "/admin/restart" and method == "GET":
+            import json as _json
+            import subprocess as _subprocess
+            import threading as _threading
+            from backend.production_pipeline import LOGS_DIR as _LOGS_DIR
+            # clean up zombie jobs
+            cleaned = 0
+            if jobs_root and jobs_root.exists():
+                for jf in jobs_root.glob("*/job.json"):
+                    try:
+                        job_data = _json.loads(jf.read_text(encoding="utf-8"))
+                        if job_data.get("status") == "running":
+                            job_data["status"] = "failed"
+                            jf.write_text(_json.dumps(job_data, indent=2), encoding="utf-8")
+                            cleaned += 1
+                    except Exception:
+                        pass
+            bat = Path(__file__).parent.parent / "scripts" / "restart.bat"
+            html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Restarting...</title>
+<style>
+body{{font-family:monospace;background:#111;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px}}
+.title{{font-size:1.6em;color:#fff}}
+.log{{width:460px;background:#1a1a1a;border:1px solid #333;border-radius:6px;padding:14px;font-size:0.85em;line-height:1.8}}
+.log div{{padding:1px 0}}
+.ok{{color:#4caf50}} .spin{{color:#ff0}} .err{{color:#f44}}
+</style>
+</head><body>
+<div class="title">&#x21BA; Server Restart</div>
+<div class="log" id="log">
+  <div class="ok">&#x2714; Cleaned {cleaned} zombie job(s)</div>
+  <div class="spin" id="status">&#x23F3; Killing old process...</div>
+</div>
+<script>
+var tries = 0;
+var log = document.getElementById('log');
+var statusEl = document.getElementById('status');
+function addLine(cls, text) {{
+  var d = document.createElement('div');
+  d.className = cls; d.textContent = text;
+  log.appendChild(d);
+}}
+function poll() {{
+  fetch('/').then(function(r) {{
+    if (r.ok) {{
+      statusEl.remove();
+      addLine('ok', '\\u2714 Server is back up!');
+      addLine('ok', '\\u27A1 Redirecting in 2s...');
+      setTimeout(function(){{ window.location.href = '/'; }}, 2000);
+    }} else {{ retry(); }}
+  }}).catch(retry);
+}}
+function retry() {{
+  tries++;
+  statusEl.textContent = '\\u23F3 Waiting for server... (' + tries + ')';
+  if (tries > 30) {{
+    statusEl.className = 'err';
+    statusEl.textContent = '\\u2716 Server did not come back after 45s. Check the terminal.';
+    return;
+  }}
+  setTimeout(poll, 1500);
+}}
+setTimeout(function(){{
+  statusEl.textContent = '\\u23F3 Waiting for server to restart...';
+  setTimeout(poll, 4000);
+}}, 2000);
+</script>
+</body></html>"""
+            def _do_restart():
+                import time as _time
+                _time.sleep(2.0)
+                _subprocess.Popen(
+                    ["cmd", "/c", "start", "", str(bat)],
+                    creationflags=_subprocess.CREATE_NEW_CONSOLE,
+                    close_fds=True,
+                )
+            _threading.Thread(target=_do_restart, daemon=True).start()
+            return _respond_html(start_response, body=html.encode("utf-8"))
+
         log_match = re.match(r"^/jobs/([^/]+)/log$", path)
         if log_match and method == "GET":
             job_id = log_match.group(1)

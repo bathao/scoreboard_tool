@@ -943,6 +943,7 @@ def _collect_role_tracker_energies(
     player_margin_px: int,
     frame_w: int,
     frame_h: int,
+    log_fn=None,
 ) -> RoleTrackerSeries:
     tx, ty, tw, th = roi.as_tuple()
     tracker = OfflinePlayerTracker(roi, frame_w=frame_w, frame_h=frame_h)
@@ -953,6 +954,11 @@ def _collect_role_tracker_energies(
     prev_table_gray: Optional[np.ndarray] = None
     frame_idx = 0
 
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    frames_to_process = max(1, total_frames // max(1, stride))
+    log_every = max(_POSE_BATCH_SIZE, frames_to_process // 10)
+    processed = 0
+
     # Batch buffers
     batch_frames: List[np.ndarray] = []
     batch_fidx: List[int] = []
@@ -960,6 +966,7 @@ def _collect_role_tracker_energies(
     batch_te: List[float] = []
 
     def _flush_batch() -> None:
+        nonlocal processed
         if not batch_frames:
             return
         results = person_model.predict(
@@ -991,6 +998,7 @@ def _collect_role_tracker_energies(
                         confidences=confs,
                     )
                     tracker.add_frame_detections(detections)
+        processed += len(batch_fidx)
         timestamps.extend(batch_ts)
         frame_indices.extend(batch_fidx)
         table_energies.extend(batch_te)
@@ -998,6 +1006,10 @@ def _collect_role_tracker_energies(
         batch_fidx.clear()
         batch_ts.clear()
         batch_te.clear()
+        if log_fn and processed % log_every < _POSE_BATCH_SIZE:
+            pct = min(99, int(processed / frames_to_process * 100))
+            elapsed_s = int(timestamps[-1]) if timestamps else 0
+            log_fn(f"  pose detection: {processed}/{frames_to_process} frames ({pct}%) — video pos {elapsed_s}s")
 
     while True:
         ret, frame = cap.read()
@@ -3046,6 +3058,7 @@ def extract_multistream_signals(
     ball_signal_source: str = "none",
     ball_tracking_profile: str = "support",
     device: str = "cuda",
+    log_fn=None,
 ) -> MultiStreamSignals:
     if not torch.cuda.is_available() and device == "cuda":
         raise RuntimeError("CUDA GPU is required for multi-stream extraction.")
@@ -3065,10 +3078,14 @@ def extract_multistream_signals(
         raise FileNotFoundError(f"Pose weights not found: {pose_w_path}")
 
     info = probe_video_ffprobe(str(v_path))
+    if log_fn:
+        log_fn("detecting table ROI...")
     roi = detect_table_roi_dl(
         str(v_path),
         cfg=DLConfig(weights_path=str(table_w_path), device=device),
     )
+    if log_fn:
+        log_fn(f"table ROI detected: x={roi.as_tuple()[0]} y={roi.as_tuple()[1]} w={roi.as_tuple()[2]} h={roi.as_tuple()[3]}")
     if player_signal_source == "none":
         timestamps, table_energies = _extract_production_table_energies(
             str(v_path),
@@ -3098,7 +3115,11 @@ def extract_multistream_signals(
         player_a_face_touch_scores = [0.0 for _ in timestamps]
         player_b_face_touch_scores = [0.0 for _ in timestamps]
     else:
+        if log_fn:
+            log_fn("loading pose model...")
         person_model = YOLO(str(pose_w_path))
+        if log_fn:
+            log_fn("pose model loaded, starting frame analysis...")
         cap = cv2.VideoCapture(str(v_path))
         if not cap.isOpened():
             raise RuntimeError(f"Failed to open video: {v_path}")
@@ -3114,6 +3135,7 @@ def extract_multistream_signals(
                 player_margin_px=int(player_margin_px),
                 frame_w=int(info.width),
                 frame_h=int(info.height),
+                log_fn=log_fn,
             )
             timestamps = role_series.timestamps
             table_energies = role_series.table_energies

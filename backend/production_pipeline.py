@@ -33,8 +33,8 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 
 
 def _job_log(job_dir: str | Path, message: str) -> None:
-    from datetime import datetime, timezone
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    from datetime import datetime
+    ts = datetime.now().strftime("%H:%M:%S")
     line = f"[{ts}] {message}\n"
     try:
         job_id = Path(job_dir).name
@@ -145,6 +145,8 @@ def export_review_clips(timeline: RallyTimeline, *, working_video_path: str, rev
         _run_ffmpeg(cmd)
         return point.id, str(clip_path).replace("\\", "/")
 
+    if not timeline.points:
+        return {}
     workers = min(len(timeline.points), 8)
     exported: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -320,10 +322,16 @@ def run_initial_job_pipeline(
         config.table_weights_path,
         pose_weights_path=config.pose_weights_path,
         best_of=job.best_of,
+        log_fn=lambda msg: _job_log(job_dir, msg),
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
     _job_log(job_dir, f"Step 2/5: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
+    if not timeline.points:
+        raise RuntimeError(
+            "No rallies detected in this video. "
+            "Check that the video contains table tennis gameplay and the table is clearly visible."
+        )
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)

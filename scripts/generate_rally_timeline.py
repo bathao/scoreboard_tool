@@ -2209,6 +2209,7 @@ def build_rally_timeline(
     player_signal_source: str = "role_tracker",
     ball_fuse_gain: float = 1.15,
     ball_signal_source: str = "classical",
+    log_fn=None,
 ) -> RallyTimeline:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required for multi-stream rally timeline generation.")
@@ -2241,6 +2242,7 @@ def build_rally_timeline(
         ball_signal_source=effective_ball_signal_source,
         ball_tracking_profile=ball_tracking_profile,
         device="cuda",
+        log_fn=log_fn,
     )
     segments = detect_multistream_rallies(signals, mode=mode)
 
