@@ -313,20 +313,20 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - the Web UI pipeline now passes the full rally config explicitly instead of relying on implicit script defaults
 
 ## Done (2026-04-11 session additions)
-- `[done]` client-side timeline navigation — click không reload trang (`selectPoint` JS + `POINT_DATA` blob)
-- `[done]` per-set score breakdown trong review panel (`set_scores_display`, `_timeline_score_maps` trả 3 giá trị)
-- `[done]` pending filter fix — pending = scoring point chưa operator confirm (không phải chỉ thiếu AI prediction)
-- `[done]` post-review navigation — sau correct điểm N, nhảy đến điểm unresolved đầu tiên sau N
-- `[done]` scrollIntoView rally hiện tại khi load trang
-- `[done]` pipeline dừng sau Step 4 (`ai_ready`); bỏ auto-render preview; Export button luôn enabled
-- `[done]` export running view riêng với log panel + progress bar + auto-detect done
-- `[done]` fix race condition export UI — pre-mark `running/final_export` trước khi redirect
-- `[done]` `job_purpose` field trên `MatchJob` + dropdown trong Setup UI
-- `[done]` `tournament_name` + `round_name` field trên `MatchJob` + 2 ô input Setup UI + header 1 dòng trên scoreboard
-- `[done]` scoreboard renderer rebuild với PIL/Arial — hỗ trợ tiếng Việt đầy đủ dấu
-- `[done]` layout scoreboard 2 cột: sets won (giữa) + game points (phải), cùng font size 30px bold
-- `[done]` scoreboard vị trí góc dưới bên phải
-- `[done]` final output video xuất vào `outputs/` folder ở root repo
+- `[done]` client-side timeline navigation — no page reload on click (`selectPoint` JS + `POINT_DATA` blob)
+- `[done]` per-set score breakdown in review panel (`set_scores_display`, `_timeline_score_maps` returns 3 values)
+- `[done]` pending filter fix — pending = unconfirmed scoring point, not just missing AI prediction
+- `[done]` post-review navigation — after correcting point N, jump to first unresolved point after N
+- `[done]` scrollIntoView current rally on page load
+- `[done]` pipeline stops after Step 4 (`ai_ready`); no auto-preview render; Export button always enabled
+- `[done]` dedicated export running view with log panel + progress bar + auto-detect completion
+- `[done]` fix export UI race condition — pre-mark `running/final_export` in job.json before redirect
+- `[done]` `job_purpose` field on `MatchJob` + dropdown in Setup UI
+- `[done]` `tournament_name` + `round_name` fields on `MatchJob` + 2 inputs in Setup UI + single header line on scoreboard
+- `[done]` scoreboard renderer rebuilt with PIL/Arial — full Unicode support (Vietnamese diacritics)
+- `[done]` scoreboard layout: 2 score columns (sets won inner, game points outer), both 30px bold
+- `[done]` scoreboard position: bottom-right corner
+- `[done]` final output video saved to `outputs/` folder at repo root
 
 ## Doing
 - `[doing]` follow `Web UI first` as the main operating rule from now on:
@@ -348,39 +348,38 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - complete one usable scoreboard output
   - enlarge the reviewed dataset for later retraining
 - `[doing]` next required tasks in priority order:
-  1. **Side-swap awareness** — NEAR/FAR không map cố định với player_a/player_b sau Set 1:
-     a. Thêm `player_a_starts_near: bool = True` vào `MatchJob`
-     b. Setup UI: đổi label "Player A" → "Player NEAR (Set 1)", "Player B" → "Player FAR (Set 1)"
-        — giúp operator biết đang nhập ai ở vị trí nào trong Set 1
-     c. Viết `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near) -> str`
-        — rule: đổi bên sau mỗi set; set cuối đổi thêm khi max(score_a, score_b) >= 5
-     d. Remap AI adapter output (NEAR/FAR-relative) → player identity trong `_apply_adapter_predictions`
-        — score trước mỗi rally dùng ScoreEngine để xác định ai đang ở NEAR
-     e. Review UI: bỏ "NEAR WIN" / "FAR WIN", thay bằng "[Tên VĐV] WIN"
-        — tên rút gọn: lấy 2 từ cuối của tên (VD: "Nguyễn Thị Thu Hương" → "Thu Hương")
-        — button label cập nhật theo rally đang chọn (qua `selectPoint()` JS)
-        — thêm dòng context: "NEAR: [tên]  ·  FAR: [tên]" phía trên 2 button
-  2. **Set boundary detection** — xác định thời điểm kết thúc mỗi set bằng 3 tín hiệu độc lập, cross-validate lẫn nhau:
-     - **Signal 1 — Score rule (logic):** ScoreEngine đã tính khi nào một set kết thúc hợp lệ (11-x với hiệu ≥ 2, hoặc deuce 12-10, 13-11...). Đây là điều kiện cần nhưng chưa đủ vì phụ thuộc vào winner assignment đúng
-     - **Signal 2 — Long gap (thời gian):** gap giữa `rally[i].t_end` và `rally[i+1].t_start` trong timeline. Gap trong set thường < 15s; gap giữa 2 set thường 60-120s (HLV hội ý, uống nước). Ngưỡng cần calibrate trên thực tế
-     - **Signal 3 — Side swap (YOLO position):** so sánh vị trí X của 2 player trong rally cuối set N vs rally đầu set N+1. Nếu player ở vị trí NEAR → FAR và ngược lại, xác nhận đây là ranh giới set thật. Đổi sân giữa set cuối (khi max score ≥ 5) là temporary swap, cần phân biệt với set-boundary swap
-     - **Ứng dụng:** 3 tín hiệu dùng để cross-validate nhau → tăng confidence cho set label; phát hiện anomaly khi ScoreEngine đặt set boundary sai (do winner assignment lỗi); auto-mark set boundary candidates cho operator review trong UI
-  3. **Per-set rally labeling + Review UI redesign theo set:**
-     - Khi set boundary detection (mục 2) xác định được ranh giới, mỗi rally trong timeline được gán `set_number` chính xác
-       - VD: rally 1-15 → Set 1, rally 16-34 → Set 2, rally 35-52 → Set 3...
-     - `RallyTimelinePoint` đã có field `set_number` — cần đảm bảo nó được ghi đúng từ pipeline (hiện đang dựa vào ScoreEngine, chưa dùng 3 signal)
+  1. **Side-swap awareness** — NEAR/FAR does not map consistently to player_a/player_b after Set 1:
+     a. Add `player_a_starts_near: bool = True` to `MatchJob`
+     b. Setup UI: rename "Player A" label → "Player NEAR (Set 1)", "Player B" → "Player FAR (Set 1)"
+     c. Write `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near) -> str`
+        — sides swap after each set; in the deciding set, swap again when max(score_a, score_b) >= 5
+     d. Remap AI adapter output (NEAR/FAR-relative) to player identity in `_apply_adapter_predictions`
+        — use ScoreEngine on preceding rallies to determine who is at NEAR before each rally
+     e. Review UI: replace "NEAR WIN" / "FAR WIN" buttons with "[Player Name] WIN"
+        — abbreviated name: last 2 words of full name (e.g. "Nguyen Thi Thu Huong" → "Thu Huong")
+        — button labels update per selected rally via `selectPoint()` JS
+        — add context line above buttons: "NEAR: [name]  ·  FAR: [name]"
+  2. **Set boundary detection** — identify set end using 3 independent signals, cross-validated:
+     - **Signal 1 — Score rule:** ScoreEngine already computes valid set-end (11-x with diff >= 2, or deuce). Necessary but not sufficient — depends on correct winner assignment
+     - **Signal 2 — Long gap:** gap between `rally[i].t_end` and `rally[i+1].t_start`. Within-set gap typically < 15s; between-set break typically 60-120s (coaching timeout, water break). Threshold to calibrate on real data
+     - **Signal 3 — Side swap (YOLO position):** compare mean player X position in last rally of set N vs first rally of set N+1. If NEAR player is now at FAR and vice versa, confirms a real set boundary. Distinguish from mid-deciding-set swap (which is temporary and happens when max score >= 5)
+     - **Application:** 3 signals cross-validate each other → higher confidence set labels; detect anomalies where ScoreEngine places boundary incorrectly due to wrong winner assignment; auto-mark set boundary candidates for operator review
+  3. **Per-set rally labeling + Review UI grouping by set:**
+     - Once set boundaries are confirmed, assign correct `set_number` to each rally
+       — e.g. rallies 1-15 → Set 1, 16-34 → Set 2, 35-52 → Set 3 ...
+     - `RallyTimelinePoint` already has `set_number` field — ensure it is written correctly from pipeline (currently driven by ScoreEngine only, not by the 3-signal approach)
      - **Review UI redesign:**
-       - Timeline list tách thành các nhóm theo set: `── SET 1 ──`, `── SET 2 ──`, `── SET 3 ──`...
-       - Mỗi nhóm có header hiển thị tổng điểm của set đó (sau khi tất cả rally trong set đã resolved)
-       - Operator có thể review từng set riêng biệt thay vì cuộn 1 list dài hàng chục rally
-       - Filter "pending" vẫn hoạt động trong phạm vi từng set
-       - `selectPoint()` JS cập nhật set context khi click sang set khác
-  4. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
-  3. wire reviewed winner corrections từ UI vào dataset storage:
+       - Timeline list grouped by set: `── SET 1 ──`, `── SET 2 ──`, `── SET 3 ──` ...
+       - Each group header shows the final score of that set once all rallies in it are resolved
+       - Operator can review one set at a time instead of scrolling a flat list of 50+ rallies
+       - Pending filter still works within each set group
+       - `selectPoint()` JS updates set context when navigating across sets
+  4. Run `match_vinh_001__full.mp4` end-to-end through UI (`Output Only`) — validate full review → export flow
+  5. Wire reviewed winner corrections from UI into dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
-  4. extend review flow để nhập thêm per-rally fields khi `job_purpose = Output + Dataset`
-  5. once writeback wired, active learning loop hoàn chỉnh:
+  6. Extend review flow for extra per-rally fields when `job_purpose = Output + Dataset`
+  7. Once writeback is wired, active learning loop is complete:
      - UI review → auto-appends to finetune_dataset → future retrain
 - `[doing]` dataset-growth milestones should now be treated as active product goals:
   - current reviewed canonical base:
