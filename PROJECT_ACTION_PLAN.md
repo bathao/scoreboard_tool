@@ -360,7 +360,12 @@ Put detailed explanations, experiments, failures, and resume notes in:
         — tên rút gọn: lấy 2 từ cuối của tên (VD: "Nguyễn Thị Thu Hương" → "Thu Hương")
         — button label cập nhật theo rally đang chọn (qua `selectPoint()` JS)
         — thêm dòng context: "NEAR: [tên]  ·  FAR: [tên]" phía trên 2 button
-  2. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
+  2. **Set boundary detection** — xác định thời điểm kết thúc mỗi set bằng 3 tín hiệu độc lập, cross-validate lẫn nhau:
+     - **Signal 1 — Score rule (logic):** ScoreEngine đã tính khi nào một set kết thúc hợp lệ (11-x với hiệu ≥ 2, hoặc deuce 12-10, 13-11...). Đây là điều kiện cần nhưng chưa đủ vì phụ thuộc vào winner assignment đúng
+     - **Signal 2 — Long gap (thời gian):** gap giữa `rally[i].t_end` và `rally[i+1].t_start` trong timeline. Gap trong set thường < 15s; gap giữa 2 set thường 60-120s (HLV hội ý, uống nước). Ngưỡng cần calibrate trên thực tế
+     - **Signal 3 — Side swap (YOLO position):** so sánh vị trí X của 2 player trong rally cuối set N vs rally đầu set N+1. Nếu player ở vị trí NEAR → FAR và ngược lại, xác nhận đây là ranh giới set thật. Đổi sân giữa set cuối (khi max score ≥ 5) là temporary swap, cần phân biệt với set-boundary swap
+     - **Ứng dụng:** 3 tín hiệu dùng để cross-validate nhau → tăng confidence cho set label; phát hiện anomaly khi ScoreEngine đặt set boundary sai (do winner assignment lỗi); auto-mark set boundary candidates cho operator review trong UI
+  3. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
   3. wire reviewed winner corrections từ UI vào dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
