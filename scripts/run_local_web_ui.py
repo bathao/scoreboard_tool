@@ -7,7 +7,7 @@ from wsgiref.simple_server import make_server
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from backend.local_web_ui import ThreadingWSGIServer, create_local_web_app
+from web_ui import ThreadingWSGIServer, create_local_web_app
 from backend.production_pipeline import ProductionPipelineConfig
 
 

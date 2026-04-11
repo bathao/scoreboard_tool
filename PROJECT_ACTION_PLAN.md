@@ -204,6 +204,19 @@ Put detailed explanations, experiments, failures, and resume notes in:
     - winner `5/9`
     - taxonomy `1/9`
     - last_hitter `5/9`
+- `[done]` web UI restructured into `web_ui/` package (`2026-04-11`):
+  - `backend/local_web_ui.py` (2100 lines) split into 6 focused files under `web_ui/`
+  - `web_ui/templates.py` (1237 lines) — all HTML templates isolated
+  - `web_ui/app.py` (364) — WSGI routes, `web_ui/runner.py` (88) — threading/heartbeat
+  - `web_ui/helpers.py` (346) — utilities, `web_ui/progress.py` (146) — progress calc
+  - server entry point: `python scripts/run_local_web_ui.py`
+- `[done]` pipeline log panel added to running view (`2026-04-11`):
+  - `logs/{job_id}.log` written per job, cleaned up after 3 days
+  - terminal-style log panel (420px) shown when pipeline is running, refresh 3s
+  - logs visible in UI under `/jobs/{id}/log`
+- `[done]` Stop button added to running view (`2026-04-11`):
+  - `JobTaskRunner.request_stop()` sets flag, pipeline checks between each step
+  - `/jobs/{id}/stop POST` endpoint, confirms before stopping
 - `[done]` pipeline speed optimizations (`2026-04-11`):
   - `export_review_clips` now runs in parallel with `ThreadPoolExecutor` (8 workers)
   - `trim_input_video` and `render_to_1080p` now use `h264_nvenc` (GPU encoder) instead of CPU codecs

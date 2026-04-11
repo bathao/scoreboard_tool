@@ -29,6 +29,23 @@ from backend.score_validation import build_score_validation
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
 
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+
+def _job_log(job_dir: str | Path, message: str) -> None:
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    line = f"[{ts}] {message}\n"
+    try:
+        job_id = Path(job_dir).name
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOGS_DIR / f"{job_id}.log", "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+    print(line, end="", flush=True)
+
+
 @dataclass
 class ProductionPipelineConfig:
     table_weights_path: str = "weights/yolov8x_table.pt"
@@ -270,17 +287,33 @@ def run_initial_job_pipeline(
     job_or_path: MatchJob | str | Path,
     *,
     config: ProductionPipelineConfig | None = None,
+    stop_check: "Callable[[], bool] | None" = None,
 ) -> MatchJob:
+    from typing import Callable
+
+    def _check_stop() -> None:
+        if stop_check and stop_check():
+            raise RuntimeError("stopped_by_operator")
+
     config = config or ProductionPipelineConfig()
     job = _load_or_raise_job(job_or_path)
     raw_video_path = Path(job.raw_video_path)
     if not raw_video_path.exists():
         raise FileNotFoundError(f"Raw video not found: {raw_video_path}")
 
-    update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
-    trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
+    job_dir = job.artifacts.job_dir
+    _job_log(job_dir, f"Pipeline started — job {job.job_id}")
+    _job_log(job_dir, f"Input: {Path(job.raw_video_path).name}  trim_start={job.trim_start_sec}s  best_of={job.best_of}")
 
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
+    _job_log(job_dir, "Step 1/5: trim_input — cutting working video with GPU encoder")
+    trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
+    _job_log(job_dir, "Step 1/5: trim_input — done")
+
+    _check_stop()
     update_job_runtime_state(job, status="running", current_step="generate_rally_timeline")
+    _job_log(job_dir, "Step 2/5: generate_rally_timeline — loading YOLO models and detecting rallies (slowest step)")
     build_rally_timeline = _load_build_rally_timeline()
     timeline = build_rally_timeline(
         job.artifacts.working_video_path,
@@ -290,15 +323,21 @@ def run_initial_job_pipeline(
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
-    update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)
+    _job_log(job_dir, f"Step 2/5: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
 
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)
+    _job_log(job_dir, f"Step 3/5: export_review_clips — cutting {len(timeline.points)} clips in parallel")
     review_clips = export_review_clips(
         timeline,
         working_video_path=job.artifacts.working_video_path,
         review_clips_dir=job.artifacts.review_clips_dir,
     )
+    _job_log(job_dir, f"Step 3/5: export_review_clips — done, {len(review_clips)} clips")
 
+    _check_stop()
     update_job_runtime_state(job, status="running", current_step="predict_winners_with_adapter", timeline=timeline)
+    _job_log(job_dir, "Step 4/5: predict_winners_with_adapter — loading Qwen3-VL adapter")
     predictor = WinnerAdapterPredictor(config)
     timeline = _apply_adapter_predictions(
         timeline,
@@ -309,14 +348,18 @@ def run_initial_job_pipeline(
     )
     timeline.score_validation = build_score_validation(timeline, expected_scope="any")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
-    update_job_runtime_state(job, status="running", current_step="render_preview", timeline=timeline)
+    _job_log(job_dir, "Step 4/5: predict_winners_with_adapter — done")
 
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="render_preview", timeline=timeline)
+    _job_log(job_dir, "Step 5/5: render_preview — rendering scoreboard video")
     render_job_preview(job)
     timeline = load_job_timeline(job)
     review_status = build_review_status(timeline)
     next_status = "ready_for_final" if review_status["final_export_ready"] else "needs_review"
     next_step = "preview_ready" if review_status["preview_render_allowed"] else "review_required_no_preview"
     update_job_runtime_state(job, status=next_status, current_step=next_step, timeline=timeline)
+    _job_log(job_dir, f"Pipeline complete — status={next_status}")
     return job
 
 

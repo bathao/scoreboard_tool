@@ -114,6 +114,7 @@ class MatchJob:
     artifacts: MatchJobArtifacts
     timeline_summary: dict[str, Any] = field(default_factory=dict)
     review_status: dict[str, Any] = field(default_factory=dict)
+    step_started_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -138,6 +139,7 @@ class MatchJob:
             artifacts=MatchJobArtifacts.from_dict(dict(data.get("artifacts", {}))),
             timeline_summary=dict(data.get("timeline_summary", {})),
             review_status=dict(data.get("review_status", {})),
+            step_started_at=str(data.get("step_started_at", "")),
         )
 
 
@@ -245,8 +247,9 @@ def update_job_runtime_state(
 ) -> MatchJob:
     if status is not None:
         job.status = str(status)
-    if current_step is not None:
+    if current_step is not None and current_step != job.current_step:
         job.current_step = str(current_step)
+        job.step_started_at = _utc_now_iso()
     if error_message is not None:
         job.error_message = str(error_message)
     if timeline is not None:

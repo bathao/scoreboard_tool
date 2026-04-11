@@ -13,6 +13,68 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-11` (Web UI Restructure + Pipeline Log + Stop Button)
+
+### Goal
+- split 2100-line `backend/local_web_ui.py` into a proper package
+- add visible pipeline log panel so operator can monitor running jobs
+- add Stop button to cancel a running pipeline
+
+### What Was Changed
+
+**New package: `web_ui/`** (replaces `backend/local_web_ui.py`)
+
+| File | Contents | Lines |
+|------|----------|-------|
+| `web_ui/__init__.py` | exports `create_local_web_app`, `ThreadingWSGIServer` | 2 |
+| `web_ui/templates.py` | all Jinja2 HTML templates + `TEMPLATE_ENV` + `_render_template` | 1237 |
+| `web_ui/progress.py` | `_job_progress`, `_STEP_ORDER`, `_STEP_EXPECTED_SEC`, elapsed helpers | 146 |
+| `web_ui/helpers.py` | response helpers, request utils, job display, file browser, score helpers | 346 |
+| `web_ui/runner.py` | `JobTaskRunner`, `ThreadingWSGIServer`, heartbeat watcher, log cleanup | 88 |
+| `web_ui/app.py` | `create_local_web_app` WSGI factory + all routes + `_index_page_context` | 364 |
+
+- `backend/local_web_ui.py` deleted (was already a 3-line shim)
+- `scripts/run_local_web_ui.py` updated to import from `web_ui`
+
+**Pipeline log** (`backend/production_pipeline.py`, `web_ui/app.py`, `web_ui/templates.py`)
+- `_job_log(job_dir, message)` helper writes timestamped lines to `logs/{job_id}.log`
+- called at start/end of each pipeline step with step name and result
+- `LOGS_DIR = PROJECT_ROOT / "logs"` — dedicated log folder, tracked via `.gitkeep`
+- `logs/*.log` added to `.gitignore`
+- `_cleanup_old_logs()` runs on server start, deletes logs older than 3 days
+- `/jobs/{id}/log` endpoint returns last 100 lines of the log file
+
+**Running view redesign** (`web_ui/templates.py`)
+- when job status is `running` or `created`, the setup form is replaced by:
+  - header bar: `● RUNNING` badge + player names + video filename + trim + Best of + elapsed + **Stop button**
+  - compact progress bar + step label + %
+  - full-width terminal log panel (420px, dark, monospace, auto-scroll, refresh 3s)
+- when status is `failed`, setup form is shown again with the log from the failed run
+- when idle, original setup form + trim video preview unchanged
+
+**Stop button** (`web_ui/runner.py`, `web_ui/app.py`, `backend/production_pipeline.py`)
+- `JobTaskRunner.request_stop(job_id)` sets a stop flag
+- `run_initial_job_pipeline` accepts `stop_check` callback, called between each step
+- `/jobs/{id}/stop POST` → sets flag → redirects with info message
+- pipeline raises `RuntimeError("stopped_by_operator")` at next step boundary
+- job marked `failed / error_message=stopped_by_operator`
+
+**Heartbeat improvements** (`web_ui/templates.py`)
+- heartbeat interval increased to 20s (less throttling in background tabs)
+- `visibilitychange` → sends immediate heartbeat when tab becomes active again
+- server timeout set to 30s (dies 30s after tab is closed)
+
+### Current Read
+- `web_ui/` is the single source of truth for all local web UI code
+- server started with: `python scripts/run_local_web_ui.py` → `http://127.0.0.1:8765`
+- pipeline log visible immediately after clicking "Run AI Pipeline"
+- operator can stop a running job between steps
+
+### Resume Point
+- same as before: run `match_vinh_001__full.mp4` end-to-end, then wire UI review writeback
+
+---
+
 ## Work Log - `2026-04-11` (Pipeline Speed Optimizations — Parallel Clips, NVENC, Batch YOLO)
 
 ### Goal
