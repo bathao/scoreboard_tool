@@ -420,6 +420,17 @@ TEMPLATES = {
       background: #d1d5db;
       color: #111827;
     }
+    .timeline-set-header {
+      padding: 4px 8px;
+      margin-top: 10px;
+      margin-bottom: 2px;
+      font-size: 0.75em;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+    }
     .progress-card {
       margin-top: 14px;
       padding: 14px;
@@ -819,7 +830,21 @@ TEMPLATES = {
       </form>
     </div>
     <div class="timeline-list">
+      {% set ns = namespace(last_set=0) %}
       {% for point in points %}
+        {% if point.set_number != ns.last_set %}
+          {% set ns.last_set = point.set_number %}
+          {% set set_idx = point.set_number - 1 %}
+          {% set set_info = set_scores_display[set_idx] if set_idx < set_scores_display | length else none %}
+          <div class="timeline-set-header">
+            SET {{ point.set_number }}
+            {% if set_info and set_info.done %}
+              <span class="meta" style="margin-left:6px;">{{ set_info.score_a }} – {{ set_info.score_b }}</span>
+            {% elif set_info and set_info.active %}
+              <span class="meta" style="margin-left:6px;">{{ set_info.score_a }} – {{ set_info.score_b }} (ongoing)</span>
+            {% endif %}
+          </div>
+        {% endif %}
         <a class="timeline-item {{ point.status_class }} {% if point.id == current_point_id %}current{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter={{ active_filter }}&current_point={{ point.id }}" data-id="{{ point.id }}" onclick="return selectPoint('{{ point.id }}');">
           <div>
             <strong>{{ point.id }}</strong>

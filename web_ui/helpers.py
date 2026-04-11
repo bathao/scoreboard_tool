@@ -181,6 +181,7 @@ def _review_point_rows(job: MatchJob, *, filter_name: str = "pending"):
                 "review_prompt": _review_prompt(point, job),
                 "clip_src": f"/jobs/{job.job_id}/clips/{point.id}.mp4?ts={job.updated_at}",
                 "play_label": f"Playing rally {point.id}",
+                "set_number": point.set_number,
                 "is_non_scoring": is_non_scoring,
                 "status_class": (
                     "let" if is_non_scoring
