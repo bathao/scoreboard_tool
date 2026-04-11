@@ -13,6 +13,35 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-11` (Per-Job Purpose Rule For Web UI)
+
+### Operator Direction
+- `match_vinh_001` has already been used to build the current `71` reviewed-rally dataset seed
+- from now on, this input should be treated as an `Output Only` product-validation job
+- future new inputs should usually run as `Output + Dataset` jobs so the same review work also grows the dataset
+
+### What Was Updated
+- `ROADMAP_PRODUCTION.md` now states that the Web UI should support per-job operating modes:
+  - `output only`
+  - `output + dataset`
+- `PROJECT_ACTION_PLAN.md` now reflects that:
+  - `match_vinh_001` should stay `Output Only`
+  - Web UI Setup needs a `job purpose` control
+  - backend review/writeback should branch on that job purpose
+
+### Current Read
+- not every input should always create new dataset rows
+- the system now needs an explicit operator choice at job creation:
+  - use this match only to finish a scoreboard video
+  - or use this match to finish the video and enlarge the dataset
+
+### Resume Point
+- add `job_purpose` into the job schema and Setup UI
+- make review/writeback logic depend on that field
+- keep `match_vinh_001` on the `Output Only` path
+
+---
+
 ## Work Log - `2026-04-11` (Output-First Manual Review Phase + Dataset Growth Rule)
 
 ### Operator Direction
@@ -46,6 +75,82 @@ Do not use this file as the long-term architecture spec.
 - keep the Web UI as the primary production path
 - validate one full output on a real raw match even if review load is high
 - wire reviewed-rally writeback so each completed match also grows the dataset
+
+---
+
+## Work Log - `2026-04-11` (Review UI Overhaul + Scoreboard Renderer + Export Flow)
+
+### Goal
+- làm Review UI hoạt động mượt mà hơn: không reload trang khi click timeline
+- hiển thị điểm từng set rõ ràng
+- scoreboard output video trông chuyên nghiệp hơn, hỗ trợ tiếng Việt
+- luồng Export rõ ràng với log panel riêng
+
+### What Was Changed
+
+**Review UI — client-side navigation (`web_ui/templates.py`, `web_ui/app.py`, `web_ui/helpers.py`)**
+- click vào timeline item không còn reload trang — dùng JS `selectPoint(id)` cập nhật DOM in-place
+- `POINT_DATA` JSON blob nhúng vào trang, chứa clip_src + score + AI label cho từng rally
+- URL cập nhật qua `history.pushState` không gây reload
+- `scrollIntoView({ block: "nearest", behavior: "instant" })` tự scroll rally hiện tại vào view khi load trang
+- `ai_winner_label` được dùng nhất quán cả server-side lẫn JS (thay vì `effective_winner_label`)
+
+**Per-set score breakdown (`web_ui/helpers.py`, `web_ui/app.py`, `web_ui/templates.py`)**
+- `_timeline_score_maps()` trả về 3 giá trị: `score_before_map`, `final_scoreboard`, `set_scores`
+- `set_scores_display` build sẵn cho từng set tối đa `best_of`: completed (✓), active (●), chưa bắt đầu
+- Match Total box hiển thị dạng bảng: `Set 1 | 11 — 2 | ✓`
+- "Before" box cập nhật realtime theo rally đang chọn qua JS
+
+**Pending filter fix (`web_ui/helpers.py`)**
+- trước: pending = không có AI prediction → queue trống sau khi adapter chạy
+- sau: pending = scoring point chưa được operator confirm → đúng intent
+
+**Post-review navigation (`web_ui/app.py`)**
+- sau khi correct điểm N, redirect đến điểm unresolved đầu tiên SAU N (không nhảy về pt_0001)
+
+**Pipeline stops at Step 4 (`backend/production_pipeline.py`, `web_ui/progress.py`)**
+- `run_initial_job_pipeline` dừng sau `predict_winners_with_adapter`, step = `ai_ready`
+- bỏ Step 5 render preview khỏi auto-pipeline
+- Export button luôn enabled — operator tự quyết khi nào export
+- `_STEP_ORDER` và `step_map` trong `progress.py` cập nhật tương ứng
+
+**Export running view (`web_ui/templates.py`, `web_ui/app.py`, `backend/production_pipeline.py`)**
+- khi `status="running" + step="final_export"`: `screen_mode="exporting"` → hiện dark log panel riêng
+- `export_job_final_video` giờ ghi log: started, rally count, output path, render complete
+- fix race condition: POST handler pre-mark `status="running"/step="final_export"` vào `job.json` trước khi redirect → trang load đúng ngay lập tức
+
+**job_purpose field (`backend/production_jobs.py`, `web_ui/app.py`, `web_ui/templates.py`)**
+- `MatchJob` thêm field `job_purpose: str` (default `"output_only"`)
+- Setup UI có dropdown chọn `Output Only` / `Output + Dataset`
+
+**Tournament + round name (`backend/production_jobs.py`, `web_ui/templates.py`, `backend/production_pipeline.py`, `backend/rendering.py`, `render/renderer.py`)**
+- `MatchJob` thêm `tournament_name: str` và `round_name: str`
+- Setup UI có 2 ô input: "Tên giải đấu" và "Vòng đấu"
+- Renderer vẽ 1 dòng header: `"WTT Frankfurt 2025  ·  Bán kết"` phía trên scoreboard box
+- Header chỉ xuất hiện nếu ít nhất 1 field được nhập
+
+**Scoreboard renderer rebuilt (`render/renderer.py`)**
+- bỏ hoàn toàn `cv2.putText` (không hỗ trợ Unicode)
+- dùng PIL + Arial (`C:\Windows\Fonts\arial.ttf`) → tiếng Việt đầy đủ dấu
+- `_put_text(frame, text, x, y, font, color_bgr)` — convert vùng nhỏ chứa text sang PIL, draw, convert lại BGR
+- layout 2 cột: tên VĐV (trái) | sets won (giữa, xám) | game points (phải, trắng)
+- cả 2 cột số dùng font 30px bold (trước: game point = 48px, quá to)
+- vị trí: góc dưới bên phải (trước: góc dưới bên trái)
+- accent bar màu trái mỗi row (cam = player A, xanh = player B)
+
+**Final output path (`backend/production_jobs.py`)**
+- `final_video_path` giờ xuất vào `outputs/{job_id}__final_scoreboard.mp4` (root repo)
+- trước: nằm trong `runtime_jobs/{job_id}/final_scoreboard.mp4`
+
+### Current Read
+- Review UI giờ hoạt động mượt: click không reload, scroll không bị reset
+- Scoreboard video output render đúng tiếng Việt, layout 2 cột rõ ràng
+- Export flow có feedback đầy đủ (log panel, progress bar, auto-detect done)
+- Commit: `49a6775`
+
+### Resume Point
+- chạy `match_vinh_001__full.mp4` end-to-end qua UI (Output Only) để validate toàn bộ flow
+- sau đó wire reviewed winner corrections vào dataset storage (`dataset/reviewed_matches/`)
 
 ---
 

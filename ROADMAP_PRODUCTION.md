@@ -51,6 +51,9 @@ The production system should:
   - select the input video
   - run the processing pipeline
   - review only low-confidence rally outcomes
+- The Web UI should support a per-job operating mode such as:
+  - `output only`
+  - `output + dataset`
 - In the current delivery phase, the Web UI must still support a usable end-to-end output even if the operator has to review many rallies manually.
 - Near-term success is:
   - produce a correct usable scoreboard video now
@@ -67,6 +70,12 @@ The production system should:
   - if the AI result is correct, the operator should be able to keep it with one click
   - if the AI result is wrong, the operator should be able to correct it with one click
 - As the reviewed-data loop matures, the Web UI should also capture the additional per-rally reviewed fields needed for future training and evaluation, not only the final scoreboard result.
+- In `output only` mode:
+  - the operator should only do the minimum needed to finish the scoreboard video
+  - the system should not require extra dataset fields or dataset writeback
+- In `output + dataset` mode:
+  - the same review flow should also collect the extra reviewed fields needed for future training and evaluation
+  - reviewed data should be persisted into reusable dataset assets
 - After review, the system should automatically persist the reviewed rally as a reusable training asset:
   - reviewed JSON / manifest row
   - matching full frozen rally clip
@@ -82,6 +91,7 @@ The production system should:
 - For scoreboard completion, the minimum required operator input should remain:
   - who won this rally?
 - The same Web UI flow may also capture additional reviewed fields for dataset growth when the operator provides them.
+- Extra dataset fields should be requested only when the current job is meant to grow the dataset.
 - After a user correction, the code must automatically recompute all downstream score changes:
   - next points
   - set progression

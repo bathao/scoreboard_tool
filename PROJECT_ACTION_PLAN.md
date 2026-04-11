@@ -71,6 +71,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Product output:
   - `preview render` with scoreboard
   - `final export` with scoreboard after all required winner reviews are resolved
+- Job purpose must be explicit per input:
+  - `Output Only`
+  - `Output + Dataset`
 - Temporary delivery stance:
   - the current winner VLM path is still low-confidence on new inputs
   - for now, a higher manual-review burden is acceptable if it produces a usable final scoreboard video
@@ -90,6 +93,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - produce a usable scoreboard video now
   - collect reviewed rally data from each new input
   - turn operator review work into reusable dataset growth
+- Immediate rule for known inputs:
+  - `match_vinh_001` full-match production jobs should use `Output Only`
+  - future unseen matches should normally use `Output + Dataset`
 - Data-growth plan from the current reviewed base:
   - current canonical reviewed rallies:
     - `71`
@@ -105,6 +111,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
      - `player_a_name`
      - `player_b_name`
      - `best_of`
+     - `job_purpose`
      - pipeline status
      - artifact paths for JSON / clips / preview / final export
   2. add an ingest stage that trims the raw input video from the user-provided start time before downstream processing
@@ -129,6 +136,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
   9. grow the reviewed dataset through normal production use:
      - each new reviewed match should add reusable rally records
      - use those records to retrain better winner models later
+- Product branching rule:
+  - `Output Only` jobs should not require dataset fields and should not write new dataset rows
+  - `Output + Dataset` jobs should enable the extra reviewed fields and dataset writeback path
 - First acceptance target:
   - from the local Web UI, run one raw `match_vinh_001` video end-to-end
   - enter player names
@@ -302,6 +312,22 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - rally timeline defaults and winner-adapter defaults are no longer duplicated across scripts and UI flow
   - the Web UI pipeline now passes the full rally config explicitly instead of relying on implicit script defaults
 
+## Done (2026-04-11 session additions)
+- `[done]` client-side timeline navigation — click không reload trang (`selectPoint` JS + `POINT_DATA` blob)
+- `[done]` per-set score breakdown trong review panel (`set_scores_display`, `_timeline_score_maps` trả 3 giá trị)
+- `[done]` pending filter fix — pending = scoring point chưa operator confirm (không phải chỉ thiếu AI prediction)
+- `[done]` post-review navigation — sau correct điểm N, nhảy đến điểm unresolved đầu tiên sau N
+- `[done]` scrollIntoView rally hiện tại khi load trang
+- `[done]` pipeline dừng sau Step 4 (`ai_ready`); bỏ auto-render preview; Export button luôn enabled
+- `[done]` export running view riêng với log panel + progress bar + auto-detect done
+- `[done]` fix race condition export UI — pre-mark `running/final_export` trước khi redirect
+- `[done]` `job_purpose` field trên `MatchJob` + dropdown trong Setup UI
+- `[done]` `tournament_name` + `round_name` field trên `MatchJob` + 2 ô input Setup UI + header 1 dòng trên scoreboard
+- `[done]` scoreboard renderer rebuild với PIL/Arial — hỗ trợ tiếng Việt đầy đủ dấu
+- `[done]` layout scoreboard 2 cột: sets won (giữa) + game points (phải), cùng font size 30px bold
+- `[done]` scoreboard vị trí góc dưới bên phải
+- `[done]` final output video xuất vào `outputs/` folder ở root repo
+
 ## Doing
 - `[doing]` follow `Web UI first` as the main operating rule from now on:
   - run real production work through the local Web UI path by default
@@ -311,6 +337,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - current winner AI quality is still too weak to trust as a low-touch production path
   - for now, the operator may need to confirm or correct many rallies to finish one usable output video
   - this is acceptable as long as the Web UI makes that review loop fast enough to ship output
+- `[doing]` treat `match_vinh_001` as an `Output Only` production job from now on:
+  - its rallies have already been used to seed the current reviewed dataset
+  - use it to validate the final scoreboard product path, not to grow the dataset again
 - `[doing]` single-page local Web UI is now working end-to-end on a real test clip:
   - pipeline verified on `match_test.mp4` — all stages ran cleanly
   - UI single-page flow: browse → setup → pipeline → review → export
@@ -319,13 +348,12 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - complete one usable scoreboard output
   - enlarge the reviewed dataset for later retraining
 - `[doing]` next required tasks in priority order:
-  1. run `match_vinh_001__full.mp4` end-to-end through the UI and finish one usable scoreboard export even if many rallies require manual review
-  2. review all rallies in `match_test` job and confirm the final export path works under the same manual-review-first rule
-  3. wire reviewed winner corrections from UI into dataset storage:
+  1. chạy `match_vinh_001__full.mp4` end-to-end qua UI (`Output Only`) — validate toàn bộ flow review → export
+  2. wire reviewed winner corrections từ UI vào dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
-  4. extend the review flow so the operator can enter the additional per-rally fields needed for future dataset growth
-  5. once writeback is wired, the active learning loop is real:
+  3. extend review flow để nhập thêm per-rally fields khi `job_purpose = Output + Dataset`
+  4. once writeback wired, active learning loop hoàn chỉnh:
      - UI review → auto-appends to finetune_dataset → future retrain
 - `[doing]` dataset-growth milestones should now be treated as active product goals:
   - current reviewed canonical base:
@@ -839,6 +867,12 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - running jobs
   - failed jobs
   - preview-ready but review-blocked exports
+- `[todo]` add `job purpose` control to Web UI Setup:
+  - `Output Only`
+  - `Output + Dataset`
+- `[todo]` make backend branching depend on `job purpose`:
+  - `Output Only` = review for scoreboard export only
+  - `Output + Dataset` = review for scoreboard export plus dataset capture / writeback
 - `[todo]` define the reviewed-rally data schema the Web UI must collect from each new input:
   - winner first
   - then the extra per-rally fields needed for future training / evaluation
@@ -872,6 +906,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not widen the first correction UX too early before the scoreboard-output loop is stable:
   - ship winner-review-first
   - then add the extra reviewed dataset fields into the same Web UI flow
+- `[deferred]` do not treat known dataset-seeded matches such as `match_vinh_001` as mandatory dataset-growth jobs:
+  - they may run as `Output Only` when the goal is final product validation
 - `[deferred]` do not start full production-scale winner-model `SFT` job orchestration until the rolling fine-tune dataset is larger and held-out reviewed evaluation splits exist
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path
@@ -898,9 +934,13 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Do not keep a useful CLI-only step outside the production flow once it is understood:
   - move it into shared backend services
   - then expose it through the Web UI path when it belongs in normal operation
+- Require an explicit per-job purpose in the Web UI:
+  - `Output Only`
+  - `Output + Dataset`
 - Treat manual review on new matches as both:
   - output-correction work
   - dataset-building work
+- Allow known dataset-seeded matches such as `match_vinh_001` to stay `Output Only` when dataset growth is not needed.
 - Never reopen accepted `starter` or `LET` labels without new operator evidence.
 - Never accept an endpoint patch that regresses accepted `set4` rally boundaries.
 - Keep the accepted `set4` endpoint baseline frozen while moving downstream.
