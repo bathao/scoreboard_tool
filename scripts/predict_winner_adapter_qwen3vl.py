@@ -8,6 +8,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
+from backend.production_defaults import PRODUCTION_WINNER_DEFAULTS
 from winner_finetune_common import (
     ACTIVE_PILOT_TAXONOMY_ORDER,
     build_training_prompt,
@@ -30,8 +31,8 @@ def _parse_args() -> argparse.Namespace:
         default="",
         help="Optional cache-clip directory. When provided for manifest rows, cached clips are preferred if present.",
     )
-    parser.add_argument("--base-model-dir", default="models/Qwen3-VL-4B-Instruct")
-    parser.add_argument("--adapter-dir", default="models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2")
+    parser.add_argument("--base-model-dir", default=PRODUCTION_WINNER_DEFAULTS.base_model_dir)
+    parser.add_argument("--adapter-dir", default=PRODUCTION_WINNER_DEFAULTS.adapter_dir)
     parser.add_argument("--skip-adapter", action="store_true", help="Run prompt-only base model without loading the adapter.")
     parser.add_argument(
         "--taxonomy-list",
@@ -40,13 +41,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out-json", default="", help="Optional JSON output file for single-video mode.")
     parser.add_argument("--out-jsonl", default="matches/checks/qwen3vl4b_table_tennis_adapter_predictions.jsonl")
-    parser.add_argument("--fps-sample", type=float, default=1.0)
-    parser.add_argument("--min-frames", type=int, default=4)
-    parser.add_argument("--max-frames", type=int, default=4)
-    parser.add_argument("--size-shortest-edge", type=int, default=384)
-    parser.add_argument("--size-longest-edge", type=int, default=1048576)
-    parser.add_argument("--max-pixels", type=int, default=262144)
-    parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--fps-sample", type=float, default=PRODUCTION_WINNER_DEFAULTS.fps_sample)
+    parser.add_argument("--min-frames", type=int, default=PRODUCTION_WINNER_DEFAULTS.min_frames)
+    parser.add_argument("--max-frames", type=int, default=PRODUCTION_WINNER_DEFAULTS.max_frames)
+    parser.add_argument("--size-shortest-edge", type=int, default=PRODUCTION_WINNER_DEFAULTS.size_shortest_edge)
+    parser.add_argument("--size-longest-edge", type=int, default=PRODUCTION_WINNER_DEFAULTS.size_longest_edge)
+    parser.add_argument("--max-pixels", type=int, default=PRODUCTION_WINNER_DEFAULTS.max_pixels)
+    parser.add_argument("--max-new-tokens", type=int, default=PRODUCTION_WINNER_DEFAULTS.max_new_tokens)
     return parser.parse_args()
 
 

@@ -12,6 +12,7 @@ import torch
 
 sys.path.append(str(Path(__file__).parent.parent))
 
+from backend.production_defaults import PRODUCTION_RALLY_DEFAULTS
 from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, save_rally_timeline
 from backend.ai_multistream_rally import detect_multistream_rallies, extract_multistream_signals
 
@@ -2200,15 +2201,15 @@ def build_rally_timeline(
     video_path: str,
     table_weights_path: str,
     *,
-    pose_weights_path: str = "weights/yolov8x-pose.pt",
+    pose_weights_path: str = PRODUCTION_RALLY_DEFAULTS.pose_weights_path,
     best_of: int = 5,
-    stride: int = 2,
-    mode: str = "player",
-    player_margin_px: int = 220,
-    player_fuse_gain: float = 1.0,
-    player_signal_source: str = "role_tracker",
-    ball_fuse_gain: float = 1.15,
-    ball_signal_source: str = "classical",
+    stride: int = PRODUCTION_RALLY_DEFAULTS.stride,
+    mode: str = PRODUCTION_RALLY_DEFAULTS.mode,
+    player_margin_px: int = PRODUCTION_RALLY_DEFAULTS.player_margin_px,
+    player_fuse_gain: float = PRODUCTION_RALLY_DEFAULTS.player_fuse_gain,
+    player_signal_source: str = PRODUCTION_RALLY_DEFAULTS.player_signal_source,
+    ball_fuse_gain: float = PRODUCTION_RALLY_DEFAULTS.ball_fuse_gain,
+    ball_signal_source: str = PRODUCTION_RALLY_DEFAULTS.ball_signal_source,
     log_fn=None,
 ) -> RallyTimeline:
     if not torch.cuda.is_available():
@@ -2302,17 +2303,17 @@ def build_rally_timeline(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate rally timeline JSON using the current multistream pipeline.")
     parser.add_argument("--video", required=True, help="Path to source video")
-    parser.add_argument("--weights", default="weights/yolov8x_table.pt", help="Path to YOLO table weights")
-    parser.add_argument("--pose-weights", default="weights/yolov8x-pose.pt", help="Path to YOLO pose weights")
+    parser.add_argument("--weights", default=PRODUCTION_RALLY_DEFAULTS.table_weights_path, help="Path to YOLO table weights")
+    parser.add_argument("--pose-weights", default=PRODUCTION_RALLY_DEFAULTS.pose_weights_path, help="Path to YOLO pose weights")
     parser.add_argument("--out", required=True, help="Output rally timeline JSON path")
     parser.add_argument("--best-of", type=int, default=5)
-    parser.add_argument("--stride", type=int, default=2)
-    parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default="player")
-    parser.add_argument("--player-margin-px", type=int, default=220)
-    parser.add_argument("--player-fuse-gain", type=float, default=1.0)
-    parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two", "none"], default="role_tracker")
-    parser.add_argument("--ball-fuse-gain", type=float, default=1.15)
-    parser.add_argument("--ball-signal-source", choices=["none", "classical"], default="classical")
+    parser.add_argument("--stride", type=int, default=PRODUCTION_RALLY_DEFAULTS.stride)
+    parser.add_argument("--mode", choices=["table", "player", "ball", "fused", "table_refined", "table_ball_refined"], default=PRODUCTION_RALLY_DEFAULTS.mode)
+    parser.add_argument("--player-margin-px", type=int, default=PRODUCTION_RALLY_DEFAULTS.player_margin_px)
+    parser.add_argument("--player-fuse-gain", type=float, default=PRODUCTION_RALLY_DEFAULTS.player_fuse_gain)
+    parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two", "none"], default=PRODUCTION_RALLY_DEFAULTS.player_signal_source)
+    parser.add_argument("--ball-fuse-gain", type=float, default=PRODUCTION_RALLY_DEFAULTS.ball_fuse_gain)
+    parser.add_argument("--ball-signal-source", choices=["none", "classical"], default=PRODUCTION_RALLY_DEFAULTS.ball_signal_source)
     args = parser.parse_args()
 
     timeline = build_rally_timeline(

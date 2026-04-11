@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import PROJECT_ROOT
+from backend.production_defaults import PRODUCTION_RALLY_DEFAULTS, PRODUCTION_WINNER_DEFAULTS
 from backend.production_jobs import (
     KNOWN_WINNERS,
     MatchJob,
@@ -48,17 +49,24 @@ def _job_log(job_dir: str | Path, message: str) -> None:
 
 @dataclass
 class ProductionPipelineConfig:
-    table_weights_path: str = "weights/yolov8x_table.pt"
-    pose_weights_path: str = "weights/yolov8x-pose.pt"
-    base_model_dir: str = "models/Qwen3-VL-4B-Instruct"
-    adapter_dir: str = "models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2"
-    fps_sample: float = 1.0
-    min_frames: int = 4
-    max_frames: int = 4
-    size_shortest_edge: int = 384
-    size_longest_edge: int = 1048576
-    max_pixels: int = 262144
-    max_new_tokens: int = 64
+    table_weights_path: str = PRODUCTION_RALLY_DEFAULTS.table_weights_path
+    pose_weights_path: str = PRODUCTION_RALLY_DEFAULTS.pose_weights_path
+    rally_stride: int = PRODUCTION_RALLY_DEFAULTS.stride
+    rally_mode: str = PRODUCTION_RALLY_DEFAULTS.mode
+    rally_player_margin_px: int = PRODUCTION_RALLY_DEFAULTS.player_margin_px
+    rally_player_fuse_gain: float = PRODUCTION_RALLY_DEFAULTS.player_fuse_gain
+    rally_player_signal_source: str = PRODUCTION_RALLY_DEFAULTS.player_signal_source
+    rally_ball_fuse_gain: float = PRODUCTION_RALLY_DEFAULTS.ball_fuse_gain
+    rally_ball_signal_source: str = PRODUCTION_RALLY_DEFAULTS.ball_signal_source
+    base_model_dir: str = PRODUCTION_WINNER_DEFAULTS.base_model_dir
+    adapter_dir: str = PRODUCTION_WINNER_DEFAULTS.adapter_dir
+    fps_sample: float = PRODUCTION_WINNER_DEFAULTS.fps_sample
+    min_frames: int = PRODUCTION_WINNER_DEFAULTS.min_frames
+    max_frames: int = PRODUCTION_WINNER_DEFAULTS.max_frames
+    size_shortest_edge: int = PRODUCTION_WINNER_DEFAULTS.size_shortest_edge
+    size_longest_edge: int = PRODUCTION_WINNER_DEFAULTS.size_longest_edge
+    max_pixels: int = PRODUCTION_WINNER_DEFAULTS.max_pixels
+    max_new_tokens: int = PRODUCTION_WINNER_DEFAULTS.max_new_tokens
 
 
 def _ensure_scripts_importable() -> None:
@@ -306,6 +314,20 @@ def run_initial_job_pipeline(
     job_dir = job.artifacts.job_dir
     _job_log(job_dir, f"Pipeline started — job {job.job_id}")
     _job_log(job_dir, f"Input: {Path(job.raw_video_path).name}  trim_start={job.trim_start_sec}s  best_of={job.best_of}")
+    _job_log(
+        job_dir,
+        "Production rally config - "
+        f"weights={config.table_weights_path} pose={config.pose_weights_path} "
+        f"mode={config.rally_mode} stride={config.rally_stride} "
+        f"player_signal={config.rally_player_signal_source} ball_signal={config.rally_ball_signal_source}",
+    )
+    _job_log(
+        job_dir,
+        "Production winner config - "
+        f"base={config.base_model_dir} adapter={config.adapter_dir} "
+        f"fps={config.fps_sample} frames={config.min_frames}-{config.max_frames} "
+        f"shortest_edge={config.size_shortest_edge} max_pixels={config.max_pixels}",
+    )
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
@@ -322,6 +344,13 @@ def run_initial_job_pipeline(
         config.table_weights_path,
         pose_weights_path=config.pose_weights_path,
         best_of=job.best_of,
+        stride=config.rally_stride,
+        mode=config.rally_mode,
+        player_margin_px=config.rally_player_margin_px,
+        player_fuse_gain=config.rally_player_fuse_gain,
+        player_signal_source=config.rally_player_signal_source,
+        ball_fuse_gain=config.rally_ball_fuse_gain,
+        ball_signal_source=config.rally_ball_signal_source,
         log_fn=lambda msg: _job_log(job_dir, msg),
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")

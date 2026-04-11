@@ -46,13 +46,27 @@ The production system should:
 
 ## Operator Workflow
 - The system should provide a local Web UI for the internal user.
+- The local Web UI is the primary operating path for production use.
 - The Web UI should allow the user to:
   - select the input video
   - run the processing pipeline
   - review only low-confidence rally outcomes
+- In the current delivery phase, the Web UI must still support a usable end-to-end output even if the operator has to review many rallies manually.
+- Near-term success is:
+  - produce a correct usable scoreboard video now
+  - collect reviewed rally data while doing that work
+- CLI scripts should be treated as secondary tools for:
+  - narrow debug
+  - fast isolated checks
+  - small reproducible investigations
+- Once a CLI debug step proves useful for the real operator workflow, it should be folded back into:
+  - shared backend services
+  - the Web UI production flow
+- Do not keep a CLI-only workaround as a parallel long-term production workflow after the Web UI path exists.
 - The review flow should support active learning:
   - if the AI result is correct, the operator should be able to keep it with one click
   - if the AI result is wrong, the operator should be able to correct it with one click
+- As the reviewed-data loop matures, the Web UI should also capture the additional per-rally reviewed fields needed for future training and evaluation, not only the final scoreboard result.
 - After review, the system should automatically persist the reviewed rally as a reusable training asset:
   - reviewed JSON / manifest row
   - matching full frozen rally clip
@@ -63,8 +77,11 @@ The production system should:
 - If AI confidence for a rally winner is too low, the system should ask only:
   - who won this rally?
 - Target manual-review rate:
-  - less than `2%` of rallies
-- The user should only provide the winner for that rally.
+  - less than `2%` of rallies as the long-term mature target
+- Near-term production may require a much higher manual-review rate while the current winner model is still weak.
+- For scoreboard completion, the minimum required operator input should remain:
+  - who won this rally?
+- The same Web UI flow may also capture additional reviewed fields for dataset growth when the operator provides them.
 - After a user correction, the code must automatically recompute all downstream score changes:
   - next points
   - set progression
@@ -93,6 +110,9 @@ The production system should:
   - detector / tracker bugs -> detector / tracker design
   - state / score bugs -> state / score logic
   - rendering must not hide upstream failures
+- After the Web UI exists, do not let ad-hoc CLI flows become a second production path:
+  - use CLI only for focused debug
+  - then move the proven fix back into the shared production pipeline
 - When the operator asks to export review rallies for `set1 / set2 / set3 / set4`, the export must be a clean end-to-end rerun:
   - start from the original input video
   - rerun the required pipeline stages from scratch
@@ -192,6 +212,13 @@ The production system should:
 
 ## Winner Inference Doctrine
 - Winner inference should use multiple signals, not one brittle cue.
+- Current practical read:
+  - the winner VLM path is still low-trust on new inputs
+  - production correctness currently depends on operator review much more than the long-term target
+- Near-term production stance:
+  - prioritize a usable correct output video first
+  - accept manual-heavy review temporarily when needed
+  - use that review work to grow the supervised dataset for later model improvement
 - Local multimodal review is allowed as a secondary reviewer:
   - one local vision model may inspect rally frames
   - one local reasoning model may judge structured evidence
@@ -218,6 +245,14 @@ The production system should:
 - Near-term data target for a usable winner dataset:
   - at least `100-150` rallies with high-quality reviewed winner + taxonomy labels
   - spread across multiple sets / clips, not concentrated in one set only
+- Current reviewed winner-data scale is still early:
+  - about `71` canonical reviewed rallies
+- The practical data-growth plan from here should be:
+  - first milestone: `200-500` reviewed rallies
+  - later milestone: `>1000` reviewed rallies
+- Every new reviewed match should contribute to both:
+  - the immediate output video
+  - the rolling training dataset
 - To make the winner path production-complete, the project should plan for `SFT` (`Supervised Fine-Tuning`) or equivalent adapter-style tuning on the currently used local `Qwen3-VL-4B` line:
   - the reviewed dataset should be the supervision source for:
     - `winner`

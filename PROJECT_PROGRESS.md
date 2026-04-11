@@ -13,6 +13,42 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-11` (Output-First Manual Review Phase + Dataset Growth Rule)
+
+### Operator Direction
+- winner detection from the current AI VLM path is still low-confidence and not good enough to trust as a low-touch production path
+- because output is needed now, it is acceptable in the short term for the operator to review and correct many rallies manually
+- the Web UI must therefore serve two jobs at the same time:
+  - finish one usable scoreboard video now
+  - turn the same review work into more reviewed dataset assets
+
+### What Was Updated
+- `ROADMAP_PRODUCTION.md` now states that:
+  - near-term production may require a much higher manual-review rate than the long-term target
+  - the Web UI is both the output tool and the reviewed-data collection tool
+  - dataset growth should move from the current `71` reviewed rallies toward `200-500`, then later `>1000`
+- `PROJECT_ACTION_PLAN.md` now reflects that:
+  - manual-heavy review is acceptable for the current phase
+  - every new reviewed match should contribute to both output completion and dataset growth
+  - TODO now includes:
+    - reviewer UX for a manual-heavy first phase
+    - reviewed-rally schema / writeback from Web UI
+    - dataset milestones and later retraining cadence
+
+### Current Read
+- the immediate blocker is not "can the system render a scoreboard video at all?"
+- the immediate blocker is:
+  - how fast the operator can review a large share of rallies
+  - and whether that work is automatically persisted into reusable reviewed dataset assets
+- the current `71` reviewed rallies should be treated as the seed only, not the target
+
+### Resume Point
+- keep the Web UI as the primary production path
+- validate one full output on a real raw match even if review load is high
+- wire reviewed-rally writeback so each completed match also grows the dataset
+
+---
+
 ## Work Log - `2026-04-11` (Web UI Restructure + Pipeline Log + Stop Button)
 
 ### Goal

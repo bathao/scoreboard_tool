@@ -71,11 +71,32 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Product output:
   - `preview render` with scoreboard
   - `final export` with scoreboard after all required winner reviews are resolved
+- Temporary delivery stance:
+  - the current winner VLM path is still low-confidence on new inputs
+  - for now, a higher manual-review burden is acceptable if it produces a usable final scoreboard video
+  - short-term priority is a correct usable output first, lower review rate later
 - Local Web UI v1 scope:
   - local only
   - one operator
   - one video at a time
   - no remote/multi-user workflow
+- Operating rule from now on:
+  - the Web UI is the default and primary production workflow
+  - CLI is allowed only for narrow debug / quick isolated checks
+  - any CLI debug step that proves useful must be moved back into:
+    - shared backend code
+    - the Web UI production flow
+- Web UI role in this phase:
+  - produce a usable scoreboard video now
+  - collect reviewed rally data from each new input
+  - turn operator review work into reusable dataset growth
+- Data-growth plan from the current reviewed base:
+  - current canonical reviewed rallies:
+    - `71`
+  - next milestone:
+    - `200-500`
+  - later milestone:
+    - `>1000`
 - Ordered implementation slices:
   1. define a persistent local `match job` that stores:
      - raw video path
@@ -101,9 +122,13 @@ Put detailed explanations, experiments, failures, and resume notes in:
   5. make review winner-only in `v1`:
      - the operator chooses only who won the point
      - downstream score / set / match state must recompute automatically
+     - then extend the same UI flow to capture the extra per-rally reviewed fields needed for future dataset growth
   6. allow `preview render` while review-needed rallies still exist, but clearly warn the operator
   7. block `final export` until all scoring rallies have resolved winners
   8. persist reviewed corrections and reusable review assets so later matches can feed the dataset / training loop
+  9. grow the reviewed dataset through normal production use:
+     - each new reviewed match should add reusable rally records
+     - use those records to retrain better winner models later
 - First acceptance target:
   - from the local Web UI, run one raw `match_vinh_001` video end-to-end
   - enter player names
@@ -272,19 +297,43 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - current result:
     - `5 passed`
 
+- `[done]` shared production config is now pinned for both CLI and Web UI (`2026-04-11`):
+  - `backend/production_defaults.py` is the single source of truth for active production defaults
+  - rally timeline defaults and winner-adapter defaults are no longer duplicated across scripts and UI flow
+  - the Web UI pipeline now passes the full rally config explicitly instead of relying on implicit script defaults
+
 ## Doing
+- `[doing]` follow `Web UI first` as the main operating rule from now on:
+  - run real production work through the local Web UI path by default
+  - use CLI only when a small isolated debug step is faster and clearer
+  - after a CLI debug step proves useful, fold that behavior back into the shared production pipeline
+- `[doing]` accept a temporary manual-heavy review phase:
+  - current winner AI quality is still too weak to trust as a low-touch production path
+  - for now, the operator may need to confirm or correct many rallies to finish one usable output video
+  - this is acceptable as long as the Web UI makes that review loop fast enough to ship output
 - `[doing]` single-page local Web UI is now working end-to-end on a real test clip:
   - pipeline verified on `match_test.mp4` — all stages ran cleanly
   - UI single-page flow: browse → setup → pipeline → review → export
   - next step is to run the same flow on `match_vinh_001__full.mp4`
+- `[doing]` every new reviewed match should serve two goals at once:
+  - complete one usable scoreboard output
+  - enlarge the reviewed dataset for later retraining
 - `[doing]` next required tasks in priority order:
-  1. run `match_vinh_001__full.mp4` end-to-end through the UI — validate on the real long-match input
-  2. review all rallies in `match_test` job and confirm the final export path works
+  1. run `match_vinh_001__full.mp4` end-to-end through the UI and finish one usable scoreboard export even if many rallies require manual review
+  2. review all rallies in `match_test` job and confirm the final export path works under the same manual-review-first rule
   3. wire reviewed winner corrections from UI into dataset storage:
      - canonical: `dataset/reviewed_matches/`
      - rolling finetune: `dataset/collections/finetune_dataset/`
-  4. once writeback is wired, the active learning loop is real:
+  4. extend the review flow so the operator can enter the additional per-rally fields needed for future dataset growth
+  5. once writeback is wired, the active learning loop is real:
      - UI review → auto-appends to finetune_dataset → future retrain
+- `[doing]` dataset-growth milestones should now be treated as active product goals:
+  - current reviewed canonical base:
+    - `71`
+  - next useful target:
+    - `200-500`
+  - later target:
+    - `>1000`
 - `[doing]` practical operator rule:
   - the local UI server must be running in the background before the browser opens it
   - `python scripts/run_local_web_ui.py` → then open `http://127.0.0.1:8765`
@@ -305,7 +354,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - composition:
     - `71` original
     - `71` `flip_h`
-- `[doing]` current main task is now the first local winner-model adapter-training pilot:
+- `[doing]` the model-improvement track now runs in parallel with the output-first Web UI track:
   - base model:
     - `Qwen3-VL-4B-Instruct`
   - training style:
@@ -321,7 +370,7 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - evaluation rule:
     - compare only on held-out reviewed rallies
     - compare against the current prompt-only baseline
-- `[doing]` current objective is to stand up the training stack end-to-end:
+- `[doing]` the first local training stack is already standing end-to-end:
   - completed for the first local pilot
 - `[doing]` treat `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2` as the active local winner-adapter candidate
 - `[doing]` next active model step is to use the trained adapter for future-match inference, not to continue winner iteration on `match_vinh_001`
@@ -763,6 +812,11 @@ Put detailed explanations, experiments, failures, and resume notes in:
 
 ## Todo
 - `[todo]` if rally boundaries are reopened later, rerun from source video end-to-end and do not reuse intermediate timeline JSON files
+- `[todo]` harden the reviewer UX for a manual-heavy first phase so one match can still be finished quickly:
+  - fast next-rally flow
+  - reliable keyboard shortcuts
+  - loop playback for the active rally
+  - clear pending / reviewed progress
 - `[todo]` create grouped train / val / test manifests for the current reviewed training seed:
   - done in `splits/v1`; keep only if a later `v2` split is needed
 - `[todo]` harden `score progression` and validation on top of accepted rallies + reviewed winners during a real raw-match rerun
@@ -785,11 +839,22 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - running jobs
   - failed jobs
   - preview-ready but review-blocked exports
+- `[todo]` define the reviewed-rally data schema the Web UI must collect from each new input:
+  - winner first
+  - then the extra per-rally fields needed for future training / evaluation
 - `[todo]` persist reviewed winner corrections from the UI into:
   - canonical reviewed storage
   - rolling fine-tune collection
+- `[todo]` extend that writeback path so each new reviewed match can grow the dataset beyond scoreboard export only:
+  - save reviewed rally records from normal UI usage
+  - keep stable ids / metadata
+  - support later retraining without rebuilding labels by hand
+- `[todo]` treat `71` reviewed rallies as only the current seed, then grow through normal production use toward:
+  - `200-500` reviewed rallies as the next serious retraining milestone
+  - `>1000` reviewed rallies as the longer-term quality target
 - `[todo]` define the first `Train Now` winner-training path for when:
   - `dataset/collections/finetune_dataset/` reaches about `200-500` reviewed rallies
+- `[todo]` define the later retraining / evaluation cadence once the reviewed dataset passes `>1000` rallies
 - `[todo]` keep a held-out reviewed benchmark split while growing `finetune_dataset`, so adapted winner models can be compared honestly
 - `[todo]` start the first local winner-model adapter-training pilot on the current dataset seed:
   - completed for pilot `v1`; next iterations should train on additional reviewed matches and compare against this adapter
@@ -804,7 +869,9 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[deferred]` do not spend this cycle on `Qwen` boundary/split tuning
 - `[deferred]` do not resume winner-detection experiments on `match_vinh_001 / set_01..set_04` in this cycle
 - `[deferred]` do not build a remote, multi-user, or cloud-first UI in this cycle
-- `[deferred]` do not widen the first correction UX beyond winner-only point review in this cycle
+- `[deferred]` do not widen the first correction UX too early before the scoreboard-output loop is stable:
+  - ship winner-review-first
+  - then add the extra reviewed dataset fields into the same Web UI flow
 - `[deferred]` do not start full production-scale winner-model `SFT` job orchestration until the rolling fine-tune dataset is larger and held-out reviewed evaluation splits exist
 - `[deferred]` do not try to rescue `winner_fusion_v2_layer_ab` as the primary path in this cycle
 - `[deferred]` do not reintroduce any `Ollama`-based winner path
@@ -823,6 +890,17 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[rejected]` continuing to spend the main winner cycle on threshold tuning inside the current Layer A/B heuristic path
 
 ## Guardrails
+- Treat the local Web UI as the primary production workflow from now on.
+- Use CLI only for:
+  - small isolated debug tasks
+  - fast repro steps
+  - narrow regression investigation
+- Do not keep a useful CLI-only step outside the production flow once it is understood:
+  - move it into shared backend services
+  - then expose it through the Web UI path when it belongs in normal operation
+- Treat manual review on new matches as both:
+  - output-correction work
+  - dataset-building work
 - Never reopen accepted `starter` or `LET` labels without new operator evidence.
 - Never accept an endpoint patch that regresses accepted `set4` rally boundaries.
 - Keep the accepted `set4` endpoint baseline frozen while moving downstream.
