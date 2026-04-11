@@ -15,6 +15,7 @@ JOB_SCHEMA_VERSION = "local_match_job_v1"
 DEFAULT_JOBS_ROOT = PROJECT_ROOT / "runtime_jobs"
 KNOWN_WINNERS = {"player_a", "player_b"}
 LET_FLAGS = {"let_no_score", "rally_label_let"}
+VALID_JOB_PURPOSES = {"output_only", "output_and_dataset"}
 
 
 def _utc_now_iso() -> str:
@@ -111,10 +112,13 @@ class MatchJob:
     player_a_name: str
     player_b_name: str
     best_of: int
+    job_purpose: str
     artifacts: MatchJobArtifacts
     timeline_summary: dict[str, Any] = field(default_factory=dict)
     review_status: dict[str, Any] = field(default_factory=dict)
     step_started_at: str = ""
+    tournament_name: str = ""
+    round_name: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -136,10 +140,13 @@ class MatchJob:
             player_a_name=str(data.get("player_a_name", "Player A")),
             player_b_name=str(data.get("player_b_name", "Player B")),
             best_of=int(data.get("best_of", 5)),
+            job_purpose=str(data.get("job_purpose", "output_only")),
             artifacts=MatchJobArtifacts.from_dict(dict(data.get("artifacts", {}))),
             timeline_summary=dict(data.get("timeline_summary", {})),
             review_status=dict(data.get("review_status", {})),
             step_started_at=str(data.get("step_started_at", "")),
+            tournament_name=str(data.get("tournament_name", "")),
+            round_name=str(data.get("round_name", "")),
         )
 
 
@@ -170,10 +177,15 @@ def create_match_job(
     player_b_name: str,
     trim_start_sec: float,
     best_of: int,
+    job_purpose: str = "output_only",
+    tournament_name: str = "",
+    round_name: str = "",
     jobs_root: Path | None = None,
 ) -> MatchJob:
     if best_of <= 0 or best_of % 2 == 0:
         raise ValueError("best_of must be a positive odd number")
+    if job_purpose not in VALID_JOB_PURPOSES:
+        raise ValueError(f"job_purpose must be one of {sorted(VALID_JOB_PURPOSES)}")
 
     raw_path = Path(raw_video_path).resolve()
     job_id = make_job_id(raw_path)
@@ -187,7 +199,7 @@ def create_match_job(
         working_video_path=_normalize_path_str(job_dir / "working_input.mp4"),
         timeline_json_path=_normalize_path_str(job_dir / "timeline_review.json"),
         preview_video_path=_normalize_path_str(job_dir / "preview_scoreboard.mp4"),
-        final_video_path=_normalize_path_str(job_dir / "final_scoreboard.mp4"),
+        final_video_path=_normalize_path_str(PROJECT_ROOT / "outputs" / f"{job_id}__final_scoreboard.mp4"),
         review_clips_dir=_normalize_path_str(job_dir / "review_clips"),
         predictions_jsonl_path=_normalize_path_str(job_dir / "winner_predictions.jsonl"),
     )
@@ -205,7 +217,10 @@ def create_match_job(
         player_a_name=str(player_a_name).strip() or "Player A",
         player_b_name=str(player_b_name).strip() or "Player B",
         best_of=int(best_of),
+        job_purpose=str(job_purpose),
         artifacts=artifacts,
+        tournament_name=str(tournament_name).strip(),
+        round_name=str(round_name).strip(),
     )
     save_match_job(job)
     return job
@@ -283,22 +298,26 @@ def point_needs_human_input(point: RallyTimelinePoint) -> bool:
 
 def build_review_status(timeline: RallyTimeline) -> dict[str, Any]:
     scoring_points = [point for point in timeline.points if counts_toward_score(point)]
+    # blocked: no prediction at all — operator must manually enter winner
     blocked_ids = [point.id for point in scoring_points if point_needs_human_input(point)]
+    # review: AI has a candidate but confidence is low — operator must confirm or correct
     review_ids = [point.id for point in scoring_points if point.winner_decision == "review"]
     accepted_ids = [point.id for point in scoring_points if point.winner_decision == "auto" and point.winner in KNOWN_WINNERS]
     ai_predicted_ids = [point.id for point in scoring_points if effective_rally_winner(point) is not None]
+    # unresolved = any scoring point not yet operator-confirmed (blocked + pending review)
+    unresolved_ids = [point.id for point in scoring_points if not point_is_review_resolved(point)]
     return {
         "total_points": len(timeline.points),
         "scoring_points": len(scoring_points),
         "non_scoring_points": sum(1 for point in timeline.points if not counts_toward_score(point)),
         "preview_known_points": len(ai_predicted_ids),
         "resolved_scoring_points": len(accepted_ids),
-        "unresolved_scoring_points": len(blocked_ids),
+        "unresolved_scoring_points": len(unresolved_ids),
         "review_points": len(review_ids),
         "blocked_points": len(blocked_ids),
-        "final_export_ready": len(blocked_ids) == 0,
+        "final_export_ready": len(unresolved_ids) == 0,
         "preview_render_allowed": len(ai_predicted_ids) > 0,
-        "unresolved_point_ids": blocked_ids,
+        "unresolved_point_ids": unresolved_ids,
     }
 
 

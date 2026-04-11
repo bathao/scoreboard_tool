@@ -11,8 +11,7 @@ _STEP_ORDER = [
     "generate_rally_timeline",
     "export_review_clips",
     "predict_winners_with_adapter",
-    "render_preview",
-    "preview_ready",
+    "ai_ready",
 ]
 
 # Expected duration in seconds per step (calibrated on match_test.mp4, 2m40s / 14 rallies).
@@ -22,7 +21,6 @@ _STEP_EXPECTED_SEC: dict[str, float] = {
     "generate_rally_timeline": 310.0,
     "export_review_clips": 25.0,
     "predict_winners_with_adapter": 162.0,
-    "render_preview": 45.0,
 }
 
 
@@ -83,14 +81,11 @@ def _job_progress(job: MatchJob | None, review_status: dict[str, object], has_ti
         "created": (4, "Setup ready"),
         "trim_input": (12, "Trimming input video"),
         "generate_rally_timeline": (34, "Detecting rallies"),
-        "export_review_clips": (55, "Cutting rally clips"),
-        "predict_winners_with_adapter": (76, "Running winner AI"),
-        "render_preview": (90, "Preparing preview artifacts"),
-        "preview_ready": (94, "AI pipeline finished"),
-        "review_required_no_preview": (92, "AI pipeline finished"),
-        "preview_skipped_no_known_winner": (92, "AI pipeline finished"),
-        "review_updated": (95, "Review in progress"),
-        "final_export": (98, "Rendering export video"),
+        "export_review_clips": (58, "Cutting rally clips"),
+        "predict_winners_with_adapter": (82, "Running winner AI"),
+        "ai_ready": (92, "AI pipeline finished — ready for review"),
+        "review_updated": (92, "Review in progress"),
+        "final_export": (98, "Rendering and exporting final video"),
         "final_export_complete": (100, "Export complete"),
         "failed": (100, "Failed"),
     }

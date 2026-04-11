@@ -331,13 +331,13 @@ def run_initial_job_pipeline(
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
-    _job_log(job_dir, "Step 1/5: trim_input — cutting working video with GPU encoder")
+    _job_log(job_dir, "Step 1/4: trim_input — cutting working video with GPU encoder")
     trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
-    _job_log(job_dir, "Step 1/5: trim_input — done")
+    _job_log(job_dir, "Step 1/4: trim_input — done")
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="generate_rally_timeline")
-    _job_log(job_dir, "Step 2/5: generate_rally_timeline — loading YOLO models and detecting rallies (slowest step)")
+    _job_log(job_dir, "Step 2/4: generate_rally_timeline — loading YOLO models and detecting rallies (slowest step)")
     build_rally_timeline = _load_build_rally_timeline()
     timeline = build_rally_timeline(
         job.artifacts.working_video_path,
@@ -355,7 +355,7 @@ def run_initial_job_pipeline(
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
-    _job_log(job_dir, f"Step 2/5: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
+    _job_log(job_dir, f"Step 2/4: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
     if not timeline.points:
         raise RuntimeError(
             "No rallies detected in this video. "
@@ -364,17 +364,17 @@ def run_initial_job_pipeline(
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)
-    _job_log(job_dir, f"Step 3/5: export_review_clips — cutting {len(timeline.points)} clips in parallel")
+    _job_log(job_dir, f"Step 3/4: export_review_clips — cutting {len(timeline.points)} clips in parallel")
     review_clips = export_review_clips(
         timeline,
         working_video_path=job.artifacts.working_video_path,
         review_clips_dir=job.artifacts.review_clips_dir,
     )
-    _job_log(job_dir, f"Step 3/5: export_review_clips — done, {len(review_clips)} clips")
+    _job_log(job_dir, f"Step 3/4: export_review_clips — done, {len(review_clips)} clips")
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="predict_winners_with_adapter", timeline=timeline)
-    _job_log(job_dir, "Step 4/5: predict_winners_with_adapter — loading Qwen3-VL adapter")
+    _job_log(job_dir, "Step 4/4: predict_winners_with_adapter — loading Qwen3-VL adapter")
     predictor = WinnerAdapterPredictor(config)
     timeline = _apply_adapter_predictions(
         timeline,
@@ -385,18 +385,12 @@ def run_initial_job_pipeline(
     )
     timeline.score_validation = build_score_validation(timeline, expected_scope="any")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
-    _job_log(job_dir, "Step 4/5: predict_winners_with_adapter — done")
+    _job_log(job_dir, "Step 4/4: predict_winners_with_adapter — done")
 
-    _check_stop()
-    update_job_runtime_state(job, status="running", current_step="render_preview", timeline=timeline)
-    _job_log(job_dir, "Step 5/5: render_preview — rendering scoreboard video")
-    render_job_preview(job)
-    timeline = load_job_timeline(job)
     review_status = build_review_status(timeline)
     next_status = "ready_for_final" if review_status["final_export_ready"] else "needs_review"
-    next_step = "preview_ready" if review_status["preview_render_allowed"] else "review_required_no_preview"
-    update_job_runtime_state(job, status=next_status, current_step=next_step, timeline=timeline)
-    _job_log(job_dir, f"Pipeline complete — status={next_status}")
+    update_job_runtime_state(job, status=next_status, current_step="ai_ready", timeline=timeline)
+    _job_log(job_dir, f"Pipeline complete — {len(timeline.points)} rallies ready for review, status={next_status}")
     return job
 
 
@@ -421,18 +415,23 @@ def render_job_preview(job_or_path: MatchJob | str | Path) -> MatchJob:
 def export_job_final_video(job_or_path: MatchJob | str | Path) -> MatchJob:
     job = _load_or_raise_job(job_or_path)
     timeline = load_job_timeline(job)
-    review_status = build_review_status(timeline)
-    if not review_status["final_export_ready"]:
-        raise RuntimeError("Final export is blocked until all scoring rallies have resolved winners.")
-
+    job_dir = job.artifacts.job_dir
     update_job_runtime_state(job, status="running", current_step="final_export", timeline=timeline)
+    _job_log(job_dir, f"Final export started — {job.player_a_name} vs {job.player_b_name}")
+    _job_log(job_dir, f"Rallies in timeline: {len(timeline.points)}")
+    _job_log(job_dir, f"Output: {Path(job.artifacts.final_video_path).name}")
+    _job_log(job_dir, "Rendering scoreboard overlay onto full match video (this takes a few minutes)...")
     render_scoreboard_video(
         input_video_path=job.artifacts.working_video_path,
         timeline=timeline,
         output_video_path=job.artifacts.final_video_path,
         player_a_name=job.player_a_name,
         player_b_name=job.player_b_name,
+        tournament_name=job.tournament_name,
+        round_name=job.round_name,
     )
+    _job_log(job_dir, "Render + audio merge complete.")
+    _job_log(job_dir, f"Final export complete → {job.artifacts.final_video_path}")
     update_job_runtime_state(job, status="completed", current_step="final_export_complete", timeline=timeline)
     return job
 

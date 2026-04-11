@@ -22,6 +22,8 @@ def render_scoreboard_video(
     output_video_path: str,
     player_a_name: str,
     player_b_name: str,
+    tournament_name: str = "",
+    round_name: str = "",
     temp_video_path: str | None = None,
 ) -> str:
     output_path = Path(output_video_path)
@@ -35,6 +37,8 @@ def render_scoreboard_video(
         timeline=match_timeline,
         player_a_name=player_a_name,
         player_b_name=player_b_name,
+        tournament_name=tournament_name,
+        round_name=round_name,
     )
     render_to_1080p(renderer)
     try:

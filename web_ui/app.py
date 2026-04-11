@@ -38,7 +38,7 @@ from web_ui.helpers import (
     _respond_text,
     _review_point_rows,
     _serve_file,
-    _timeline_score_before_map,
+    _timeline_score_maps,
 )
 from web_ui.progress import _job_progress, _stage_message
 from web_ui.runner import JobTaskRunner, ThreadingWSGIServer, _cleanup_old_logs, _start_heartbeat_watcher
@@ -70,6 +70,9 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
     main_video_src = ""
     main_now_playing = ""
     scoreboard = _initial_match_snapshot()
+    final_scoreboard = _initial_match_snapshot()
+    set_scores_display: list[dict[str, object]] = []
+    all_points_data: dict[str, object] = {}
     screen_mode = "setup"
     current_point_id = ""
     current_point_index = 0
@@ -77,9 +80,12 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
     if current_job is not None:
         has_timeline = Path(current_job.artifacts.timeline_json_path).exists()
         if has_timeline:
-            screen_mode = "review"
+            if current_job.status == "running" and current_job.current_step == "final_export":
+                screen_mode = "exporting"
+            else:
+                screen_mode = "review"
             timeline, all_points, active_filter = _review_point_rows(current_job, filter_name="all")
-            pending_points = [row for row in all_points if bool(row.get("needs_input"))]
+            pending_points = [row for row in all_points if not bool(row.get("resolved")) and not bool(row.get("is_non_scoring"))]
             current_point_id = str(query.get("current_point", "")).strip()
             if current_point_id:
                 current_point = next((row for row in all_points if row["id"] == current_point_id), None)
@@ -90,9 +96,38 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
                 current_point_index = next((idx for idx, row in enumerate(all_points) if row["id"] == current_point_id), 0)
             points = pending_points if active_filter == "pending" else all_points
             review_status = build_review_status(timeline)
-            score_before_map = _timeline_score_before_map(current_job, timeline)
+            score_before_map, final_scoreboard, set_scores = _timeline_score_maps(current_job, timeline)
             if current_point is not None:
                 scoreboard = score_before_map.get(current_point_id, scoreboard)
+
+            # Per-set score breakdown for Match Total display
+            best_of = current_job.best_of
+            for i in range(1, best_of + 1):
+                idx = i - 1
+                if idx < len(set_scores):
+                    set_scores_display.append({"set_num": i, "score_a": set_scores[idx][0], "score_b": set_scores[idx][1], "done": True, "active": False})
+                elif i == final_scoreboard.set_number and not final_scoreboard.is_finished:
+                    set_scores_display.append({"set_num": i, "score_a": final_scoreboard.score_a, "score_b": final_scoreboard.score_b, "done": False, "active": True})
+                else:
+                    set_scores_display.append({"set_num": i, "score_a": None, "score_b": None, "done": False, "active": False})
+
+            # Per-point data blob for client-side JS navigation (avoids page reload on timeline click)
+            for row in all_points:
+                pid = str(row["id"])
+                snap = score_before_map.get(pid)
+                if snap is not None:
+                    all_points_data[pid] = {
+                        "clip_src": str(row["clip_src"]),
+                        "ai_winner_label": str(row["ai_winner_label"]),
+                        "needs_input": bool(row["needs_input"]),
+                        "is_non_scoring": bool(row["is_non_scoring"]),
+                        "manually_corrected": bool(row["manually_corrected"]),
+                        "score_a": snap.score_a,
+                        "score_b": snap.score_b,
+                        "set_number": snap.set_number,
+                        "sets_a": snap.sets_a,
+                        "sets_b": snap.sets_b,
+                    }
         else:
             review_status = current_job.review_status or review_status
 
@@ -120,6 +155,7 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         "player_b_value": current_job.player_b_name if current_job else "Player B",
         "trim_start_value": format_seconds_mmss(current_job.trim_start_sec) if current_job else "00:00",
         "best_of_value": current_job.best_of if current_job else 5,
+        "job_purpose_value": current_job.job_purpose if current_job else "output_only",
         "has_timeline": has_timeline,
         "review_status": review_status,
         "points": points,
@@ -128,6 +164,9 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         "current_point_index": current_point_index,
         "active_filter": active_filter,
         "scoreboard": scoreboard,
+        "final_scoreboard": final_scoreboard,
+        "set_scores_display": set_scores_display,
+        "all_points_data": all_points_data,
         "progress": progress,
         "stage_message": _stage_message(current_job, has_timeline),
         "main_video_src": main_video_src,
@@ -232,12 +271,16 @@ def create_local_web_app(
                     raise ValueError(f"Raw video not found: {raw_video_path}")
                 trim_start_sec = parse_timecode_to_seconds(form.get("trim_start", "0"))
                 best_of = int(form.get("best_of", "5"))
+                job_purpose = str(form.get("job_purpose", "output_only")).strip()
                 job = create_match_job(
                     raw_video_path=raw_video_path,
                     player_a_name=form.get("player_a_name", "Player A"),
                     player_b_name=form.get("player_b_name", "Player B"),
                     trim_start_sec=trim_start_sec,
                     best_of=best_of,
+                    job_purpose=job_purpose,
+                    tournament_name=str(form.get("tournament_name", "")).strip(),
+                    round_name=str(form.get("round_name", "")).strip(),
                     jobs_root=jobs_root,
                 )
             except Exception as exc:
@@ -292,6 +335,15 @@ def create_local_web_app(
         final_match = re.match(r"^/jobs/([^/]+)/final-export$", path)
         if final_match and method == "POST":
             job_id = final_match.group(1)
+            # Pre-mark job as "running/final_export" synchronously so the redirect
+            # page immediately shows the exporting UI (avoids race with background thread).
+            try:
+                from backend.production_pipeline import update_job_runtime_state, load_job_timeline
+                _pre_job = load_match_job(job_json_path_from_id(job_id, jobs_root))
+                _pre_timeline = load_job_timeline(_pre_job)
+                update_job_runtime_state(_pre_job, status="running", current_step="final_export", timeline=_pre_timeline)
+            except Exception:
+                pass
             ok, msg = runner.start(
                 job_id,
                 lambda current_job_id: export_job_final_video(job_json_path_from_id(current_job_id, jobs_root)),
@@ -325,7 +377,10 @@ def create_local_web_app(
                     f"/?job_id={job_id}&review_filter={quote_plus(filter_name)}&kind=error&message={quote_plus(str(exc))}",
                 )
             unresolved_ids = list(job.review_status.get("unresolved_point_ids", [])) if isinstance(job.review_status, dict) else []
-            next_point = unresolved_ids[0] if unresolved_ids else point_id
+            # Stay near the reviewed point: prefer the first unresolved point after point_id,
+            # fall back to the first unresolved overall, then stay at point_id if all resolved.
+            after_current = [uid for uid in unresolved_ids if uid > point_id]
+            next_point = after_current[0] if after_current else (unresolved_ids[0] if unresolved_ids else point_id)
             next_point_query = f"&current_point={quote_plus(next_point)}" if next_point else ""
             return _redirect(
                 start_response,

@@ -158,7 +158,9 @@ def _review_point_rows(job: MatchJob, *, filter_name: str = "pending"):
         needs_input = point_needs_human_input(point)
         eff_winner = effective_rally_winner(point) if not is_non_scoring else None
         manually_corrected = resolved and bool(point.corrections)
-        if active_filter == "pending" and not needs_input:
+        # pending = any scoring point not yet operator-confirmed (no prediction OR AI predicted but awaiting confirm)
+        needs_operator_action = not is_non_scoring and not resolved
+        if active_filter == "pending" and not needs_operator_action:
             continue
         rows.append(
             {
@@ -241,17 +243,33 @@ def _initial_match_snapshot() -> MatchSnapshot:
     )
 
 
-def _timeline_score_before_map(job: MatchJob, timeline) -> dict[str, MatchSnapshot]:
+def _timeline_score_maps(
+    job: MatchJob, timeline
+) -> tuple[dict[str, MatchSnapshot], MatchSnapshot, list[tuple[int, int]]]:
+    """Returns (score_before_map, final_snapshot, set_scores).
+
+    score_before_map: score state immediately before each rally (keyed by point id).
+    final_snapshot: score state after all rallies.
+    set_scores: list of (score_a, score_b) for each COMPLETED set, in order.
+    Recomputes from scratch every call, so corrections propagate automatically.
+    """
     from backend.production_jobs import effective_rally_winner
     engine = ScoreEngine(MatchState(best_of=job.best_of))
-    snapshot_before = _initial_match_snapshot()
-    result: dict[str, MatchSnapshot] = {}
+    current = _initial_match_snapshot()
+    score_before_map: dict[str, MatchSnapshot] = {}
+    set_scores: list[tuple[int, int]] = []
     for point in timeline.points:
-        result[point.id] = snapshot_before
+        score_before_map[point.id] = current
         w = effective_rally_winner(point) if counts_toward_score(point) else None
         if w:
-            snapshot_before = engine.process_event(RallyEvent(winner=w, timestamp=float(point.t_end)))
-    return result
+            prev = current
+            current = engine.process_event(RallyEvent(winner=w, timestamp=float(point.t_end)))
+            # Detect set completion: set number increased or match just finished
+            if current.set_number > prev.set_number or (current.is_finished and not prev.is_finished):
+                final_a = prev.score_a + (1 if w == "player_a" else 0)
+                final_b = prev.score_b + (1 if w == "player_b" else 0)
+                set_scores.append((final_a, final_b))
+    return score_before_map, current, set_scores
 
 
 def _point_status_text(row: dict[str, object], job: MatchJob) -> str:

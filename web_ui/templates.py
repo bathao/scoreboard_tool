@@ -290,6 +290,15 @@ TEMPLATES = {
       border-radius: 14px;
       background: black;
     }
+    .set-score-table { width:100%; border-collapse:collapse; margin-top:8px; font-size:0.88em; }
+    .set-score-table td { padding:3px 5px; vertical-align:middle; }
+    .set-score-table .ss-label { color:#888; font-size:0.82em; white-space:nowrap; }
+    .set-score-table .ss-num { font-weight:700; font-size:1.05em; text-align:center; min-width:28px; }
+    .set-score-table .ss-dash { color:#ccc; text-align:center; }
+    .set-score-table .ss-status { color:#4caf50; font-size:0.85em; padding-left:4px; }
+    .set-score-table tr.ss-active { background:#f0fbf0; border-radius:6px; }
+    .set-score-table tr.ss-active .ss-label { color:#2e7d32; font-weight:600; }
+    .set-score-table .ss-none { color:#ccc; font-size:0.85em; }
     .scoreboard-live {
       margin-top: 14px;
       padding: 16px;
@@ -553,6 +562,9 @@ TEMPLATES = {
           }, 1000);
         }
       }
+      // Scroll the currently selected rally into view in the timeline list
+      var cur = document.querySelector(".timeline-item.current");
+      if (cur) cur.scrollIntoView({ block: "nearest", behavior: "instant" });
     });
     function _sendHeartbeat() {
       fetch("/heartbeat", { method: "POST" }).catch(function () {});
@@ -561,6 +573,66 @@ TEMPLATES = {
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) _sendHeartbeat();
     });
+
+    {% if screen_mode == 'review' and all_points_data %}
+    var POINT_DATA = {{ all_points_data | tojson }};
+    var _REVIEW_JOB_ID = {{ current_job.job_id | tojson }};
+    var _REVIEW_FILTER = {{ active_filter | tojson }};
+
+    function selectPoint(id) {
+      var d = POINT_DATA[id];
+      if (!d) return true;
+
+      // Update video player
+      var player = document.getElementById("main_video_player");
+      if (player && d.clip_src) {
+        player.src = d.clip_src;
+        player.load();
+        player.play().catch(function(){});
+      }
+
+      // Update "Before" score box
+      var lbl = document.getElementById("score_before_label");
+      if (lbl) lbl.textContent = "Before " + id;
+      var si = document.getElementById("score_set_info");
+      if (si) si.textContent = "Set " + d.set_number + " | Sets " + d.sets_a + "-" + d.sets_b;
+      var sa = document.getElementById("score_a_val");
+      if (sa) sa.textContent = d.score_a;
+      var sb = document.getElementById("score_b_val");
+      if (sb) sb.textContent = d.score_b;
+
+      // Update main panel
+      var title = document.getElementById("main_panel_title");
+      if (title) title.textContent = id;
+      var aiLbl = document.getElementById("ai_winner_text");
+      if (aiLbl) aiLbl.textContent = d.ai_winner_label;
+      var needsWarn = document.getElementById("needs_input_warning");
+      if (needsWarn) needsWarn.style.display = d.needs_input ? "inline" : "none";
+      var corrBadge = document.getElementById("manually_corrected_badge");
+      if (corrBadge) corrBadge.style.display = d.manually_corrected ? "inline" : "none";
+
+      // Update review form actions and hidden inputs
+      var nearForm = document.getElementById("form_near_win");
+      if (nearForm) nearForm.action = "/jobs/" + _REVIEW_JOB_ID + "/review/" + id;
+      var farForm = document.getElementById("form_far_win");
+      if (farForm) farForm.action = "/jobs/" + _REVIEW_JOB_ID + "/review/" + id;
+      document.querySelectorAll(".input_current_point").forEach(function(inp) { inp.value = id; });
+
+      // Update timeline highlight
+      document.querySelectorAll(".timeline-item").forEach(function(el) { el.classList.remove("current"); });
+      var cur = document.querySelector(".timeline-item[data-id='" + id + "']");
+      if (cur) cur.classList.add("current");
+
+      // Update URL without page reload
+      try {
+        var p = new URLSearchParams(window.location.search);
+        p.set("current_point", id);
+        history.pushState({}, "", "?" + p.toString());
+      } catch(e) {}
+
+      return false;
+    }
+    {% endif %}
   </script>
 </head>
 <body>
@@ -580,7 +652,57 @@ TEMPLATES = {
     "index.html": """
 {% extends "base.html" %}
 {% block body %}
-{% if screen_mode == "review" and current_job and current_point %}
+{% if screen_mode == "exporting" and current_job %}
+<div class="setup-shell">
+  <div class="panel" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="badge running" style="font-size:13px;padding:4px 10px;">● EXPORTING</span>
+        <span style="font-weight:600;">{{ current_job.player_a_name }} vs {{ current_job.player_b_name }}</span>
+        <span class="meta">Final scoreboard video</span>
+      </div>
+      <span class="meta" id="prog_elapsed">{{ progress.elapsed_label }}</span>
+    </div>
+    <div class="progress-card" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}" style="margin-bottom:0;border:none;padding:0;background:none;box-shadow:none;">
+      <div class="row" style="justify-content:space-between;margin-bottom:4px;">
+        <span id="prog_step" class="meta">{{ progress.step_label }}</span>
+        <span id="progress_pct_label" style="font-weight:600;">{{ progress.percent }}%</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill running" style="width: {{ progress.percent }}%;" data-server-pct="{{ progress.percent }}" data-job-id="{{ current_job.job_id }}"></div></div>
+    </div>
+  </div>
+  <div class="panel" style="padding:0;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:#111;">
+      <span style="color:#8fc;font-size:12px;font-family:monospace;font-weight:600;">export.log — {{ current_job.job_id }}</span>
+      <span id="prog_label" style="color:#aaa;font-size:12px;">{{ progress.label }}</span>
+    </div>
+    <pre id="pipeline_log" style="margin:0;background:#111;color:#d4d0c8;font-size:12.5px;line-height:1.6;padding:16px;height:420px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-family:'Cascadia Code','Consolas','Fira Mono',monospace;">(waiting for export to start...)</pre>
+  </div>
+  <script>
+    (function () {
+      var jobId = "{{ current_job.job_id }}";
+      var _pinned = true;
+      var logEl = document.getElementById("pipeline_log");
+      if (logEl) {
+        logEl.addEventListener("scroll", function () {
+          _pinned = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
+        });
+      }
+      function fetchLog() {
+        fetch("/jobs/" + encodeURIComponent(jobId) + "/log")
+          .then(function (r) { return r.ok ? r.text() : null; })
+          .then(function (t) {
+            if (t === null || !logEl) return;
+            logEl.textContent = t || "(no output yet)";
+            if (_pinned) logEl.scrollTop = logEl.scrollHeight;
+          }).catch(function () {});
+      }
+      fetchLog();
+      setInterval(fetchLog, 3000);
+    })();
+  </script>
+</div>
+{% elif screen_mode == "review" and current_job and current_point %}
 <div class="reviewer-shell">
   <div class="panel">
     <h2>The Reviewer</h2>
@@ -615,42 +737,59 @@ TEMPLATES = {
         <button class="secondary" type="button" onclick='return playMainVideo({{ final_video_src|tojson }}, {{ final_video_label|tojson }});'>Play Exported Video</button>
       {% endif %}
     </div>
-    <div class="scoreboard-live">
-      <div class="scoreboard-header">
-        <div>
-          <div class="meta">Score before {{ current_point.id }}</div>
-          <div class="meta">Set {{ scoreboard.set_number }} | Sets {{ scoreboard.sets_a }}-{{ scoreboard.sets_b }}</div>
-        </div>
+    <div class="scoreboard-live" style="border-left:3px solid #4caf50;">
+      <div class="meta" style="font-weight:700;color:#2e7d32;margin-bottom:4px;">
+        Match Score — {{ current_job.player_a_name }} vs {{ current_job.player_b_name }}
+        {% if final_scoreboard.is_finished %}<span style="color:#888;font-weight:400;font-size:0.85em;"> (finished)</span>{% endif %}
       </div>
-      <div class="score-row">
+      <table class="set-score-table">
+        {% for s in set_scores_display %}
+        <tr class="{% if s.active %}ss-active{% endif %}">
+          <td class="ss-label">Set {{ s.set_num }}</td>
+          {% if s.score_a is not none %}
+            <td class="ss-num" style="color:#1565c0;">{{ s.score_a }}</td>
+            <td class="ss-dash">—</td>
+            <td class="ss-num" style="color:#b71c1c;">{{ s.score_b }}</td>
+            <td class="ss-status">{% if s.done %}✓{% else %}●{% endif %}</td>
+          {% else %}
+            <td class="ss-none" colspan="4">chưa bắt đầu</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="scoreboard-live" style="margin-top:10px;">
+      <div class="meta" id="score_before_label">Before {{ current_point.id }}</div>
+      <div class="meta" id="score_set_info">Set {{ scoreboard.set_number }} | Sets {{ scoreboard.sets_a }}-{{ scoreboard.sets_b }}</div>
+      <div class="score-row" style="margin-top:8px;">
         <div class="score-name">[NEAR] {{ current_job.player_a_name }}</div>
-        <div class="score-big">{{ scoreboard.score_a }}</div>
+        <div class="score-big" id="score_a_val">{{ scoreboard.score_a }}</div>
       </div>
       <div class="score-row">
         <div class="score-name">[FAR] {{ current_job.player_b_name }}</div>
-        <div class="score-big">{{ scoreboard.score_b }}</div>
+        <div class="score-big" id="score_b_val">{{ scoreboard.score_b }}</div>
       </div>
     </div>
   </div>
   <div class="panel" id="main-panel">
-    <h2>{{ current_point.id }}</h2>
+    <h2 id="main_panel_title">{{ current_point.id }}</h2>
     <div class="hint-box">Left Arrow = Near win | Right Arrow = Far win</div>
     <div class="meta" style="margin-top:12px;">
-      AI: <strong>{{ current_point.effective_winner_label }}</strong>
-      {% if current_point.manually_corrected %} <span style="color:#f39c12">(manually corrected)</span>{% endif %}
-      {% if current_point.needs_input %} <span style="color:#e74c3c">— no prediction, input required</span>{% endif %}
+      AI: <strong id="ai_winner_text">{{ current_point.ai_winner_label }}</strong>
+      <span id="manually_corrected_badge" style="color:#f39c12;display:{% if current_point.manually_corrected %}inline{% else %}none{% endif %}"> (manually corrected)</span>
+      <span id="needs_input_warning" style="color:#e74c3c;display:{% if current_point.needs_input %}inline{% else %}none{% endif %}"> — no prediction, input required</span>
     </div>
     <div class="action-grid" style="margin-top:14px;">
-      <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
+      <form id="form_near_win" method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
         <input type="hidden" name="filter" value="{{ active_filter }}">
-        <input type="hidden" name="current_point" value="{{ current_point.id }}">
+        <input type="hidden" name="current_point" value="{{ current_point.id }}" class="input_current_point">
         <input type="hidden" name="action" value="set_winner">
         <input type="hidden" name="winner" value="player_a">
         <button id="review_action_near" class="action-btn near" type="submit">NEAR WIN</button>
       </form>
-      <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
+      <form id="form_far_win" method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
         <input type="hidden" name="filter" value="{{ active_filter }}">
-        <input type="hidden" name="current_point" value="{{ current_point.id }}">
+        <input type="hidden" name="current_point" value="{{ current_point.id }}" class="input_current_point">
         <input type="hidden" name="action" value="set_winner">
         <input type="hidden" name="winner" value="player_b">
         <button id="review_action_far" class="action-btn far" type="submit">FAR WIN</button>
@@ -661,15 +800,12 @@ TEMPLATES = {
         {% if active_filter == 'pending' %}Show All Points{% else %}Review Difficult Only{% endif %}
       </a>
       <form method="post" action="/jobs/{{ current_job.job_id }}/final-export">
-        <button class="warn" type="submit" {% if not review_status.final_export_ready %}disabled{% endif %}>Export</button>
+        <button class="warn" type="submit">Export</button>
       </form>
     </div>
-    {% if not review_status.final_export_ready %}
-      <div class="meta" style="margin-top:8px;">Export unlocks after every scoring rally has a confirmed winner.</div>
-    {% endif %}
     <div class="timeline-list">
       {% for point in points %}
-        <a class="timeline-item {{ point.status_class }} {% if point.id == current_point_id %}current{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter={{ active_filter }}&current_point={{ point.id }}">
+        <a class="timeline-item {{ point.status_class }} {% if point.id == current_point_id %}current{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter={{ active_filter }}&current_point={{ point.id }}" data-id="{{ point.id }}" onclick="return selectPoint('{{ point.id }}');">
           <div>
             <strong>{{ point.id }}</strong>
             <div class="meta">{{ point.time_range }}</div>
@@ -813,6 +949,21 @@ TEMPLATES = {
           <label for="trim_start">Trim Start</label>
           <input id="trim_start" name="trim_start" value="{{ trim_start_value }}" placeholder="mm:ss or seconds">
         </div>
+      </div>
+      <div style="margin-top:12px;">
+        <label for="tournament_name">Tên giải đấu</label>
+        <input id="tournament_name" name="tournament_name" value="{{ current_job.tournament_name if current_job else '' }}" placeholder="VD: WTT Champions Frankfurt 2025">
+      </div>
+      <div style="margin-top:8px;">
+        <label for="round_name">Vòng đấu</label>
+        <input id="round_name" name="round_name" value="{{ current_job.round_name if current_job else '' }}" placeholder="VD: Bán kết, Tứ kết, Chung kết...">
+      </div>
+      <div style="margin-top:12px;">
+        <label for="job_purpose">Job Purpose</label>
+        <select id="job_purpose" name="job_purpose">
+          <option value="output_only" {% if job_purpose_value == 'output_only' %}selected{% endif %}>Output Only — finish scoreboard video, no dataset write</option>
+          <option value="output_and_dataset" {% if job_purpose_value == 'output_and_dataset' %}selected{% endif %}>Output + Dataset — finish video and grow reviewed dataset</option>
+        </select>
       </div>
       <div class="point-actions" style="margin-top:16px;">
         <button type="submit">Run AI Pipeline</button>
@@ -988,12 +1139,9 @@ TEMPLATES = {
         </form>
         {% endif %}
         <form method="post" action="/jobs/{{ current_job.job_id }}/final-export">
-          <button class="warn" type="submit" {% if not review_status.final_export_ready %}disabled{% endif %}>Export</button>
+          <button class="warn" type="submit">Export</button>
         </form>
       </div>
-      {% if not review_status.final_export_ready %}
-        <div class="meta" style="margin-top:8px;">Export unlocks after every scoring rally has a confirmed winner.</div>
-      {% endif %}
     {% endif %}
   </div>
 </div>
@@ -1002,7 +1150,7 @@ TEMPLATES = {
   <div class="panel">
     <h2>Current Flow</h2>
     <div class="meta">
-      raw video → trim → rally timeline → winner adapter → preview render → review corrections → final export
+      raw video → trim → rally timeline → winner adapter → review corrections → Export (render + final video)
     </div>
   </div>
 </div>
@@ -1150,7 +1298,7 @@ TEMPLATES = {
     <div class="stat"><strong>Blocked</strong><div>{{ timeline_summary.winner_blocked_rallies or 0 }}</div></div>
   </div>
   <div class="meta" style="margin-top:12px;">
-    Preview render is allowed with unresolved reviews. Final export stays blocked until all scoring rallies are confirmed.
+    Confirm or correct each rally winner below. Export unlocks when all scoring rallies have a confirmed winner.
   </div>
 </div>
 
