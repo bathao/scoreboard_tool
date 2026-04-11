@@ -259,31 +259,46 @@ def update_job_runtime_state(
     return job
 
 
+def effective_rally_winner(point: RallyTimelinePoint) -> str | None:
+    """Return the winner to use for scoring: manual correction > AI candidate > None."""
+    if point.winner in KNOWN_WINNERS:
+        return point.winner
+    if point.winner_candidate in KNOWN_WINNERS:
+        return point.winner_candidate
+    return None
+
+
 def point_is_review_resolved(point: RallyTimelinePoint) -> bool:
     if not counts_toward_score(point):
         return True
     return point.winner in KNOWN_WINNERS and point.winner_decision == "auto"
 
 
+def point_needs_human_input(point: RallyTimelinePoint) -> bool:
+    """True only when AI has no prediction — human must input winner manually."""
+    if not counts_toward_score(point):
+        return False
+    return effective_rally_winner(point) is None
+
+
 def build_review_status(timeline: RallyTimeline) -> dict[str, Any]:
     scoring_points = [point for point in timeline.points if counts_toward_score(point)]
-    unresolved_ids = [point.id for point in scoring_points if not point_is_review_resolved(point)]
+    blocked_ids = [point.id for point in scoring_points if point_needs_human_input(point)]
     review_ids = [point.id for point in scoring_points if point.winner_decision == "review"]
-    blocked_ids = [point.id for point in scoring_points if point.winner_decision == "blocked" or point.winner not in KNOWN_WINNERS]
     accepted_ids = [point.id for point in scoring_points if point.winner_decision == "auto" and point.winner in KNOWN_WINNERS]
-    known_preview_ids = [point.id for point in scoring_points if point.winner in KNOWN_WINNERS]
+    ai_predicted_ids = [point.id for point in scoring_points if effective_rally_winner(point) is not None]
     return {
         "total_points": len(timeline.points),
         "scoring_points": len(scoring_points),
         "non_scoring_points": sum(1 for point in timeline.points if not counts_toward_score(point)),
-        "preview_known_points": len(known_preview_ids),
+        "preview_known_points": len(ai_predicted_ids),
         "resolved_scoring_points": len(accepted_ids),
-        "unresolved_scoring_points": len(unresolved_ids),
+        "unresolved_scoring_points": len(blocked_ids),
         "review_points": len(review_ids),
         "blocked_points": len(blocked_ids),
-        "final_export_ready": len(unresolved_ids) == 0,
-        "preview_render_allowed": len(known_preview_ids) > 0,
-        "unresolved_point_ids": unresolved_ids,
+        "final_export_ready": len(blocked_ids) == 0,
+        "preview_render_allowed": len(ai_predicted_ids) > 0,
+        "unresolved_point_ids": blocked_ids,
     }
 
 

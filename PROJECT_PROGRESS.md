@@ -5456,3 +5456,37 @@ At the end of each work session:
   - do not spend the next cycle trying to promote more `auto`
 
 
+
+## 2026-04-11 (local web UI hardening)
+
+- completed detailed progress logging for step 2 (`generate_rally_timeline`)
+  - threaded `log_fn` callback through: `production_pipeline.py` → `build_rally_timeline` → `extract_multistream_signals` → `_collect_role_tracker_energies`
+  - log panel now shows: table ROI detection, model loading, frame-by-frame pose detection progress every ~10%
+- fixed no-rally crash: step 2 now raises a clear `RuntimeError` with a descriptive message if 0 rallies detected, instead of crashing with `max_workers=0`
+- fixed log timestamps: changed from UTC to local time (UTC+7)
+- added `/admin/restart` route in web UI
+  - cleans zombie jobs, shows live status page, polls until server is back up
+  - uses `scripts/restart.bat` (via detached subprocess) to kill + restart
+- added `restart.py` in project root — run `python restart.py` from CMD to clean up and restart server at any time, even when server is dead
+- fixed critical heartbeat bug: server was killing itself mid-pipeline because `last_beat` only updated on `/heartbeat` POST, but browser's first heartbeat fires 20s after page load while timeout was 30s from server start — race condition killed the server before first heartbeat arrived. Fix: update `last_beat` on every request.
+- next resume point:
+  - run `match_test.mp4` end-to-end through the full pipeline now that server is stable
+  - review detected rallies and test final export path
+
+## 2026-04-11 (review UI workflow overhaul — partial)
+
+- changed review flow so AI predictions are used as default score, no manual confirm needed
+  - added `effective_rally_winner(point)` helper: manual override > AI candidate > None
+  - added `point_needs_human_input(point)`: True only when AI has no prediction at all
+  - `build_review_status`: `unresolved_scoring_points` now = blocked count only
+  - `final_export_ready` = True when no blocked rallies remain
+  - score calculation (`_timeline_score_before_map`) uses effective winner instead of only `auto` decisions
+  - "Needs Input" tab shows only blocked rallies; "All Rallies" shows everything with AI winner displayed
+  - review.html cards show "needs input / AI / corrected" badge, remove "AI Correct" button
+- known bugs to fix next session:
+  1. **AI winner = 100% NEAR** — winner adapter or winner_candidate field is always returning `player_a`, clearly wrong. Need to debug `predict_winners_with_adapter` step output and check what `winner_candidate` values look like in actual job timeline JSONs
+  2. **Left-side scoreboard not updated** — the scoreboard panel visible during point-by-point review (left column) still shows score based on old `point_is_review_resolved` logic, not `effective_rally_winner`. Need to trace the scoreboard data flow from `_index_page_context` → `score_before_map` → template and verify the effective winner change is actually reaching the scoreboard display
+- next resume point:
+  - open a finished job's `timeline.json` and inspect `winner_candidate` / `winner_decision` values directly
+  - check if the adapter step is writing correct predictions or if all are defaulting to player_a
+  - fix scoreboard left panel after confirming winner data is correct

@@ -79,7 +79,7 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         if has_timeline:
             screen_mode = "review"
             timeline, all_points, active_filter = _review_point_rows(current_job, filter_name="all")
-            pending_points = [row for row in all_points if not bool(row.get("resolved"))]
+            pending_points = [row for row in all_points if bool(row.get("needs_input"))]
             current_point_id = str(query.get("current_point", "")).strip()
             if current_point_id:
                 current_point = next((row for row in all_points if row["id"] == current_point_id), None)
@@ -158,8 +158,9 @@ def create_local_web_app(
         path = str(environ.get("PATH_INFO", "/"))
         message_ctx = _message_context(environ)
 
+        last_beat[0] = time.monotonic()
+
         if path == "/heartbeat" and method == "POST":
-            last_beat[0] = time.monotonic()
             return _respond_text(start_response, "ok")
 
         if path == "/goodbye" and method == "POST":

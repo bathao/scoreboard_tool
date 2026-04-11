@@ -618,10 +618,9 @@ TEMPLATES = {
     <div class="scoreboard-live">
       <div class="scoreboard-header">
         <div>
-          <div class="meta">Live Scoreboard</div>
-          <div class="meta">State before {{ current_point.id }}</div>
+          <div class="meta">Score before {{ current_point.id }}</div>
+          <div class="meta">Set {{ scoreboard.set_number }} | Sets {{ scoreboard.sets_a }}-{{ scoreboard.sets_b }}</div>
         </div>
-        <div class="meta">Set {{ scoreboard.set_number }} | Sets {{ scoreboard.sets_a }} - {{ scoreboard.sets_b }}</div>
       </div>
       <div class="score-row">
         <div class="score-name">[NEAR] {{ current_job.player_a_name }}</div>
@@ -634,9 +633,13 @@ TEMPLATES = {
     </div>
   </div>
   <div class="panel" id="main-panel">
-    <h2>Action Panel</h2>
+    <h2>{{ current_point.id }}</h2>
     <div class="hint-box">Left Arrow = Near win | Right Arrow = Far win</div>
-    <div class="meta" style="margin-top:12px;">AI suggestion: {{ current_point.ai_winner_label }} | {{ current_point.review_status_label }}</div>
+    <div class="meta" style="margin-top:12px;">
+      AI: <strong>{{ current_point.effective_winner_label }}</strong>
+      {% if current_point.manually_corrected %} <span style="color:#f39c12">(manually corrected)</span>{% endif %}
+      {% if current_point.needs_input %} <span style="color:#e74c3c">— no prediction, input required</span>{% endif %}
+    </div>
     <div class="action-grid" style="margin-top:14px;">
       <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
         <input type="hidden" name="filter" value="{{ active_filter }}">
@@ -911,48 +914,57 @@ TEMPLATES = {
       <h3 class="section-title">Review Queue</h3>
       {% if has_timeline %}
         <div class="tabs">
-          <a class="{% if active_filter == 'pending' %}active{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter=pending">Need Review {{ review_status.unresolved_scoring_points }}</a>
-          <a class="{% if active_filter == 'all' %}active{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter=all">All {{ review_status.scoring_points }}</a>
+          <a class="{% if active_filter == 'pending' %}active{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter=pending">Needs Input {% if review_status.unresolved_scoring_points > 0 %}<span class="badge" style="background:#c0392b">{{ review_status.unresolved_scoring_points }}</span>{% endif %}</a>
+          <a class="{% if active_filter == 'all' %}active{% endif %}" href="/?job_id={{ current_job.job_id }}&review_filter=all">All Rallies ({{ review_status.scoring_points }})</a>
         </div>
+        {% if active_filter == 'pending' and review_status.unresolved_scoring_points == 0 %}
+          <div class="hint-box" style="margin-top:12px;background:#1a2a1a;border-color:#4caf50;color:#4caf50;">
+            AI has predicted winners for all rallies. Review any rally in the "All Rallies" tab if you think the AI is wrong.
+          </div>
+        {% endif %}
         {% if points %}
           <table style="margin-top:12px;">
             <thead>
               <tr>
                 <th>Rally</th>
-                <th>AI Winner</th>
-                <th>Review</th>
+                <th>Winner</th>
+                <th>Source</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
             {% for point in points %}
-              <tr id="{{ point.id }}">
+              <tr id="{{ point.id }}" class="timeline-item {{ point.status_class }}">
                 <td>
                   <div><strong>{{ point.id }}</strong></div>
                   <div class="meta">{{ point.time_range }}</div>
                 </td>
-                <td>{{ point.ai_winner_label }}</td>
-                <td>{{ point.review_status_label }}</td>
+                <td>
+                  {% if point.needs_input %}
+                    <span style="color:#e74c3c">? Unknown</span>
+                  {% elif point.manually_corrected %}
+                    <span>{{ point.effective_winner_label }}</span>
+                    <div class="meta" style="color:#f39c12">manually corrected</div>
+                  {% else %}
+                    <span>{{ point.effective_winner_label }}</span>
+                    <div class="meta" style="color:#888">AI</div>
+                  {% endif %}
+                </td>
+                <td><span class="meta">{{ point.decision }}</span></td>
                 <td>
                   <div class="point-actions">
-                    <button class="secondary" type="button" onclick='return playMainVideo({{ point.clip_src|tojson }}, {{ point.play_label|tojson }});'>Play Rally</button>
-                    {% if point.can_keep %}
-                    <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ point.id }}">
-                      <input type="hidden" name="filter" value="{{ active_filter }}">
-                      <button type="submit" name="action" value="keep">AI Correct</button>
-                    </form>
-                    {% endif %}
+                    <button class="secondary" type="button" onclick='return playMainVideo("{{ point.clip_src }}", "{{ point.play_label }}");'>Play</button>
                     <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ point.id }}">
                       <input type="hidden" name="filter" value="{{ active_filter }}">
                       <input type="hidden" name="action" value="set_winner">
                       <input type="hidden" name="winner" value="player_a">
-                      <button class="secondary" type="submit">{{ current_job.player_a_name }} Wins</button>
+                      <button class="secondary" type="submit">{{ current_job.player_a_name }}</button>
                     </form>
                     <form method="post" action="/jobs/{{ current_job.job_id }}/review/{{ point.id }}">
                       <input type="hidden" name="filter" value="{{ active_filter }}">
                       <input type="hidden" name="action" value="set_winner">
                       <input type="hidden" name="winner" value="player_b">
-                      <button class="secondary" type="submit">{{ current_job.player_b_name }} Wins</button>
+                      <button class="secondary" type="submit">{{ current_job.player_b_name }}</button>
                     </form>
                   </div>
                 </td>
@@ -1191,13 +1203,12 @@ TEMPLATES = {
     <span class="badge {{ job.status }}">{{ job.status }}</span>
   </div>
   <div class="stats" style="margin-top:12px;">
-    <div class="stat"><strong>Resolved</strong><div>{{ review_status.resolved_scoring_points }}</div></div>
-    <div class="stat"><strong>Needs Review</strong><div>{{ review_status.unresolved_scoring_points }}</div></div>
-    <div class="stat"><strong>Blocked</strong><div>{{ review_status.blocked_points }}</div></div>
-    <div class="stat"><strong>Preview Known</strong><div>{{ review_status.preview_known_points }}</div></div>
+    <div class="stat"><strong>AI Predicted</strong><div>{{ review_status.preview_known_points }}/{{ review_status.scoring_points }}</div></div>
+    <div class="stat"><strong>Needs Input</strong><div>{{ review_status.blocked_points }}</div></div>
+    <div class="stat"><strong>Manually Corrected</strong><div>{{ review_status.resolved_scoring_points }}</div></div>
   </div>
   <div class="hint-box" style="margin-top:14px;">
-    Review rule: if the AI winner is correct, press <strong>AI Correct</strong>. If it is wrong or unknown, press the real winner for that rally.
+    AI winners are used directly. Only correct rallies where the AI got it wrong, or input winners for rallies AI couldn't predict.
   </div>
   <div class="point-actions">
     <a class="subtle-link" href="/jobs/{{ job.job_id }}">Back To Job</a>
@@ -1205,10 +1216,8 @@ TEMPLATES = {
     <form method="post" action="/jobs/{{ job.job_id }}/final-export"><button class="warn" type="submit">Final Export</button></form>
   </div>
   <div class="tabs" style="margin-top:14px;">
-    <a class="{% if active_filter == 'pending' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=pending">Pending {{ review_status.unresolved_scoring_points }}</a>
-    <a class="{% if active_filter == 'blocked' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=blocked">Blocked {{ review_status.blocked_points }}</a>
-    <a class="{% if active_filter == 'resolved' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=resolved">Resolved {{ review_status.resolved_scoring_points }}</a>
-    <a class="{% if active_filter == 'all' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=all">All {{ review_status.scoring_points }}</a>
+    <a class="{% if active_filter == 'pending' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=pending">Needs Input ({{ review_status.blocked_points }})</a>
+    <a class="{% if active_filter == 'all' %}active{% endif %}" href="/jobs/{{ job.job_id }}/review?filter=all">All Rallies ({{ review_status.scoring_points }})</a>
   </div>
 </div>
 
@@ -1226,36 +1235,30 @@ TEMPLATES = {
           <div class="meta">{{ point.time_range }}</div>
         </div>
         <div>
-          {% if point.resolved %}
-            <span class="badge completed">resolved</span>
-          {% elif point.decision == "blocked" %}
-            <span class="badge failed">blocked</span>
+          {% if point.needs_input %}
+            <span class="badge failed">needs input</span>
+          {% elif point.manually_corrected %}
+            <span class="badge completed">corrected</span>
           {% else %}
-            <span class="badge needs_review">review</span>
+            <span class="badge running">AI</span>
           {% endif %}
         </div>
       </div>
       <div class="stats" style="margin-top:10px;">
-        <div class="stat"><strong>Review Status</strong><div>{{ point.review_status_label }}</div></div>
-        <div class="stat"><strong>Current Winner</strong><div>{{ point.current_winner_label }}</div></div>
-        <div class="stat"><strong>AI Winner</strong><div>{{ point.ai_winner_label }}</div></div>
+        <div class="stat"><strong>Winner</strong><div>{{ point.effective_winner_label }}</div></div>
+        <div class="stat"><strong>AI Prediction</strong><div>{{ point.ai_winner_label }}</div></div>
         <div class="stat"><strong>Category</strong><div>{{ point.category }}</div></div>
         <div class="stat"><strong>Source</strong><div>{{ point.source }}</div></div>
       </div>
-      <div class="meta" style="margin-top:12px;">{{ point.review_prompt }}</div>
+      {% if point.manually_corrected and point.last_note %}
+        <div class="meta" style="margin-top:8px;color:#f39c12;">Note: {{ point.last_note }}</div>
+      {% endif %}
       <div class="point-actions">
-        {% if point.can_keep %}
-        <form method="post" action="/jobs/{{ job.job_id }}/review/{{ point.id }}">
-          <input type="hidden" name="filter" value="{{ active_filter }}">
-          <input type="hidden" name="action" value="keep">
-          <button type="submit">AI Correct</button>
-        </form>
-        {% endif %}
         <form method="post" action="/jobs/{{ job.job_id }}/review/{{ point.id }}">
           <input type="hidden" name="filter" value="{{ active_filter }}">
           <input type="hidden" name="action" value="set_winner">
           <input type="hidden" name="winner" value="player_a">
-          <button class="secondary" type="submit">AI Wrong: {{ job.player_a_name }} Wins</button>
+          <button class="secondary" type="submit">{{ job.player_a_name }} Wins</button>
         </form>
         <form method="post" action="/jobs/{{ job.job_id }}/review/{{ point.id }}">
           <input type="hidden" name="filter" value="{{ active_filter }}">

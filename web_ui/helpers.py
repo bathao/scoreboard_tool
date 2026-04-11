@@ -9,10 +9,12 @@ from backend.engine import ScoreEngine
 from backend.models import MatchSnapshot, MatchState, RallyEvent
 from backend.production_jobs import (
     MatchJob,
+    effective_rally_winner,
     format_seconds_mmss,
     job_json_path_from_id,
     load_match_job,
     point_is_review_resolved,
+    point_needs_human_input,
 )
 from backend.production_pipeline import load_job_timeline
 from backend.rally_timeline_contract import counts_toward_score
@@ -153,8 +155,10 @@ def _review_point_rows(job: MatchJob, *, filter_name: str = "pending"):
     for point in timeline.points:
         resolved = point_is_review_resolved(point)
         is_non_scoring = not counts_toward_score(point)
-        blocked = not is_non_scoring and (point.winner_decision == "blocked" or point.winner not in {"player_a", "player_b"})
-        if active_filter == "pending" and resolved:
+        needs_input = point_needs_human_input(point)
+        eff_winner = effective_rally_winner(point) if not is_non_scoring else None
+        manually_corrected = resolved and bool(point.corrections)
+        if active_filter == "pending" and not needs_input:
             continue
         rows.append(
             {
@@ -162,11 +166,13 @@ def _review_point_rows(job: MatchJob, *, filter_name: str = "pending"):
                 "time_range": f"{point.t_start:.2f}s -> {point.t_end:.2f}s",
                 "current_winner_label": _winner_label(point.winner, job),
                 "ai_winner_label": _winner_label(point.winner_candidate, job),
+                "effective_winner_label": _winner_label(eff_winner, job) if eff_winner else "Unknown",
                 "category": point.winner_end_category or "-",
                 "source": point.source,
                 "decision": point.winner_decision or "",
                 "resolved": resolved,
-                "blocked": blocked,
+                "needs_input": needs_input,
+                "manually_corrected": manually_corrected,
                 "can_keep": point.winner in {"player_a", "player_b"} or point.winner_candidate in {"player_a", "player_b"},
                 "last_note": point.corrections[-1].note if point.corrections else "",
                 "review_status_label": _review_status_label(point),
@@ -175,14 +181,14 @@ def _review_point_rows(job: MatchJob, *, filter_name: str = "pending"):
                 "play_label": f"Playing rally {point.id}",
                 "is_non_scoring": is_non_scoring,
                 "status_class": (
-                    "let"
-                    if is_non_scoring
-                    else ("resolved-a" if resolved and point.winner == "player_a" else ("resolved-b" if resolved and point.winner == "player_b" else "pending"))
+                    "let" if is_non_scoring
+                    else "pending" if needs_input
+                    else ("resolved-a" if eff_winner == "player_a" else "resolved-b")
                 ),
                 "timeline_status_label": (
-                    "LET / Hong"
-                    if is_non_scoring
-                    else (job.player_a_name if resolved and point.winner == "player_a" else (job.player_b_name if resolved and point.winner == "player_b" else "Chua duyet"))
+                    "LET / Hong" if is_non_scoring
+                    else "?" if needs_input
+                    else (job.player_a_name if eff_winner == "player_a" else job.player_b_name)
                 ),
             }
         )
@@ -236,13 +242,15 @@ def _initial_match_snapshot() -> MatchSnapshot:
 
 
 def _timeline_score_before_map(job: MatchJob, timeline) -> dict[str, MatchSnapshot]:
+    from backend.production_jobs import effective_rally_winner
     engine = ScoreEngine(MatchState(best_of=job.best_of))
     snapshot_before = _initial_match_snapshot()
     result: dict[str, MatchSnapshot] = {}
     for point in timeline.points:
         result[point.id] = snapshot_before
-        if counts_toward_score(point) and point_is_review_resolved(point) and point.winner in {"player_a", "player_b"}:
-            snapshot_before = engine.process_event(RallyEvent(winner=point.winner, timestamp=float(point.t_end)))
+        w = effective_rally_winner(point) if counts_toward_score(point) else None
+        if w:
+            snapshot_before = engine.process_event(RallyEvent(winner=w, timestamp=float(point.t_end)))
     return result
 
 
