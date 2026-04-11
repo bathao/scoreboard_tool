@@ -119,6 +119,7 @@ class MatchJob:
     step_started_at: str = ""
     tournament_name: str = ""
     round_name: str = ""
+    player_a_starts_near: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -147,6 +148,7 @@ class MatchJob:
             step_started_at=str(data.get("step_started_at", "")),
             tournament_name=str(data.get("tournament_name", "")),
             round_name=str(data.get("round_name", "")),
+            player_a_starts_near=bool(data.get("player_a_starts_near", True)),
         )
 
 
@@ -180,6 +182,7 @@ def create_match_job(
     job_purpose: str = "output_only",
     tournament_name: str = "",
     round_name: str = "",
+    player_a_starts_near: bool = True,
     jobs_root: Path | None = None,
 ) -> MatchJob:
     if best_of <= 0 or best_of % 2 == 0:
@@ -221,6 +224,7 @@ def create_match_job(
         artifacts=artifacts,
         tournament_name=str(tournament_name).strip(),
         round_name=str(round_name).strip(),
+        player_a_starts_near=bool(player_a_starts_near),
     )
     save_match_job(job)
     return job
@@ -449,6 +453,36 @@ def apply_point_no_score(
     _record_change(changes, "flags", old_values["flags"], list(point.flags))
     _append_correction(point, reviewer=reviewer, note=note or "operator marked let / no score", changes=changes)
     return point
+
+
+def near_player_for_rally(
+    set_number: int,
+    score_a: int,
+    score_b: int,
+    best_of: int,
+    player_a_starts_near: bool,
+) -> str:
+    """Return 'player_a' or 'player_b' — whoever is at the NEAR side for this rally.
+
+    Table tennis side-swap rules:
+    - Players swap sides after every completed set.
+    - In the deciding set (set == best_of), they swap again once max(score_a, score_b) >= 5.
+    """
+    # Number of between-set swaps that have occurred before this set started
+    swaps = set_number - 1
+    player_a_is_near = player_a_starts_near != (swaps % 2 == 1)
+
+    # Deciding set mid-set swap
+    if set_number == best_of and max(score_a, score_b) >= 5:
+        player_a_is_near = not player_a_is_near
+
+    return "player_a" if player_a_is_near else "player_b"
+
+
+def abbrev_player_name(name: str) -> str:
+    """Return last 2 words of a player name for compact button labels."""
+    words = str(name).split()
+    return " ".join(words[-2:]) if len(words) >= 2 else name
 
 
 def get_point_by_id(timeline: RallyTimeline, point_id: str) -> RallyTimelinePoint:

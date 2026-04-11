@@ -6,9 +6,11 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from backend.production_jobs import (
+    abbrev_player_name,
     create_match_job,
     job_json_path_from_id,
     load_match_job,
+    near_player_for_rally,
     parse_timecode_to_seconds,
 )
 from backend.production_pipeline import (
@@ -112,10 +114,17 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
                     set_scores_display.append({"set_num": i, "score_a": None, "score_b": None, "done": False, "active": False})
 
             # Per-point data blob for client-side JS navigation (avoids page reload on timeline click)
+            _best_of = current_job.best_of
+            _a_starts_near = current_job.player_a_starts_near
+            _a_abbrev = abbrev_player_name(current_job.player_a_name)
+            _b_abbrev = abbrev_player_name(current_job.player_b_name)
             for row in all_points:
                 pid = str(row["id"])
                 snap = score_before_map.get(pid)
                 if snap is not None:
+                    _near = near_player_for_rally(snap.set_number, snap.score_a, snap.score_b, _best_of, _a_starts_near)
+                    _near_abbrev = _a_abbrev if _near == "player_a" else _b_abbrev
+                    _far_abbrev = _b_abbrev if _near == "player_a" else _a_abbrev
                     all_points_data[pid] = {
                         "clip_src": str(row["clip_src"]),
                         "ai_winner_label": str(row["ai_winner_label"]),
@@ -127,6 +136,9 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
                         "set_number": snap.set_number,
                         "sets_a": snap.sets_a,
                         "sets_b": snap.sets_b,
+                        "near_player": _near,
+                        "near_abbrev": _near_abbrev,
+                        "far_abbrev": _far_abbrev,
                     }
         else:
             review_status = current_job.review_status or review_status
@@ -145,6 +157,21 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         main_now_playing = "Playing selected raw video"
 
     progress = _job_progress(current_job, review_status, has_timeline)
+
+    # Near/far labels for current point (server-side initial render)
+    current_near_abbrev = ""
+    current_far_abbrev = ""
+    if current_job is not None and scoreboard is not None:
+        _a_starts = current_job.player_a_starts_near
+        _bo = current_job.best_of
+        _sn = scoreboard.set_number
+        _sa = scoreboard.score_a
+        _sb = scoreboard.score_b
+        _near = near_player_for_rally(_sn, _sa, _sb, _bo, _a_starts)
+        _a_ab = abbrev_player_name(current_job.player_a_name)
+        _b_ab = abbrev_player_name(current_job.player_b_name)
+        current_near_abbrev = _a_ab if _near == "player_a" else _b_ab
+        current_far_abbrev = _b_ab if _near == "player_a" else _a_ab
 
     return {
         "screen_mode": screen_mode,
@@ -175,6 +202,8 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         "full_match_label": full_match_label,
         "final_video_src": final_video_src,
         "final_video_label": final_video_label,
+        "current_near_abbrev": current_near_abbrev,
+        "current_far_abbrev": current_far_abbrev,
     }
 
 

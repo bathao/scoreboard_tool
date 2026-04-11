@@ -19,6 +19,7 @@ from backend.production_jobs import (
     apply_point_review,
     build_review_status,
     load_match_job,
+    near_player_for_rally,
     save_match_job,
     update_job_runtime_state,
 )
@@ -230,22 +231,71 @@ def _apply_adapter_predictions(
     predictor: WinnerAdapterPredictor,
     review_clips: dict[str, str],
     adapter_dir: str,
+    best_of: int = 5,
+    player_a_starts_near: bool = True,
 ) -> RallyTimeline:
+    """Run adapter inference on each scoring rally and write winner predictions.
+
+    The adapter was trained on Set-1 data where player_a = NEAR side.
+    Its output 'player_a' means 'the NEAR-side player won', 'player_b' means FAR won.
+    We remap those NEAR/FAR-relative labels to the actual player identity using
+    near_player_for_rally(), which accounts for side-swaps between sets and the
+    mid-deciding-set swap at score 5.
+    """
     records: list[dict[str, Any]] = []
+
+    # Running match state — updated after each scoring point so we can compute
+    # set_number and in-set scores for the NEXT rally's near_player_for_rally() call.
+    r_score_a, r_score_b = 0, 0
+    r_sets_a, r_sets_b = 0, 0
+    r_set_number = 1
+
     for point in timeline.points:
         if not counts_toward_score(point):
             continue
 
         parsed, raw_output = predictor.predict_clip(review_clips[point.id])
-        predicted_winner = str(parsed.get("winner", "")).strip()
-        predicted_loser = str(parsed.get("loser", "")).strip()
+        # Model outputs NEAR/FAR-relative labels (trained with player_a = NEAR, Set 1)
+        raw_winner = str(parsed.get("winner", "")).strip()
+        raw_loser = str(parsed.get("loser", "")).strip()
         predicted_taxonomy = str(parsed.get("taxonomy", "")).strip()
         predicted_last_hitter = str(parsed.get("last_hitter", "")).strip()
+
+        # Remap NEAR/FAR-relative prediction to actual player identity
+        # raw_winner == "player_a" → NEAR side won; "player_b" → FAR side won
+        near_player = near_player_for_rally(r_set_number, r_score_a, r_score_b, best_of, player_a_starts_near)
+        far_player = "player_b" if near_player == "player_a" else "player_a"
+
+        if raw_winner == "player_a":   # model: NEAR won
+            predicted_winner = near_player
+            predicted_loser = far_player
+        elif raw_winner == "player_b":  # model: FAR won
+            predicted_winner = far_player
+            predicted_loser = near_player
+        else:
+            predicted_winner = ""
+            predicted_loser = ""
+
+        # Remap last_hitter the same way
+        if predicted_last_hitter == "player_a":
+            predicted_last_hitter = near_player
+        elif predicted_last_hitter == "player_b":
+            predicted_last_hitter = far_player
+        else:
+            predicted_last_hitter = "unknown"
+
+        # Remap raw_loser (if model provided one separately)
+        if raw_loser == "player_a":
+            raw_loser = near_player
+        elif raw_loser == "player_b":
+            raw_loser = far_player
+        else:
+            raw_loser = predicted_loser  # fall back to the derived value
 
         point.winner_model = str(adapter_dir)
         point.winner_end_category = predicted_taxonomy or point.winner_end_category
         point.winner_last_hitter_candidate = predicted_last_hitter if predicted_last_hitter in KNOWN_WINNERS else "unknown"
-        point.winner_loser_candidate = predicted_loser if predicted_loser in KNOWN_WINNERS else "unknown"
+        point.winner_loser_candidate = raw_loser if raw_loser in KNOWN_WINNERS else "unknown"
         point.winner_confidence = 0.0
         point.source = "ai"
 
@@ -266,13 +316,37 @@ def _apply_adapter_predictions(
             {
                 "point_id": point.id,
                 "clip_path": review_clips[point.id],
+                "raw_winner_pred": raw_winner,
                 "winner_pred": predicted_winner,
                 "loser_pred": predicted_loser,
                 "taxonomy_pred": predicted_taxonomy,
                 "last_hitter_pred": predicted_last_hitter,
+                "set_number_at_pred": r_set_number,
+                "near_player_at_pred": near_player,
                 "raw_output": raw_output,
             }
         )
+
+        # Advance running match state using the remapped prediction
+        if predicted_winner in KNOWN_WINNERS:
+            if predicted_winner == "player_a":
+                r_score_a += 1
+            else:
+                r_score_b += 1
+            # Detect set end (standard table tennis: 11+ points, diff >= 2)
+            sets_needed = (best_of + 1) // 2
+            a_wins_set = r_score_a >= 11 and (r_score_a - r_score_b) >= 2
+            b_wins_set = r_score_b >= 11 and (r_score_b - r_score_a) >= 2
+            if a_wins_set:
+                r_sets_a += 1
+                r_score_a, r_score_b = 0, 0
+                if r_sets_a < sets_needed:
+                    r_set_number += 1
+            elif b_wins_set:
+                r_sets_b += 1
+                r_score_a, r_score_b = 0, 0
+                if r_sets_b < sets_needed:
+                    r_set_number += 1
 
     output_path = Path(predictions_jsonl_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -382,6 +456,8 @@ def run_initial_job_pipeline(
         predictor=predictor,
         review_clips=review_clips,
         adapter_dir=config.adapter_dir,
+        best_of=job.best_of,
+        player_a_starts_near=job.player_a_starts_near,
     )
     timeline.score_validation = build_score_validation(timeline, expected_scope="any")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)

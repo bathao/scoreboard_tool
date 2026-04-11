@@ -611,6 +611,16 @@ TEMPLATES = {
       var corrBadge = document.getElementById("manually_corrected_badge");
       if (corrBadge) corrBadge.style.display = d.manually_corrected ? "inline" : "none";
 
+      // Update near/far player labels and button text for this point
+      var nearLbl = document.getElementById("near_player_label");
+      if (nearLbl) nearLbl.textContent = d.near_abbrev || "";
+      var farLbl = document.getElementById("far_player_label");
+      if (farLbl) farLbl.textContent = d.far_abbrev || "";
+      var nearBtn = document.getElementById("review_action_near");
+      if (nearBtn) nearBtn.textContent = (d.near_abbrev || "NEAR") + " WIN";
+      var farBtn = document.getElementById("review_action_far");
+      if (farBtn) farBtn.textContent = (d.far_abbrev || "FAR") + " WIN";
+
       // Update review form actions and hidden inputs
       var nearForm = document.getElementById("form_near_win");
       if (nearForm) nearForm.action = "/jobs/" + _REVIEW_JOB_ID + "/review/" + id;
@@ -773,11 +783,16 @@ TEMPLATES = {
   </div>
   <div class="panel" id="main-panel">
     <h2 id="main_panel_title">{{ current_point.id }}</h2>
-    <div class="hint-box">Left Arrow = Near win | Right Arrow = Far win</div>
+    <div class="hint-box">Left Arrow = Near player win &nbsp;|&nbsp; Right Arrow = Far player win</div>
     <div class="meta" style="margin-top:12px;">
       AI: <strong id="ai_winner_text">{{ current_point.ai_winner_label }}</strong>
       <span id="manually_corrected_badge" style="color:#f39c12;display:{% if current_point.manually_corrected %}inline{% else %}none{% endif %}"> (manually corrected)</span>
       <span id="needs_input_warning" style="color:#e74c3c;display:{% if current_point.needs_input %}inline{% else %}none{% endif %}"> — no prediction, input required</span>
+    </div>
+    <div class="meta" id="side_context_line" style="margin-top:8px;color:#888;font-size:0.85em;">
+      NEAR: <strong id="near_player_label">{{ current_near_abbrev }}</strong>
+      &nbsp;·&nbsp;
+      FAR: <strong id="far_player_label">{{ current_far_abbrev }}</strong>
     </div>
     <div class="action-grid" style="margin-top:14px;">
       <form id="form_near_win" method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
@@ -785,14 +800,14 @@ TEMPLATES = {
         <input type="hidden" name="current_point" value="{{ current_point.id }}" class="input_current_point">
         <input type="hidden" name="action" value="set_winner">
         <input type="hidden" name="winner" value="player_a">
-        <button id="review_action_near" class="action-btn near" type="submit">NEAR WIN</button>
+        <button id="review_action_near" class="action-btn near" type="submit">{{ current_near_abbrev }} WIN</button>
       </form>
       <form id="form_far_win" method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
         <input type="hidden" name="filter" value="{{ active_filter }}">
         <input type="hidden" name="current_point" value="{{ current_point.id }}" class="input_current_point">
         <input type="hidden" name="action" value="set_winner">
         <input type="hidden" name="winner" value="player_b">
-        <button id="review_action_far" class="action-btn far" type="submit">FAR WIN</button>
+        <button id="review_action_far" class="action-btn far" type="submit">{{ current_far_abbrev }} WIN</button>
       </form>
     </div>
     <div class="point-actions" style="margin-top:16px;">
@@ -928,11 +943,11 @@ TEMPLATES = {
       </div>
       <div class="grid two">
         <div>
-          <label for="player_a_name">Player NEAR</label>
+          <label for="player_a_name">Player NEAR (Set 1)</label>
           <input id="player_a_name" name="player_a_name" value="{{ player_a_value }}" required>
         </div>
         <div>
-          <label for="player_b_name">Player FAR</label>
+          <label for="player_b_name">Player FAR (Set 1)</label>
           <input id="player_b_name" name="player_b_name" value="{{ player_b_value }}" required>
         </div>
       </div>
@@ -997,11 +1012,11 @@ TEMPLATES = {
       </div>
       <div class="grid two">
         <div>
-          <label for="player_a_name">Player A Name (Near)</label>
+          <label for="player_a_name">Player NEAR (Set 1)</label>
           <input id="player_a_name" name="player_a_name" value="{{ player_a_value }}" required>
         </div>
         <div>
-          <label for="player_b_name">Player B Name (Far)</label>
+          <label for="player_b_name">Player FAR (Set 1)</label>
           <input id="player_b_name" name="player_b_name" value="{{ player_b_value }}" required>
         </div>
       </div>
