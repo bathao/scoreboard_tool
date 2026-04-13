@@ -25,7 +25,7 @@ def run_advanced_debug_visual(video_path_str: str, table_weights_str: str):
     
     print(f"\n" + "="*80)
     print(f" LOGIC: ADVANCED TABLE-ONLY (VISUAL DEBUG)")
-    print(f" PROCESSING FILE: {v_path}") # Kiểm tra đường dẫn tuyệt đối
+    print(f" PROCESSING FILE: {v_path}")
     print(f" WEIGHTS USED:    {w_path.name}")
     print("="*80)
 
@@ -60,7 +60,6 @@ def run_advanced_debug_visual(video_path_str: str, table_weights_str: str):
     frame_gen = nvdec_bgr24_stream(str(v_path), info.width, info.height, crop_roi=(tx, ty, tw, th))
     
     print("\nPhase 1: GPU Motion Extraction (Processing Full Stream)...")
-    # LƯU Ý: Không có lệnh 'if idx > 9000' ở đây!
     for idx, frame_np in enumerate(frame_gen):
         if idx % stride != 0: continue
         

@@ -13,15 +13,37 @@ Do not use this file as a daily work log.
 
 ## Final Goal
 - Input:
-  - one raw full-match table-tennis clip, usually `20-30` minutes
+  - one raw full-match table-tennis clip, usually `30-40` minutes
   - fixed-tripod camera per clip
   - typical input quality: `1K/2K`, `60fps`
 - Output:
   - one rendered `1080p` video with the correct scoreboard
   - correct points, sets, and match result
+  - player names automatically resolved — no manual input required
 - Quality target:
-  - rally + winner pipeline with target `95%+`
-  - manual correction should be limited to low-confidence cases
+  - **100% fully automated** — zero manual correction required on a correctly-recorded clip
+  - operator input should only be needed once per new player (first enrollment)
+  - after the first enrollment, the same player is recognized automatically in all future clips
+
+### How to reach 100% automation — three-track strategy
+
+**Track 1 — Player Identity System**
+- Build a persistent face DB from the first clip where a player appears.
+- Operator provides the player's name once (first enrollment); the system extracts and stores face embeddings automatically.
+- Store face crops from each processed clip to progressively strengthen the identity record.
+- From the second clip onward the same player is recognized without any operator input.
+- Per-clip jersey binding covers set-boundary re-tracking without re-running face detection.
+
+**Track 2 — Scoreboard Tool (current work)**
+- Detect rallies, infer winners, validate score/state, render scoreboard video.
+- Near-term: produce a usable output now, accept manual review while winner model is weak.
+- Long-term: reduce manual review to zero as the winner model improves via Track 3.
+
+**Track 3 — Rally Dataset and Model Improvement**
+- Every reviewed clip feeds reviewed rally data into a growing training dataset.
+- Once the dataset is large enough, fine-tune the winner VLM on reviewed data.
+- Each training cycle should measurably reduce the manual-review rate on new clips.
+- Repeat: new clips → reviewed data → fine-tune → lower review rate → new clips.
 
 ## Operational Scope
 - This is an internal project, not a public multi-user product.
@@ -29,10 +51,7 @@ Do not use this file as a daily work log.
 - The system is designed to process one video at a time.
 - Production v1 is scoped to one full match clip at a time.
 - Mid-match fragments or partial clips are debug-only inputs, not part of the production critical path.
-- Do not optimize the architecture around:
-  - multi-tenant server usage
-  - distributed processing
-  - concurrent batch handling as a primary requirement
+- Do not optimize the architecture around multi-tenant, distributed, or concurrent batch use.
 
 ## Product Definition
 The system is not just a rally detector.
@@ -51,277 +70,157 @@ The production system should:
   - select the input video
   - run the processing pipeline
   - review only low-confidence rally outcomes
-- The Web UI should support a per-job operating mode such as:
-  - `output only`
-  - `output + dataset`
-- In the current delivery phase, the Web UI must still support a usable end-to-end output even if the operator has to review many rallies manually.
+- The Web UI should support a per-job operating mode:
+  - `output only` — finish the scoreboard video, no dataset writeback required
+  - `output + dataset` — finish the video and also persist reviewed rallies for future training
 - Near-term success is:
   - produce a correct usable scoreboard video now
   - collect reviewed rally data while doing that work
-- CLI scripts should be treated as secondary tools for:
-  - narrow debug
-  - fast isolated checks
-  - small reproducible investigations
-- Once a CLI debug step proves useful for the real operator workflow, it should be folded back into:
-  - shared backend services
-  - the Web UI production flow
-- Do not keep a CLI-only workaround as a parallel long-term production workflow after the Web UI path exists.
+- CLI scripts should be treated as secondary tools for narrow debug only.
+  Once a CLI step proves useful, fold it back into shared backend services and the Web UI flow.
 - The review flow should support active learning:
-  - if the AI result is correct, the operator should be able to keep it with one click
-  - if the AI result is wrong, the operator should be able to correct it with one click
-- As the reviewed-data loop matures, the Web UI should also capture the additional per-rally reviewed fields needed for future training and evaluation, not only the final scoreboard result.
-- In `output only` mode:
-  - the operator should only do the minimum needed to finish the scoreboard video
-  - the system should not require extra dataset fields or dataset writeback
-- In `output + dataset` mode:
-  - the same review flow should also collect the extra reviewed fields needed for future training and evaluation
-  - reviewed data should be persisted into reusable dataset assets
-- After review, the system should automatically persist the reviewed rally as a reusable training asset:
-  - reviewed JSON / manifest row
-  - matching full frozen rally clip
-  - enrollment into a rolling fine-tune collection such as:
-    - `dataset/collections/finetune_dataset/`
-- The default review asset should be a short rally clip.
+  - if the AI result is correct, the operator keeps it with one click
+  - if the AI result is wrong, the operator corrects it with one click
 - Human input should be exception-driven, not full manual annotation.
-- If AI confidence for a rally winner is too low, the system should ask only:
-  - who won this rally?
-- Target manual-review rate:
-  - less than `2%` of rallies as the long-term mature target
-- Near-term production may require a much higher manual-review rate while the current winner model is still weak.
-- For scoreboard completion, the minimum required operator input should remain:
-  - who won this rally?
-- The same Web UI flow may also capture additional reviewed fields for dataset growth when the operator provides them.
-- Extra dataset fields should be requested only when the current job is meant to grow the dataset.
+- Target manual-review rate: less than `2%` of rallies as the long-term mature target.
+- The minimum required operator input for scoreboard completion is: who won this rally?
 - After a user correction, the code must automatically recompute all downstream score changes:
-  - next points
-  - set progression
-  - match progression
-  - final rendered scoreboard state
+  - next points, set progression, match progression, final rendered scoreboard state.
 - The product should support two output modes:
-  - `preview render`
-  - `final export`
-- `preview render` may be allowed while review-needed rallies still exist, but must surface warnings clearly.
-- `final export` must require all review-needed rallies to be resolved.
+  - `preview render` — allowed while review-needed rallies still exist, but must surface warnings
+  - `final export` — must require all review-needed rallies to be resolved
 
 ## Guiding Architecture
 - `Table ROI` is the primary scene anchor.
 - Winner inference is constrained inference, not a single-model guess.
-- Production logic should combine:
-  - table timing
-  - player behavior
-  - optional ball/audio signals
-  - score/state validation
+- Production logic should combine: table timing, player behavior, optional ball/audio signals, score/state validation.
 - Ball detection is optional strong evidence, not a hard dependency.
 - Offline reasoning is preferred when it improves identity stability and sequence consistency.
 
 ## Non-Negotiable Design Rules
 - Prefer architecture-first solutions over local patches.
-- Fix bugs at the owning layer:
-  - detector / tracker bugs -> detector / tracker design
-  - state / score bugs -> state / score logic
-  - rendering must not hide upstream failures
-- After the Web UI exists, do not let ad-hoc CLI flows become a second production path:
-  - use CLI only for focused debug
-  - then move the proven fix back into the shared production pipeline
-- When the operator asks to export review rallies for `set1 / set2 / set3 / set4`, the export must be a clean end-to-end rerun:
-  - start from the original input video
-  - rerun the required pipeline stages from scratch
-  - produce the final rally clips from that fresh run
-  - do not reuse intermediate JSON artifacts from earlier partial runs
-- Always verify important claims and requests against the code in this repository before treating them as true.
-- A statement from the operator should be accepted as true only when:
-  - it matches the current code
-  - or the code does not contain enough information to confirm or reject it
-- Do not blindly mirror assumptions, status, or architecture claims into project documents without checking the code first.
-- The agent must retain the right to challenge or correct a request when:
-  - it conflicts with the code
-  - it conflicts with the current architecture
-  - it moves the project away from the final goal
+- Fix bugs at the owning layer: detector bugs → detector design; state bugs → state logic; rendering must not hide upstream failures.
+- After the Web UI exists, do not let ad-hoc CLI flows become a second production path.
+- When the operator asks to export review rallies, the export must be a clean end-to-end rerun from the original input video.
+- Always verify important claims against the code before treating them as true.
+- The agent must retain the right to challenge or correct a request when it conflicts with the code, the current architecture, or the final goal.
 - Reject workaround directions that only mask symptoms:
-  - display hold
-  - frozen boxes
-  - render-only trackers
-  - fake continuity bridges without identity evidence
-  - narrow hacks that overfit one clip and weaken the system
+  - display hold, frozen boxes, render-only trackers, fake continuity bridges, narrow hacks that overfit one clip
 - When evidence is weak, prefer `missing`, `unknown`, or `review` over a forced wrong answer.
 
 ## Signal Stack
 ### 1. Table Stream
-- Mandatory.
-- Used for:
-  - rally timing
-  - dead-time detection
-  - bounce and motion context
+- Mandatory. Used for: rally timing, dead-time detection, bounce and motion context.
 
 ### 2. Player Streams
 - Mandatory for high-quality winner inference.
-- `Stream 2` tracks `Player A`.
-- `Stream 3` tracks `Player B`.
-- Used for:
-  - serve preparation
-  - swing / motion cues
-  - reset behavior
-  - point-end behavior
+- `Stream 2` tracks `Player A`, `Stream 3` tracks `Player B`.
+- Used for: serve preparation, swing/motion cues, reset behavior, point-end behavior.
 
 ### 3. Global Context
-- Lightweight full-frame context is useful for:
-  - idle periods
-  - ball retrieval
-  - scene sanity checks
-  - neighboring-table disambiguation
+- Lightweight full-frame context for: idle periods, ball retrieval, scene sanity checks, neighboring-table disambiguation.
 
 ### 4. Optional Strong Signals
-- ball trajectory / bounce
-- audio cues
-- current `ball tracking V0` direction should stay:
-  - inside an expanded `Table ROI`
-  - motion-first
-  - secondary to the table stream, not a replacement for it
-
-## Ball Tracking Doctrine
-- Ball tracking should search only in an expanded `Table ROI` / playing lane, not across the full frame by default.
-- The current preferred `V0` direction is classical small-object motion tracking:
-  - frame differencing inside the expanded table crop
-  - small-blob candidate extraction
-  - short motion continuity / short tracklets across nearby frames
-- Do not treat appearance-heavy MOT methods as the main ball solution:
-  - the ball is too small
-  - motion is more reliable than appearance re-identification
-- Ball signals should be used as bounded evidence for:
-  - merging false split rallies
-  - bounce / dead-ball context
-  - future winner-inference support
-- Ball tracking must stay optional strong evidence:
-  - it may improve rally quality
-  - but the production path must still function when ball evidence is weak or missing
-- Do not promote a ball-tracking direction unless it improves checked regression clips without damaging the table-first baseline.
+- Ball trajectory / bounce, audio cues.
+- Current `ball tracking V0`: classical small-object motion tracking inside expanded Table ROI.
+  Frame differencing → small-blob extraction → short tracklets across nearby frames.
+- Ball signals should be used as bounded evidence for merging false-split rallies and bounce context.
+- Ball tracking must stay optional: the production path must still function when ball evidence is weak.
 
 ### 5. Validation Layer
 - Production output must pass through score/state validation.
-- This layer must be able to:
-  - accept safe evidence
-  - flag weak evidence
-  - block contradictory updates
-  - gate `final export` when required reviews are unresolved
+- This layer must: accept safe evidence, flag weak evidence, block contradictory updates, gate `final export`.
+
+## Ball Tracking Doctrine
+- Search only inside an expanded `Table ROI`, not across the full frame.
+- Motion is more reliable than appearance for a ball this small — do not use appearance-heavy MOT.
+- Do not promote a ball-tracking direction unless it improves checked regression clips without damaging the table-first baseline.
 
 ## Player Tracking Doctrine
 - Player tracking is role tracking, not just left/right detection.
 - `Player A` and `Player B` must be modeled relative to the tracked table.
-- Tracker state must distinguish:
-  - `visible`
-  - `occluded`
-  - `missing`
-- Initial role seeding must be evidence-driven:
-  - do not trust frame `0` by default
-  - allow deferred seeding from a bootstrap window
-  - backfill early frames only when identity linkage is real
-  - ambiguous early frames may stay `missing`
+- Tracker state must distinguish: `visible`, `occluded`, `missing`.
+- Initial role seeding must be evidence-driven — do not trust frame `0` by default.
 - `true leave` and `short occlusion` are different events and must not share the same fallback.
 - A wrong neighboring-table capture is worse than `missing`.
-- Near-side and far-side roles may need different cues and thresholds.
 
 ## Winner Inference Doctrine
 - Winner inference should use multiple signals, not one brittle cue.
-- Current practical read:
-  - the winner VLM path is still low-trust on new inputs
-  - production correctness currently depends on operator review much more than the long-term target
-- Near-term production stance:
-  - prioritize a usable correct output video first
-  - accept manual-heavy review temporarily when needed
-  - use that review work to grow the supervised dataset for later model improvement
-- Local multimodal review is allowed as a secondary reviewer:
-  - one local vision model may inspect rally frames
-  - one local reasoning model may judge structured evidence
-  - they should support review / debug / bounded correction, not replace the owning detector blindly
-- The system should support three decision outcomes:
-  - safe auto-apply
-  - human review
-  - blocked / unknown
+- The system should support three decision outcomes: safe auto-apply, human review, blocked/unknown.
 - Score/state validation must be part of the decision path, not only post-hoc reporting.
-- Human review should request the minimum possible input:
-  - ask only for the winner of the uncertain rally
-  - never ask the user to manually recalculate later points or sets
+- Human review should request the minimum possible input — ask only for the winner of the uncertain rally.
 - A user correction must be treated as authoritative input for that rally, and the pipeline must propagate the resulting scoreboard changes automatically.
-- Review-needed rallies may still be visible in a `preview render`, but they must block `final export` until resolved.
-- Winner taxonomy should be treated as first-class supervision, not only free-text reasoning:
-  - each reviewed rally should ideally store:
-    - `winner`
-    - `loser`
-    - `taxonomy`
-    - `last_hitter`
-- Winner taxonomy must stay consistent across reviewed datasets:
-  - the same underlying rally-ending event should reuse the same taxonomy label across different sets and matches
-  - point-specific nuance should go into notes / metadata, not into a new near-duplicate taxonomy label
-- Near-term data target for a usable winner dataset:
-  - at least `100-150` rallies with high-quality reviewed winner + taxonomy labels
-  - spread across multiple sets / clips, not concentrated in one set only
-- Current reviewed winner-data scale is still early:
-  - about `71` canonical reviewed rallies
-- The practical data-growth plan from here should be:
-  - first milestone: `200-500` reviewed rallies
-  - later milestone: `>1000` reviewed rallies
-- Every new reviewed match should contribute to both:
-  - the immediate output video
-  - the rolling training dataset
-- To make the winner path production-complete, the project should plan for `SFT` (`Supervised Fine-Tuning`) or equivalent adapter-style tuning on the currently used local `Qwen3-VL-4B` line:
-  - the reviewed dataset should be the supervision source for:
-    - `winner`
-    - `loser`
-    - `taxonomy`
-    - `last_hitter`
-  - prompt-only control is useful for debugging and bootstrapping
-  - but once a reviewed adapter branch is green, the active winner path should move to the trained adapter, not keep prompt-only as a parallel production branch
-  - from that point forward:
-    - trained adapter = active winner inference path on new matches
-    - prompt-only = benchmark/debug only
-- A single reviewed set such as `20` rallies from one set is useful for:
-  - benchmark
-  - prompt few-shot seed
-  - taxonomy design
-  - but is not enough by itself for robust winner generalization across other sets
-- Maintain a versioned reviewed-data bundle for future training and evaluation:
-  - exported full frozen rally clips
-  - one matching reviewed JSONL / manifest
-  - stable ids and timestamps
-  - no dependence on temporary debug folders
-  - keep this bundle under a root-level dataset area such as:
-    - `dataset/reviewed_matches/<match_id>/set_<nn>/`
-  - do not hide reviewed training/eval assets under pipeline output folders such as `matches/`
-  - use globally unique reviewed ids such as:
-    - `record_id = <match_id>__<set_id>__<point_id>`
-- Treat this reviewed-data bundle as a production asset:
-  - it should be reproducible
-  - versionable
-  - and safe to reuse later for:
-    - prompt benchmarking
-    - retrieval / few-shot experiments
-    - future model fine-tuning
-- The reviewed dataset should also support an explicit active-learning loop:
+- Review-needed rallies may be visible in a `preview render`, but they must block `final export` until resolved.
+- Winner taxonomy should be treated as first-class supervision:
+  - each reviewed rally should store: `winner`, `loser`, `taxonomy`, `last_hitter`
+  - the same underlying event should reuse the same taxonomy label across different sets and matches
+- Maintain a versioned reviewed-data bundle:
+  - exported frozen rally clips + reviewed JSONL manifest + stable IDs
+  - stored under `dataset/reviewed_matches/<match_id>/set_<nn>/`
+  - treat this bundle as a production asset: reproducible, versionable, safe to reuse for fine-tuning
+- The active-learning loop:
   1. run the current pipeline on a new match
-  2. review the predicted rally winners in the Web UI
+  2. review predicted rally winners in the Web UI
   3. keep correct rallies or fix wrong rallies with one click
-  4. automatically append those reviewed rallies into the rolling fine-tune dataset
-  5. once the reviewed fine-tune collection is large enough, train a new adapted model
-  6. use that newer model as the next pre-labeler for later matches
-- Practical fine-tune collection target for the first usable training loop:
-  - roughly `200-500` reviewed rally examples in the rolling `finetune_dataset`
-  - in addition to keeping clean held-out reviewed sets for evaluation
-- Training-time augmentation such as `horizontal flip` is allowed for winner-model training:
-  - treat it as an extra training view, not as a new reviewed rally label
-  - keep canonical role-based labels unchanged under horizontal flip
-- Current practical training stance:
-  - the current reviewed seed of:
-    - `71` unique reviewed rallies
-    - plus `71` `flip_h` augmented views
-  - is enough to start a first local adapter-training pilot on `Qwen3-VL-4B`
-  - but it is not enough to claim robust cross-match winner generalization yet
-- The first training cycle should be framed as:
-  - `LoRA / QLoRA sanity-check`
-  - not as a production-ready winner model release
-- The first training split rule must be:
-  - group by canonical `record_id`
-  - keep original and flipped variants in the same split
-  - compare the adapted model only against held-out reviewed rallies
+  4. auto-append reviewed rallies into the rolling fine-tune dataset
+  5. once collection is large enough, train an adapted model
+  6. use that model as the next pre-labeler for later matches
+- Training-time augmentation such as `horizontal flip` is allowed: treat as extra training view, not a new reviewed label.
+- Once a reviewed adapter branch is green, move the active winner path to the trained adapter — not kept as a parallel prompt-only branch.
+
+## Player Identification System (Two-Tier)
+
+### Goal
+Automatically identify player names from the input video.
+The operator enters a name only once per new player (first enrollment).
+All subsequent clips recognize the same player without any manual input.
+
+### Design
+
+**Tier 1 — Global Identity (persistent face DB)**
+- ArcFace (InsightFace ONNX `w600k_r50.onnx`) extracts 512-dim face embeddings.
+- Face DB stored in `data/players/faces.json`; grows permanently across all processed clips.
+- Same player recognized across different match days and venues.
+
+**Tier 2 — Local Session (per-video jersey binding)**
+- Within one video, jersey color is stable for the full match.
+- Once a face is matched (Tier 1), bind identity to that jersey HSV histogram.
+- For Set 2+: skip face re-detection; re-bind using jersey matching only (fast, no YOLO face alignment).
+
+### Standalone Scan (production entry point)
+`quick_identify_players_standalone(video_path, pose_weights_path, face_db)`:
+- Runs as **Step 1b** in the pipeline — after trim, before rally detection.
+- No rally timeline needed: uses fixed time windows.
+  - FAR player: t=1–40s at 4 fps, rank=1 (faces camera from match start)
+  - NEAR player: t=1–300s at 1 fps, rank=0, filtered to exclude FAR rank-flip contamination
+- Returns `IdentificationResult` with face crops stored for unknown players.
+
+### Unknown Player Enrollment (Web UI)
+- "Nhận diện cầu thủ" button on setup form → background AJAX scan.
+- If player not in DB: face crop displayed inline → operator enters name → POST `/api/enroll-player`.
+- After enrollment: player name fields auto-fill, embedding saved to `faces.json`.
+- Operator only needs to enroll once; all future clips recognize the player automatically.
+
+### Failure modes and fallbacks
+- Jersey colors too similar → flag "ambiguous", fall back to manual name entry.
+- No face captured → fall back to manual name entry.
+- Pipeline never blocked: identification failure → graceful fallback to user-entered names.
+
+### UI Principle
+- Player names are used everywhere in the UI — no NEAR/FAR positional labels shown to operator.
+- The internal pipeline still tracks which player is currently on the near/far side per set,
+  but this is invisible to the operator; they always see and click actual player names.
+
+### Integration
+- Entry point: `quick_identify_players_standalone()` in `backend/player_identification.py`
+- Face DB: `data/players/faces.json`
+- Web UI API: `POST /api/identify-players`, `GET /api/identify-players/{id}`, `POST /api/enroll-player`
+
+### Future: YOLO signal integration
+- Currently YOLO tracks players as largest/smallest bbox (positional, not identity-aware).
+- After side swaps, rank flips and the YOLO player signal loses player identity.
+- Planned: use jersey histograms from Tier 2 to anchor player identity in the YOLO signal path,
+  giving the winner inference model stable player-identity context across sets.
 
 ## Production Baseline Promotion Rule
 Do not promote a new algorithm direction unless it does all of the following:
@@ -332,115 +231,32 @@ Do not promote a new algorithm direction unless it does all of the following:
 - is validated on more than one clip or regression window
 
 ## Project Phases
-### Phase 1. Stable Table + Player Baseline
-Goal:
-- build a trustworthy table-first pipeline with stable `Player A / Player B` tracking
 
-Exit condition:
-- the main regression clips can run end-to-end without obvious tracker-role corruption
+### Phase 1 — Stable Table + Player Baseline ✓
+- Table-first pipeline, stable rally detection, set boundary detection, player identity system.
+- Player identification: ArcFace face DB + standalone scan as Step 1b in pipeline.
+- Exit criteria met: regression clips run end-to-end, player names auto-resolved, no NEAR/FAR confusion.
 
-### Phase 2. Winner Inference Upgrade
-Goal:
-- raise rally boundary and winner quality using multi-signal fusion
+### Phase 2 — Winner Inference Upgrade (current)
+- Raise winner quality using multi-signal fusion; Web UI review + export flow functional.
+- Current: trained adapter deployed, manual review rate still high, reviewed dataset seed = 71 rallies.
+- Exit: winner accuracy reaches operational target; dataset growing via production use.
+- Next steps:
+  - Run first real match (`match_vinh_001__full.mp4`) end-to-end through Web UI
+  - Wire reviewed corrections into dataset storage
+  - YOLO player signal: integrate jersey identity to stabilize tracking across side swaps
 
-Exit condition:
-- winner accuracy and rally quality reach operational target on labeled benchmarks
-- winner taxonomy is stable enough to review consistently
-- a reviewed winner dataset seed exists and is being expanded under the reviewed-dataset layout
+### Phase 3 — Reviewed Dataset + SFT
+- Build a reviewed winner dataset large enough for real supervision (target: 200–500, then >1000).
+- Fine-tune the current winner model on reviewed data.
+- Establish repeatable active-learning loop: review UI → reviewed dataset → training → upgraded model.
+- Exit: adapted model beats prompt-only baseline; Web UI correction flow auto-feeds finetune collection.
 
-### Phase 3. Reviewed Dataset + SFT
-Goal:
-- build a reviewed winner dataset large enough for real supervision
-- use that dataset to fine-tune or adapter-tune the current `Qwen3-VL-4B` winner model
-- move winner inference from prompt-only behavior toward dataset-grounded behavior
-- establish a repeatable active-learning loop from review UI -> reviewed dataset -> training -> upgraded model
-
-Near-term first step inside this phase:
-- use the current `71` reviewed rallies plus `flip_h` augmentation to stand up a first local `LoRA / QLoRA` training pilot
-- validate:
-  - dataset loader
-  - grouped train / val / test split by `record_id`
-  - adapter training stability on local hardware
-  - honest held-out evaluation against the prompt-only baseline
-- do not promote that first pilot as the final winner model unless it beats the baseline on held-out reviewed data
-
-Exit condition:
-- at least `100-150` reviewed rallies exist with high-quality:
-  - `winner`
-  - `loser`
-  - `taxonomy`
-  - `last_hitter`
-- labels come from multiple sets / clips, not one reviewed set only
-- an `SFT` / adapted `Qwen3-VL-4B` candidate beats the prompt-only baseline on held-out reviewed benchmarks
-- the adapted winner model improves taxonomy and winner quality without weakening rally-boundary guardrails
-- the Web UI correction flow can automatically feed reviewed rallies into:
-  - canonical reviewed storage under `dataset/reviewed_matches/`
-  - the rolling training collection under `dataset/collections/finetune_dataset/`
-- a first practical `Train Now` path is defined for when the rolling fine-tune collection reaches about:
-  - `200-500` reviewed rally examples
-
-### Phase 4. Production Hardening
-Goal:
-- make the system repeatable across new venues and clips
-
-Exit condition:
-- stable batch usage, better observability, low-risk auto decisions
-
-## Current Production Stance
-- The default production direction remains table-first.
-- `backend/ai_multistream_rally.py` and `scripts/generate_rally_timeline.py` are still experimental.
-- For the current algorithm-change cycle:
-  - keep `table / ROI-first` unchanged as the production reference
-  - keep the current `ball tracking V0` implementation unchanged as bounded secondary evidence
-  - focus rally-detector debugging only on the independent `player-only / YOLO player-signal` path
-  - defer fusion-policy tuning until the `player` path is materially healthier
-- Current `player-only` boundary logic has been temporarily reset away from the failed full-rally state machine:
-  - the previous long-`active` state-machine experiment on `set4` is rejected as a rally detector
-  - the current debug direction is now `start-first`
-  - it still runs only when `mode=player` and `player_signal_source=role_tracker`
-  - it still does **not** redesign role assignment:
-    - `Stream 2` still maps to `Player A`
-    - `Stream 3` still maps to `Player B`
-    - role assignment still comes from the existing offline role tracker
-  - the current temporary algorithm is:
-    1. detect every `Toss & Serve` start image independently from player behavior
-    2. treat those detections as `rally_count + let_count`
-    3. define provisional `active` time only between one detected start and the next detected start
-    4. detect `LET` inside that bounded interval
-    5. compute final rally count as:
-       - `total starts - total LET`
-  - the current `start-first` detector uses per-role pose / bbox signals:
-    - crouch / ready posture
-    - reach toward the table
-    - serve cue
-    - upper-body activity
-    - footwork
-    - opponent-ready context
-    - same-role vs opposite-role dominance
-  - `LET` remains represented by segment flags:
-    - `rally_label_let`
-    - `let_no_score`
-  - `LET` segments are still excluded from score conversion in the current contract layer
-  - this branch is still a debug / benchmark path only and is not a promotion candidate yet
-- `ball tracking V0` is currently an experimental secondary signal:
-  - it may support conservative rally-boundary merge / validation
-  - it is not yet the promoted production baseline
-- Local `Qwen` review paths are currently experimental:
-  - `qwen3-vl` may be used for frame / boundary review
-  - `qwen3` may be used for structured reasoning
-  - these paths are debug tools until they prove benchmark value
-- Experimental paths should not replace the production path until they beat it on benchmarks and regression clips.
+### Phase 4 — Production Hardening
+- Make the system repeatable across new venues and clips.
+- Exit: stable batch usage, better observability, low-risk auto decisions.
 
 ## Document Map
-- `ROADMAP_PRODUCTION.md`
-  - why the project exists
-  - what the final production system must look like
-  - what rules must not be violated
-- `PROJECT_ACTION_PLAN.md`
-  - the current execution plan
-  - big goals broken into small shippable tasks
-- `PROJECT_PROGRESS.md`
-  - daily progress
-  - pass / fail experiments
-  - artifacts
-  - resume point for the next session
+- `ROADMAP_PRODUCTION.md` — why the project exists, what the final system must look like, what rules must not be violated
+- `PROJECT_ACTION_PLAN.md` — current execution plan, big goals broken into shippable tasks, done/doing/todo board
+- `PROJECT_PROGRESS.md` — daily work log, experiments, failures, resume points

@@ -50,7 +50,7 @@ def _elapsed_minutes_label(job: MatchJob | None) -> str:
         end = datetime.now(timezone.utc)
     elapsed_sec = max(0, int((end - start).total_seconds()))
     m, s = divmod(elapsed_sec, 60)
-    return f"{m} phút {s} giây"
+    return f"{m} min {s} sec"
 
 
 def _stage_message(job: MatchJob | None, has_timeline: bool) -> str:

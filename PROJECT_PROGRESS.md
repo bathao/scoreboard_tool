@@ -13,6 +13,175 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-13` Session 3 (Player ID Algorithm Fix + Enrollment GUI)
+
+### What Was Done This Session
+
+**Algorithm redesign — `quick_identify_players_standalone()`** (`backend/player_identification.py`)
+- Rewrote Player 1 and Player 2 scan to use chunked scanning with early stop (`_CHUNK_SEC = 20s`, `_EARLY_STOP_SIM = 0.55`)
+- Added `exclude_record` parameter to `_scan_player_chunked()`: filters out frames similar to an already-identified player before matching
+- **Root cause fixed**: Player 2 window (t=120–400s) was triggering early stop on Player 1 (swap hasn't happened yet in early seconds of that window). With exclusion, those frames are filtered and the real Player 2 signal accumulates
+- Player 2 fps reduced from 4 → 2 fps (comparable frame count to old algorithm, no accuracy loss)
+- Added `_best_unknown_face()` helper — extracts best face crop from unmatched embeddings for enrollment UI
+- **CLI test confirmed (`2_sets.mp4`)**:
+  - Player 1 (FAR): Nguyễn Bá Thảo (sim=0.907, early stop after t=21s — first chunk only)
+  - Player 2 (NEAR): Trần Quang Vinh (sim=0.558, found at t=280s after filtering 21–42 frames/chunk of Player 1)
+  - Status: `identified`
+
+**Enrollment GUI redesign** (`web_ui/templates.py`)
+- 3 outcomes now handled when scan completes:
+  1. **Both identified** → auto-transition to Setup form
+  2. **Face detected but not in DB** → card with face crop photo + "Enroll" button → enrolls embedding into `faces.json`
+  3. **No face detected at all** → card with "?" placeholder + message "not added to face database" + "Set name" button → fills setup form only (no DB enrollment)
+- Each card has its own `id="enroll_card_{role}"` — resolving one card removes it from DOM without re-rendering all
+- `_checkAllResolved()` — watches DOM for remaining cards; auto-transitions to Setup when all resolved
+- `setNameManually(role)` — new function for the no-face case
+- Status label reflects actual outcome: "Both players identified" / "One player identified — enrollment needed" / "Could not identify players — manual entry needed"
+- `btn_skip` still available to skip to Setup without enrolling
+
+**Step 1b skip in pipeline** (`backend/production_pipeline.py`)
+- If both player names are pre-filled when pipeline starts → Step 1b is skipped entirely (prevents redundant re-scan when operator already identified via GUI)
+
+### Frame Count Comparison (2_sets.mp4)
+
+| Algorithm | Player 1 frames | Player 2 frames | Total |
+|-----------|----------------|----------------|-------|
+| Old (rank=0 for NEAR, 1fps) | 160 | 300 | ~460 |
+| New (chunked+exclusion, 4fps P2) | 80 | 640 | ~720 |
+| **New (chunked+exclusion, 2fps P2)** | **80** | **320** | **~400** |
+
+2fps for Player 2 gives similar speed to the old algorithm with better accuracy.
+
+### Resume Point
+
+1. Server running: `python scripts/run_local_web_ui.py` → `http://127.0.0.1:8765`
+2. Test input: `inputs/raw_matches/2_sets.mp4` (6.3 min, BO3, 2 sets)
+3. **Next: run 2_sets.mp4 end-to-end through Web UI**:
+   - Browse video → click "Identify Players" → verify scan identifies both players
+   - Create job → Run AI Pipeline → verify Step 1b is skipped (names already set)
+   - Check set boundary detection (expect 1 boundary)
+   - Review all rallies → Export
+4. After 2_sets.mp4 validated → test with `match_vinh_001__full.mp4` (BO5)
+
+---
+
+## Work Log - `2026-04-13` Session 2 (Cleanup + Code Verification Needed)
+
+### What Was Done This Session
+
+**Vietnamese text purge — templates.py, progress.py, debug_table_advanced.py**
+- All Vietnamese string literals replaced with English across all `.py` files in repo
+- Rule clarified and saved to memory: Vietnamese allowed ONLY in player name values (e.g. "Trần Quang Vinh"); all other strings must be English
+- Specific fixes:
+  - `web_ui/templates.py`: elapsed timer `phút`/`giây` → `min`/`sec`; alert `"Lỗi:"` → `"Error:"`; setup form labels/placeholders/buttons to English
+  - `web_ui/progress.py`: `f"{m} phút {s} giây"` → `f"{m} min {s} sec"`
+  - `scripts/debug_table_advanced.py`: 2 Vietnamese inline comments removed
+
+**NEAR/FAR remaining instances removed — templates.py**
+- `(Near)` / `(Far)` suffix removed from: review panel meta line, setup main panel meta line, job stats panel
+- Dead-code block (`{% if false %}`) still has "Player NEAR/FAR" labels — intentionally left, not active
+
+**SyntaxWarning in templates.py — fixed**
+- `\d`/`\s` in JS regex inside Python string → escaped to `\\d`/`\\s` (lines 20, 565)
+- Verified: `python -W error::SyntaxWarning -c "from web_ui import templates"` → ok
+
+### Files With Uncommitted Changes — What Each Has, What Needs Verification
+
+| File | What Changed | Verified? |
+|---|---|---|
+| `backend/player_identification.py` | New `quick_identify_players_standalone()` function | NOT tested on real video |
+| `backend/production_pipeline.py` | Step 1b (player ID before rally detection) + Step 2b (populate_player_positions) | NOT tested end-to-end |
+| `web_ui/app.py` | 3 new API routes: `/api/identify-players` (POST+GET), `/api/enroll-player` | NOT tested |
+| `web_ui/templates.py` | Identify Players button + AJAX flow + NEAR/FAR removal + English cleanup | NOT tested in browser |
+| `web_ui/progress.py` | `min`/`sec` in elapsed label | NOT tested |
+| `backend/set_boundary.py` | `populate_player_positions()` (from earlier session) | NOT tested |
+| `backend/rally_timeline_contract.py` | `player_a_mean_x`/`player_b_mean_x` fields (from earlier session) | NOT tested |
+| `backend/player_identity.py` | FaceDB, ArcFace matching (from earlier session) | Manually tested (Vinh + Thao enrolled) |
+| `scripts/enroll_player.py` | CLI enrollment helper (from earlier session) | Manually tested |
+
+### Resume Point
+
+**Steps to validate:**
+1. Start server: `python scripts/run_local_web_ui.py` → `http://127.0.0.1:8765`
+2. Test input: `inputs/raw_matches/2_sets.mp4` — 6.3 min, 2 sets, BO3 (faster than match_vinh_001__full.mp4)
+3. Click "Identify Players" → verify scan runs; players may be unknown → test enrollment flow
+4. Create job: `best_of=3`, set player names, run pipeline
+5. Check Step 1b log: player ID result (known / enrolled / fallback)
+6. Check Step 2b log: populate_player_positions — how many rallies got position data
+7. Verify 2 sets detected (1 set boundary), player names correct
+8. Full review → export flow
+9. If 2_sets.mp4 passes cleanly → move to `match_vinh_001__full.mp4` (BO5)
+
+---
+
+## Work Log - `2026-04-13` (Player Identification Overhaul + UI Enrollment Flow)
+
+### Operator Direction
+- Player identification should be the FIRST step of the pipeline (before rally detection)
+- Tool should scan the video and detect both players automatically, then prompt the operator if a player is not in the DB
+- Remove all NEAR/FAR terminology from the UI — show actual player names everywhere
+- Player ID system should support the YOLO tracking in identifying players after side swaps
+
+### What Was Built
+
+**New function: `quick_identify_players_standalone()`** (`backend/player_identification.py`)
+- Identifies players directly from a video without needing a rally timeline
+- FAR player: scan t=1–40s at 4 fps, rank=1 (faces camera from match start)
+- NEAR player: scan t=1–300s at 1 fps, rank=0, filtered to remove FAR rank-flip contamination
+- Returns `IdentificationResult` with face crops stored for unknown players
+- No set-boundary detection needed → suitable as a pre-pipeline first step
+
+**Pipeline order changed** (`backend/production_pipeline.py`):
+```
+Step 1:  trim_input
+Step 1b: player_identification (NEW — before rally detection)
+Step 2:  generate_rally_timeline
+Step 2b: populate_player_positions (NEW — YOLO X positions for set-boundary Signal 3)
+Step 3:  export_review_clips
+Step 4:  predict_winners_with_adapter + apply_set_numbers
+```
+- Step 1b uses `quick_identify_players_standalone()` — no timeline dependency
+- Overwrites `job.player_a_name` / `job.player_b_name` when identification succeeds
+- Step 2b populates `player_a_mean_x` / `player_b_mean_x` per rally for set-boundary Signal 3
+- Both steps are graceful — failure keeps user-provided names / Signal 1+2 fallback
+
+**Web UI — Nhận diện cầu thủ button** (`web_ui/app.py` + `web_ui/templates.py`)
+- New "Nhận diện cầu thủ" button in setup form, next to Browse button
+- Click → POST `/api/identify-players` → background scan starts → scan_id returned
+- Poll `/api/identify-players/{scan_id}` every 2s until done
+- Results shown inline:
+  - Known players: `✓ Player 1: Trần Quang Vinh` → auto-fills name input
+  - Unknown player: face crop shown + name input + "Thêm vào DB" button
+- POST `/api/enroll-player` → enrolls embedding into `faces.json` → name auto-fills
+
+**Web UI — NEAR/FAR terminology removed** (`web_ui/templates.py`):
+- Setup form labels: "Player NEAR (Set 1)" / "Player FAR (Set 1)" → "Player 1 (gần camera, set 1)" / "Player 2 (xa camera, set 1)"
+- Review panel context line: "NEAR: X · FAR: Y" → "Set 2 · Vinh vs Thảo"
+- Keyboard hint: "Left Arrow = Near player win" → "← = Vinh Win | → = Thảo Win"
+- Score box: removed `[NEAR]` / `[FAR]` prefixes, shows player name only
+- Review buttons already showed player names (unchanged)
+
+**New API routes** (`web_ui/app.py`):
+- `POST /api/identify-players` — start background identification scan, returns `{scan_id}`
+- `GET /api/identify-players/{scan_id}` — poll scan status and results
+- `POST /api/enroll-player` — enroll unknown player: `{scan_id, role, name}` → writes to `faces.json`
+- Embeddings stored server-side in `_SCAN_STORE` dict (never sent to client over HTTP)
+
+### Key Design Decision
+The standalone scan approach avoids the bootstrap problem (previously needed rally timeline for set-boundary timestamps to find swap-walk windows). The new approach uses fixed time windows:
+- FAR player always faces the camera from match start → first 40s is sufficient
+- NEAR player face-visible moments are sparse (~4 frames in 300s) but the full first-set window covers them
+
+### Resume Point
+- Run `match_vinh_001__full.mp4` end-to-end through Web UI (Output Only)
+  - Video at: `inputs/raw_matches/match_vinh_001__full.mp4`
+  - Expected: Step 1b auto-identifies Vinh (NEAR) + Thảo (FAR)
+  - Validate: 4 sets detected, player names correct on scoreboard
+- Wire reviewed winner corrections into dataset storage (`dataset/reviewed_matches/`)
+- Wire extra per-rally fields for `Output + Dataset` mode
+
+---
+
 ## Work Log - `2026-04-11` (Per-Job Purpose Rule For Web UI)
 
 ### Operator Direction
@@ -5631,3 +5800,118 @@ At the end of each work session:
   - open a finished job's `timeline.json` and inspect `winner_candidate` / `winner_decision` values directly
   - check if the adapter step is writing correct predictions or if all are defaulting to player_a
   - fix scoreboard left panel after confirming winner data is correct
+
+---
+
+## 2026-04-11 (Set Boundary Detection + Signal 3 YOLO Side-Swap)
+
+### Goal
+- Detect which rallies belong to which set automatically using 3 independent signals
+- Primary signal: side swap (players always change sides at each set boundary — guaranteed rule)
+- Secondary: score rule, gap — both "optional" only
+
+### What Was Built
+
+**`backend/set_boundary.py`** (new file)
+- `GAP_THRESHOLD_SECONDS = 60.0` — Signal 2 threshold
+- `SWAP_X_JUMP_FRACTION = 0.20` — Signal 3: min jump in near-player X (fraction of frame width)
+- `PRE_STABILITY_FRACTION = 0.13`, `PRE_STABILITY_WINDOW = 4`, `PRE_STABILITY_SKIP = 2` — stability filter constants
+- `detect_boundaries_by_gap(timeline, min_gap_sec)` — Signal 2
+- `detect_boundaries_by_score(timeline, best_of)` — Signal 1 (uses `effective_rally_winner`)
+- `populate_player_positions(timeline, video_path, pose_weights_path)` — Signal 3 data collection
+- `detect_boundaries_by_position(timeline)` — Signal 3 detection
+- `assign_set_numbers(timeline, best_of, min_gap_sec)` — cross-validate and assign
+- `apply_set_numbers(timeline, best_of, min_gap_sec)` — patches timeline in-place
+- `cross_validate(...)`, `get_inter_rally_gaps(timeline)` — analysis helpers
+
+**`scripts/debug_set_boundaries.py`** (new)
+- Non-GUI debug tool: `--video`, `--best-of`, `--trim`, `--gap-threshold`
+- Runs Step 1 (trim) + Step 2 (YOLO rally detection) + Signal 3 extraction — skips AI winner prediction
+- Prints table: `#, ID, t_start, t_end, gap, near_x, far_x, set#, signals (GAP/SCORE/SWAP)`
+
+**`scripts/diagnose_set_boundaries.py`** (new)
+- Post-hoc diagnostic on any existing job timeline (by job_id or path)
+
+**`backend/rally_timeline_contract.py`**
+- Added `set_number: int = 1` to `RallyTimelinePoint`
+- Added `player_a_mean_x: Optional[float]` and `player_b_mean_x: Optional[float]`
+- Renamed from earlier draft names `near_mean_x`/`far_mean_x` → `player_a_mean_x`/`player_b_mean_x`
+
+**`backend/production_pipeline.py`**
+- Calls `apply_set_numbers(timeline, best_of=job.best_of)` after winner prediction step
+- `_apply_adapter_predictions()` now remaps AI NEAR/FAR output to actual player identity via `near_player_for_rally()`
+
+**`backend/production_jobs.py`**
+- Added `player_a_starts_near: bool = True` to `MatchJob`
+- Added `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near) → str`
+- Added `abbrev_player_name(name) → str` (last 2 words of name)
+
+**`web_ui/app.py`**, **`web_ui/templates.py`**, **`web_ui/helpers.py`**
+- Setup UI: labels changed to "Player NEAR (Set 1)" / "Player FAR (Set 1)"
+- Review panel: NEAR WIN / FAR WIN buttons replaced with `[Player abbrev] WIN`
+- Context line shows current NEAR/FAR per rally
+- Timeline list: set grouping with `── SET 1 ──` / `── SET 2 ──` headers
+
+### Signal Priority (Final Design)
+```
+Priority 1 — Signal 3 (YOLO side-swap):  PRIMARY when position data available
+Priority 2 — Signal 1 (score rule):      fills gaps where Signal 3 missed a boundary
+Priority 3 — Signal 2 (gap ≥ threshold): fallback when neither Signal 1 nor Signal 3 available
+```
+- Operator feedback: "gap is NOT required between sets (can be 10-20s). Side swap is guaranteed."
+- → Signal 3 must be primary, gap is optional
+
+### Mistakes Made / What Failed
+
+**1. EMA identity tracking (first Signal 3 implementation)**
+- Used EMA nearest-neighbour: assign obs_left to role A if it's closer to role_a_ema
+- Bug: after the side swap, the left-side player is now player B, but EMA still assigns it to role A
+  (distance from ema≈800 to obs_left≈750 < distance to obs_right≈1500 → wrong assignment)
+- Result: `player_a_mean_x` stays at ~800 for ALL rallies — no midline crossing ever detected
+- Fix: replaced EMA with area-based assignment — largest bounding box = near player (no identity tracking)
+
+**2. Midline crossing detection**
+- First approach: detect when near_x crosses frame midline (half of estimated frame width)
+- Bug: frame_w_est = max_x * 1.15. If max observed near_x ≈ 873, then frame_w_est ≈ 1004, half_w ≈ 502
+  All near_x values (751–873) were > 502 → classified as "right of center" in ALL rallies → no crossing
+- Fix: replaced midline crossing with absolute jump detection (|ax_before - ax_after| > 20% of frame width)
+
+**3. Gap as primary signal (Approach A)**
+- Initial design made gap Signal 2 the primary signal
+- Gap threshold 60s — but between-set break in test video was only 51.3s → missed
+- Operator explicitly rejected "just lower the threshold" as wrong approach
+- Fix: redesigned Signal 3 as primary; gap is supporting evidence only
+
+**4. False positives from noisy Signal 3 in set 2**
+- After area-based fix: near_x correctly jumped at the set boundary
+- But in set 2, both players have similar bounding box areas → "near player" assignment flips randomly
+  between the two players each rally → near_x jumps wildly within set 2
+- Result: 4 detected boundaries [9, 11, 15, 22] instead of 1
+- Fix: sequential stability filter — for each candidate, check that the pre-boundary region
+  (within the current set, excluding 2 transitional rallies, looking at 4 prior) has range < 13% of frame width
+  If < 2 data points available → REJECT (conservative)
+  This correctly filters all 3 false positives while keeping the true boundary
+
+**5. SIDE_SWAP_X_THRESHOLD naming**
+- Early constant was named `SIDE_SWAP_X_THRESHOLD = 0.15` (fraction, used as midline check)
+- Renamed to `SWAP_X_JUMP_FRACTION = 0.20` (fraction of frame width, used as jump threshold)
+
+### Test Results on `2_sets.mp4`
+- Video: 2688×1512, 376s (set1 + set2 concatenated from `match_vinh_001`)
+- Ground truth: set1 = 14 rallies, set2 = 19 rallies (33 total)
+- YOLO detected: 24 rallies (missing 9 — rally detection issue, separate from set boundary)
+- Set boundary detection result: **boundary at index 9** (rally pt_0010 = start of set 2)
+  - Set 1: 9 rallies (pt_0001 → pt_0009)
+  - Set 2: 15 rallies (pt_0010 → pt_0024)
+- Split is correct given detection limitations; correct set is correctly identified for each rally
+
+### Key Technical Finding
+- The 31-second "rally" pt_0008 (143–174s) spans the actual swap period (148–170s as noted by operator)
+  The pipeline merges the last set-1 rally + swap walk + first set-2 rally into one detection
+  → this is a **rally detection quality issue**, separate from set boundary detection
+- After area-based Signal 3: pt_0008 near_x ≈ 1666 (anomalous, mean of left=719 + right=2341–2448 samples)
+  This anomaly drives the detected jump into set-2 territory correctly
+
+### Resume Point
+- Run `match_vinh_001__full.mp4` end-to-end through Web UI (Output Only) to validate full flow
+- Wire reviewed winner corrections from Review UI into `dataset/reviewed_matches/`

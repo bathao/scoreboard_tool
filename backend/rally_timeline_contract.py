@@ -57,9 +57,11 @@ class RallyTimelinePoint:
     corrections: List[Correction] = field(default_factory=list)
     # Set assignment — populated by set boundary detection after winner prediction
     set_number: int = 1
-    # Optional YOLO-derived side positions (populated by pipeline for Signal 3)
-    near_mean_x: Optional[float] = None
-    far_mean_x: Optional[float] = None
+    # Identity-tracked player X positions per rally (Signal 3 for side-swap detection).
+    # player_a_mean_x tracks Role A's x-center; after a side swap it moves from ~left to ~right.
+    # Populated by populate_player_positions() in set_boundary.py.
+    player_a_mean_x: Optional[float] = None
+    player_b_mean_x: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -112,8 +114,8 @@ class RallyTimelinePoint:
             source=str(d.get("source", "ai")),  # type: ignore
             corrections=corrections,
             set_number=int(d.get("set_number", 1)),
-            near_mean_x=(None if d.get("near_mean_x") is None else float(d["near_mean_x"])),
-            far_mean_x=(None if d.get("far_mean_x") is None else float(d["far_mean_x"])),
+            player_a_mean_x=(None if d.get("player_a_mean_x") is None else float(d["player_a_mean_x"])),
+            player_b_mean_x=(None if d.get("player_b_mean_x") is None else float(d["player_b_mean_x"])),
         )
 
 

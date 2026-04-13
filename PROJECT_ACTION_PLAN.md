@@ -328,127 +328,139 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[done]` scoreboard position: bottom-right corner
 - `[done]` final output video saved to `outputs/` folder at repo root
 
+## Done (2026-04-13 Session 3 — player ID algorithm fix + enrollment GUI)
+- `[done]` **`quick_identify_players_standalone()` algorithm fixed and verified**:
+  - chunked scanning with early stop (`_CHUNK_SEC=20s`, `_EARLY_STOP_SIM=0.55`)
+  - `exclude_record` parameter in `_scan_player_chunked()` — filters pre-swap frames where Player 1 still appears at rank=1 in Player 2's window
+  - Player 2 fps: 2fps (down from 4fps) — similar speed to old algorithm
+  - CLI test on `2_sets.mp4`: FAR=Nguyễn Bá Thảo (sim=0.907), NEAR=Trần Quang Vinh (sim=0.558), status=identified
+- `[done]` **Enrollment GUI redesign** (`web_ui/templates.py`):
+  - 3 cases handled: identified / face-detected-not-in-DB (Enroll) / no-face-detected (Set name only)
+  - Per-card DOM removal via `id="enroll_card_{role}"` + `_checkAllResolved()` auto-transition
+  - `setNameManually()` for no-face case: fills setup form but does not add to face DB
+  - Status label reflects actual scan outcome
+- `[done]` **Step 1b skip** (`backend/production_pipeline.py`): if both names pre-filled → skip player ID scan entirely
+
+## Done (2026-04-11 set boundary + side-swap session)
+- `[done]` **Side-swap awareness** — all 5 subtasks complete:
+  - `player_a_starts_near: bool = True` added to `MatchJob` schema + `from_dict` + `create_match_job`
+  - Setup UI: "Player NEAR (Set 1)" / "Player FAR (Set 1)" labels
+  - `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near)` implemented
+    — accounts for mid-deciding-set swap when `max(score_a, score_b) >= 5`
+  - `_apply_adapter_predictions()` remaps NEAR/FAR model output to player identity using `near_player_for_rally()`
+  - Review UI: "NEAR WIN" / "FAR WIN" → `[abbrev] WIN` buttons; context line shows NEAR/FAR per rally
+  - `abbrev_player_name(name)` — last 2 words
+- `[done]` **Set boundary detection** (`backend/set_boundary.py`):
+  - Signal 1 (score rule), Signal 2 (inter-rally gap), Signal 3 (YOLO near-player X jump)
+  - Signal priority: Signal 3 primary → Signal 1 secondary → Signal 2 fallback
+  - `populate_player_positions()`: area-based near/far assignment (replaced broken EMA identity tracking)
+  - `detect_boundaries_by_position()`: absolute jump threshold + sequential stability filter (prevents false positives)
+  - `assign_set_numbers()`, `apply_set_numbers()` — full cross-validation and assignment
+  - Tested on `2_sets.mp4` (2688×1512, 376s, 2 real sets): correctly detected 1 boundary (index 9), no false positives
+- `[done]` **Review UI set grouping**:
+  - Timeline list grouped by set with `── SET 1 ──` / `── SET 2 ──` headers (Jinja2 namespace)
+  - Each header shows set score once resolved
+- `[done]` `set_number` field in `RallyTimelinePoint` + `player_a_mean_x` / `player_b_mean_x` fields
+- `[done]` debug scripts:
+  - `scripts/debug_set_boundaries.py` — non-GUI: run Steps 1+2+Signal3, skip AI, print table with near_x/far_x/signals
+  - `scripts/diagnose_set_boundaries.py` — post-hoc diagnostic on existing timeline by job_id
+
 ## Doing
-- `[doing]` follow `Web UI first` as the main operating rule from now on:
-  - run real production work through the local Web UI path by default
-  - use CLI only when a small isolated debug step is faster and clearer
-  - after a CLI debug step proves useful, fold that behavior back into the shared production pipeline
-- `[doing]` accept a temporary manual-heavy review phase:
-  - current winner AI quality is still too weak to trust as a low-touch production path
-  - for now, the operator may need to confirm or correct many rallies to finish one usable output video
-  - this is acceptable as long as the Web UI makes that review loop fast enough to ship output
-- `[doing]` treat `match_vinh_001` as an `Output Only` production job from now on:
-  - its rallies have already been used to seed the current reviewed dataset
-  - use it to validate the final scoreboard product path, not to grow the dataset again
-- `[doing]` single-page local Web UI is now working end-to-end on a real test clip:
-  - pipeline verified on `match_test.mp4` — all stages ran cleanly
-  - UI single-page flow: browse → setup → pipeline → review → export
-  - next step is to run the same flow on `match_vinh_001__full.mp4`
-- `[doing]` every new reviewed match should serve two goals at once:
-  - complete one usable scoreboard output
-  - enlarge the reviewed dataset for later retraining
-- `[doing]` next required tasks in priority order:
-  1. **Side-swap awareness** — NEAR/FAR does not map consistently to player_a/player_b after Set 1:
-     a. Add `player_a_starts_near: bool = True` to `MatchJob`
-     b. Setup UI: rename "Player A" label → "Player NEAR (Set 1)", "Player B" → "Player FAR (Set 1)"
-     c. Write `near_player_for_rally(set_number, score_a, score_b, best_of, player_a_starts_near) -> str`
-        — sides swap after each set; in the deciding set, swap again when max(score_a, score_b) >= 5
-     d. Remap AI adapter output (NEAR/FAR-relative) to player identity in `_apply_adapter_predictions`
-        — use ScoreEngine on preceding rallies to determine who is at NEAR before each rally
-     e. Review UI: replace "NEAR WIN" / "FAR WIN" buttons with "[Player Name] WIN"
-        — abbreviated name: last 2 words of full name (e.g. "Nguyen Thi Thu Huong" → "Thu Huong")
-        — button labels update per selected rally via `selectPoint()` JS
-        — add context line above buttons: "NEAR: [name]  ·  FAR: [name]"
-  2. **Set boundary detection** — identify set end using 3 independent signals, cross-validated:
-     - **Signal 1 — Score rule:** ScoreEngine already computes valid set-end (11-x with diff >= 2, or deuce). Necessary but not sufficient — depends on correct winner assignment
-     - **Signal 2 — Long gap:** gap between `rally[i].t_end` and `rally[i+1].t_start`. Within-set gap typically < 15s; between-set break typically 60-120s (coaching timeout, water break). Threshold to calibrate on real data
-     - **Signal 3 — Side swap (YOLO position):** compare mean player X position in last rally of set N vs first rally of set N+1. If NEAR player is now at FAR and vice versa, confirms a real set boundary. Distinguish from mid-deciding-set swap (which is temporary and happens when max score >= 5)
-     - **Application:** 3 signals cross-validate each other → higher confidence set labels; detect anomalies where ScoreEngine places boundary incorrectly due to wrong winner assignment; auto-mark set boundary candidates for operator review
-  3. **Per-set rally labeling + Review UI grouping by set:**
-     - Once set boundaries are confirmed, assign correct `set_number` to each rally
-       — e.g. rallies 1-15 → Set 1, 16-34 → Set 2, 35-52 → Set 3 ...
-     - `RallyTimelinePoint` already has `set_number` field — ensure it is written correctly from pipeline (currently driven by ScoreEngine only, not by the 3-signal approach)
-     - **Review UI redesign:**
-       - Timeline list grouped by set: `── SET 1 ──`, `── SET 2 ──`, `── SET 3 ──` ...
-       - Each group header shows the final score of that set once all rallies in it are resolved
-       - Operator can review one set at a time instead of scrolling a flat list of 50+ rallies
-       - Pending filter still works within each set group
-       - `selectPoint()` JS updates set context when navigating across sets
-  4. Run `match_vinh_001__full.mp4` end-to-end through UI (`Output Only`) — validate full review → export flow
-  5. Wire reviewed winner corrections from UI into dataset storage:
-     - canonical: `dataset/reviewed_matches/`
-     - rolling finetune: `dataset/collections/finetune_dataset/`
-  6. Extend review flow for extra per-rally fields when `job_purpose = Output + Dataset`
-  7. Once writeback is wired, active learning loop is complete:
-     - UI review → auto-appends to finetune_dataset → future retrain
-- `[doing]` dataset-growth milestones should now be treated as active product goals:
-  - current reviewed canonical base:
-    - `71`
-  - next useful target:
-    - `200-500`
-  - later target:
-    - `>1000`
-- `[doing]` practical operator rule:
-  - the local UI server must be running in the background before the browser opens it
-  - `python scripts/run_local_web_ui.py` → then open `http://127.0.0.1:8765`
-- `[doing]` keep the accepted `set1..4` rally timestamps frozen as the reviewed boundary baseline
-- `[doing]` treat `match_vinh_001 / set_01..set_04` as completed reviewed dataset input, not as active winner-detection input
-- `[doing]` stop all further winner-detection iteration on this match unless the reviewed dataset is explicitly reopened later
-- `[doing]` use the current reviewed bundle as the source of truth:
-  - `dataset/reviewed_matches/match_vinh_001/set_01`
-  - `dataset/reviewed_matches/match_vinh_001/set_02`
-  - `dataset/reviewed_matches/match_vinh_001/set_03`
-  - `dataset/reviewed_matches/match_vinh_001/set_04`
-  - total canonical reviewed rallies:
-    - `71`
-- `[doing]` use the seeded training queue as the active training input:
-  - `dataset/collections/finetune_dataset/manifest.jsonl`
-  - current training views:
-    - `142`
-  - composition:
-    - `71` original
-    - `71` `flip_h`
-- `[doing]` the model-improvement track now runs in parallel with the output-first Web UI track:
-  - base model:
-    - `Qwen3-VL-4B-Instruct`
-  - training style:
-    - `LoRA / QLoRA`
-  - supervision target:
-    - `winner`
-    - `loser`
-    - `taxonomy`
-    - `last_hitter`
-  - split rule:
-    - group by `record_id`
-    - keep original and `flip_h` variants in the same split
-  - evaluation rule:
-    - compare only on held-out reviewed rallies
-    - compare against the current prompt-only baseline
-- `[doing]` the first local training stack is already standing end-to-end:
-  - completed for the first local pilot
-- `[doing]` treat `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2` as the active local winner-adapter candidate
-- `[doing]` next active model step is to use the trained adapter for future-match inference, not to continue winner iteration on `match_vinh_001`
-- `[doing]` from now on, all new winner inference runs should use only the trained adapter path:
-  - `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
-  - prompt-only is no longer an active inference mode for new matches
-- `[doing]` the first implementation order for the product flow is:
-  1. persistent `match job` model + artifact layout
-  2. raw-video trim stage
-  3. score progression wiring on top of accepted rallies + reviewed winners
-  4. local Web UI
-  5. preview/final render gating
-  6. reviewed-data writeback
-- `[doing]` keep the adapter path simple and reusable:
-  - split builder:
-    - `scripts/create_finetune_splits.py`
-  - cache builder:
-    - `scripts/create_cached_training_clips.py`
-  - train runner:
-    - `scripts/train_winner_adapter_qwen3vl.py`
-  - eval runner:
-    - `scripts/eval_winner_adapter_qwen3vl.py`
-  - inference runner:
-    - `scripts/predict_winner_adapter_qwen3vl.py`
+
+### Current production stance
+- Active production baseline: `table / ROI-first`
+- Active winner inference path: trained adapter `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2`
+- Player identity system: fully integrated
+  - `quick_identify_players_standalone()` runs as Step 1b (before rally detection)
+  - face DB: `data/players/faces.json` — Nguyễn Bá Thảo + Trần Quang Vinh enrolled
+  - Web UI "Nhận diện cầu thủ" button for pre-job scan + unknown player enrollment
+- UI terminology: NEAR/FAR fully removed — all UI shows actual player names
+- Operating rule: Web UI first; CLI only for narrow isolated debug
+
+### Immediate next tasks (in priority order)
+1. `[doing]` Run `inputs/raw_matches/2_sets.mp4` end-to-end through Web UI (`Output Only`)
+   - shorter test input: 6.3 min, 2 sets, BO3 — faster to validate the full pipeline loop
+   - `match_vinh_001__full.mp4` (BO5, ~30-40 min) deferred until pipeline is confirmed working
+   - validate: Step 1b player ID, set boundary detection (1 boundary), full review → export
+2. `[todo]` Wire reviewed winner corrections from UI into dataset storage:
+   - canonical: `dataset/reviewed_matches/`
+   - rolling finetune: `dataset/collections/finetune_dataset/`
+3. `[todo]` Extend review flow for extra per-rally fields when `job_purpose = Output + Dataset`
+4. `[todo]` Wire YOLO player signal with identified player names (post-swap tracking quality)
+   - currently YOLO tracks NEAR/FAR by area rank; after side swap, rank flips and tracking loses identity
+   - jersey histograms from player ID could anchor player identity across sets in the YOLO signal path
+
+### Dataset milestones
+- Current reviewed canonical base: `71` rallies
+- Next useful target: `200–500`
+- Later target: `>1000`
+
+### Model improvement track
+- Base model: `Qwen3-VL-4B-Instruct`, training style: `LoRA / QLoRA`
+- Supervision targets: `winner`, `loser`, `taxonomy`, `last_hitter`
+- Split rule: group by `record_id`; keep original and `flip_h` in same split
+- Training stack scripts (already implemented):
+  - `scripts/create_finetune_splits.py`
+  - `scripts/create_cached_training_clips.py`
+  - `scripts/train_winner_adapter_qwen3vl.py`
+  - `scripts/eval_winner_adapter_qwen3vl.py`
+  - `scripts/predict_winner_adapter_qwen3vl.py`
+- Current finetune collection: `71` original + `71` flip_h = `142` training views
+- Next model cycle: triggered when collection grows to `200–500` reviewed examples
+
+### Frozen assets (do not modify)
+- `match_vinh_001 / set_01..set_04` — completed reviewed dataset seed; `Output Only` from now on
+- `dataset/reviewed_matches/match_vinh_001/set_01..set_04` — canonical reviewed bundle
+- `set1..4` rally timestamps — frozen regression baseline
+- Start server: `python scripts/run_local_web_ui.py` → `http://127.0.0.1:8765`
+
+## Done — Two-Tier Player Identification
+> Completed `2026-04-13`. All phases done. Integrated into production pipeline as Step 1b.
+
+**Design summary**: Standalone scan of the input video resolves player names before rally detection.
+- Tier 1 — Face (global, cross-day): ArcFace ONNX (`w600k_r50.onnx`) embedding → DB lookup
+- Tier 2 — Jersey (local, per-session): HSV histogram bound to face identity for set re-tracking
+- Production entry point: `quick_identify_players_standalone()` — no timeline dependency
+- Fallback: manual name entry in Setup form (or "Nhận diện cầu thủ" → enroll flow for new players)
+
+### Phase A — Face DB infrastructure
+- `[done]` `data/players/faces.json` schema: `{player_id, name, embedding: float[512]}`
+- `[done]` `backend/player_identity.py`: `FaceDB`, `FaceEmbedder`, `align_face_from_keypoints`, `face_similarity`
+- `[done]` ArcFace model: `w600k_r50.onnx`; download script: `scripts/download_face_models.py`
+- `[done]` `onnxruntime-gpu` in `requirements.txt`; falls back to CPU if CUDA DLL missing
+
+### Phase B — Face capture
+- `[done]` FAR player: rank=1 from t=1–40 s at 4 fps (faces camera from match start)
+- `[done]` NEAR player: rank=0 from t=1–300 s at 1 fps, filtered to remove FAR rank-flip contamination
+- `[done]` face visibility filter: `min(conf_nose, conf_leye, conf_reye) >= 0.50`
+
+### Phase C — Jersey feature extraction
+- `[done]` `extract_jersey_hist()`: HSV histogram (16×8×8 bins) from upper-torso bbox
+- `[done]` `jersey_distance()`: chi-squared distance; `JERSEY_AMBIGUOUS_THRESHOLD = 0.12`
+
+### Phase D — Identity resolution
+- `[done]` `_resolve_identity_from_embeddings()`: group by body rank, average embeddings, match DB
+- `[done]` `run_player_identification()`: full two-tier pipeline (with timeline, for post-pipeline use)
+- `[done]` `quick_identify_players_standalone()`: standalone version, no timeline needed (production path)
+- `[done]` `IdentificationResult`: `near_name`, `far_name`, jersey histograms, unknown faces list
+
+### Phase E — Unknown player enrollment
+- `[done]` `UnknownFace` dataclass with best face crop stored for UI display
+- `[done]` `scripts/enroll_player.py`: CLI enrollment from images
+- `[done]` Web UI: "Nhận diện cầu thủ" button → background scan → face crop shown → name input → DB enroll
+- `[done]` API: `POST /api/identify-players`, `GET /api/identify-players/{id}`, `POST /api/enroll-player`
+
+### Phase F — Pipeline integration
+- `[done]` Step 1b in `production_pipeline.py`: runs `quick_identify_players_standalone()` after trim, before rally detection
+- `[done]` Step 2b: `populate_player_positions()` fills YOLO X-coordinates per rally for set-boundary Signal 3
+- `[done]` `job.player_a_name` / `job.player_b_name` auto-populated when identification succeeds
+
+### Phase G — Testing
+- `[done]` tested on `2_sets.mp4`: NEAR=Trần Quang Vinh (sim=0.850), FAR=Nguyễn Bá Thảo (sim=0.964)
+- `[done]` enrollment scripts tested end-to-end
+- `[todo]` end-to-end test on `match_vinh_001__full.mp4` (4 sets, 3 swap boundaries) via Web UI
+
+---
 
 ## Archived Winner Exploration On `match_vinh_001`
 - The items below are historical winner-detection notes from the earlier prompt-engineering phase.

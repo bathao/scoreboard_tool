@@ -26,7 +26,7 @@ from backend.production_jobs import (
 from backend.rally_timeline_contract import RallyTimeline, counts_toward_score, load_rally_timeline, save_rally_timeline
 from backend.rendering import render_scoreboard_video
 from backend.score_validation import build_score_validation
-from backend.set_boundary import apply_set_numbers
+from backend.set_boundary import apply_set_numbers, populate_player_positions
 
 
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -410,6 +410,56 @@ def run_initial_job_pipeline(
     trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
     _job_log(job_dir, "Step 1/4: trim_input — done")
 
+    # Step 1b: player identification — runs BEFORE rally detection so player names
+    # are available for all downstream steps.  Uses a standalone scan (no timeline needed).
+    # Skipped if both player names are already provided (user filled them via UI scan or manually).
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="player_identification")
+    _names_already_set = bool(job.player_a_name.strip() and job.player_b_name.strip())
+    if _names_already_set:
+        _job_log(job_dir, f"Step 1b: player_identification — skipped (names already provided: {job.player_a_name!r}, {job.player_b_name!r})")
+    else:
+        _job_log(job_dir, "Step 1b: player_identification — scanning face DB for known players")
+        try:
+            from backend.player_identity import FaceDB
+            from backend.player_identification import quick_identify_players_standalone
+
+            face_db_path = PROJECT_ROOT / "data" / "players" / "faces.json"
+            face_db = FaceDB(face_db_path)
+            if len(face_db) == 0:
+                _job_log(job_dir, "Step 1b: player_identification — face DB is empty, skipping")
+            else:
+                id_result = quick_identify_players_standalone(
+                    job.artifacts.working_video_path,
+                    config.pose_weights_path,
+                    face_db,
+                    log_fn=lambda msg: _job_log(job_dir, msg),
+                )
+                resolved_near = id_result.near_name
+                resolved_far = id_result.far_name
+                if resolved_near is not None or resolved_far is not None:
+                    if job.player_a_starts_near:
+                        if resolved_near is not None:
+                            job.player_a_name = resolved_near
+                        if resolved_far is not None:
+                            job.player_b_name = resolved_far
+                    else:
+                        if resolved_far is not None:
+                            job.player_a_name = resolved_far
+                        if resolved_near is not None:
+                            job.player_b_name = resolved_near
+                    save_match_job(job)
+                    _job_log(
+                        job_dir,
+                        f"Step 1b: player_identification — NEAR={resolved_near!r} FAR={resolved_far!r}"
+                        f" → player_a={job.player_a_name!r} player_b={job.player_b_name!r}"
+                        f" (status={id_result.status})",
+                    )
+                else:
+                    _job_log(job_dir, f"Step 1b: player_identification — no faces matched (status={id_result.status}), keeping user names")
+        except Exception as exc:
+            _job_log(job_dir, f"Step 1b: player_identification — FAILED: {exc} — keeping user-provided names")
+
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="generate_rally_timeline")
     _job_log(job_dir, "Step 2/4: generate_rally_timeline — loading YOLO models and detecting rallies (slowest step)")
@@ -429,8 +479,22 @@ def run_initial_job_pipeline(
         log_fn=lambda msg: _job_log(job_dir, msg),
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")
-    save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
     _job_log(job_dir, f"Step 2/4: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
+
+    _check_stop()
+    _job_log(job_dir, "Step 2b: populate_player_positions — sampling YOLO X positions for set-boundary Signal 3")
+    try:
+        populate_player_positions(
+            timeline,
+            job.artifacts.working_video_path,
+            config.pose_weights_path,
+        )
+        n_pos = sum(1 for p in timeline.points if p.player_a_mean_x is not None)
+        _job_log(job_dir, f"Step 2b: populate_player_positions — done, {n_pos}/{len(timeline.points)} rallies have position data")
+    except Exception as exc:
+        _job_log(job_dir, f"Step 2b: populate_player_positions — FAILED: {exc} — set boundary will use Signal 1+2 only")
+
+    save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
     if not timeline.points:
         raise RuntimeError(
             "No rallies detected in this video. "

@@ -1,9 +1,77 @@
 from __future__ import annotations
 
 import re
+import threading
+import uuid as _uuid
 from html import escape
 from pathlib import Path
 from urllib.parse import quote_plus
+
+# ---------------------------------------------------------------------------
+# In-memory store for player-identification quick-scan results.
+# Keyed by scan_id (UUID str).  Embeddings are kept in memory for enrollment;
+# they are never sent back to the client over HTTP.
+# ---------------------------------------------------------------------------
+_SCAN_STORE: dict[str, dict] = {}
+_SCAN_LOCK = threading.Lock()
+
+
+def _run_identification_scan(
+    scan_id: str,
+    video_path: str,
+    pose_weights_path: str,
+    face_db_path: Path,
+) -> None:
+    """Background thread: run quick_identify_players_standalone and store result."""
+    import base64
+
+    import cv2  # lazy import — not loaded at server startup
+
+    def _log(msg: str) -> None:
+        with _SCAN_LOCK:
+            if scan_id in _SCAN_STORE:
+                _SCAN_STORE[scan_id].setdefault("logs", []).append(msg)
+
+    try:
+        from backend.player_identification import quick_identify_players_standalone
+        from backend.player_identity import FaceDB
+
+        face_db = FaceDB(face_db_path)
+        result = quick_identify_players_standalone(
+            video_path,
+            pose_weights_path,
+            face_db,
+            log_fn=_log,
+        )
+
+        # Serialise unknown-face crops to base64 PNG for the browser.
+        # Store the raw embedding separately (not sent to client).
+        unknowns_client: list[dict] = []
+        unknowns_internal: list[dict] = []
+        for u in result.unknown_faces:
+            crop_b64 = None
+            if u.best_crop_bgr is not None:
+                _, buf = cv2.imencode(".png", u.best_crop_bgr)
+                crop_b64 = base64.b64encode(bytes(buf)).decode("ascii")
+            unknowns_client.append({"role": u.body_role, "crop_b64": crop_b64})
+            unknowns_internal.append({
+                "role": u.body_role,
+                "crop_b64": crop_b64,
+                "embedding": u.face_embedding.tolist(),  # stored server-side only
+            })
+
+        with _SCAN_LOCK:
+            _SCAN_STORE[scan_id] = {
+                "status": "done",
+                "near_name": result.near_name,
+                "far_name": result.far_name,
+                "id_status": result.status,
+                "unknowns_client": unknowns_client,    # safe to return to browser
+                "unknowns_internal": unknowns_internal,  # server-side only (has embedding)
+            }
+    except Exception as exc:
+        with _SCAN_LOCK:
+            _SCAN_STORE[scan_id] = {"status": "failed", "error": str(exc)}
 
 from backend.production_jobs import (
     abbrev_player_name,
@@ -239,6 +307,93 @@ def create_local_web_app(
                 _os._exit(0)
             _threading.Thread(target=_delayed_exit, daemon=True).start()
             return _respond_text(start_response, "bye")
+
+        # ------------------------------------------------------------------ #
+        # Player identification quick-scan API                               #
+        # ------------------------------------------------------------------ #
+
+        if path == "/api/identify-players" and method == "POST":
+            form = _read_form(environ)
+            video_path = str(form.get("video_path", "")).strip()
+            if not video_path or not Path(video_path).exists():
+                return _respond_json(start_response, {"error": "Video not found"}, status="400 Bad Request")
+            scan_id = str(_uuid.uuid4())
+            face_db_path = Path(__file__).resolve().parent.parent / "data" / "players" / "faces.json"
+            with _SCAN_LOCK:
+                _SCAN_STORE[scan_id] = {"status": "scanning", "logs": []}
+            threading.Thread(
+                target=_run_identification_scan,
+                args=(scan_id, video_path, str(config.pose_weights_path), face_db_path),
+                daemon=True,
+            ).start()
+            return _respond_json(start_response, {"scan_id": scan_id})
+
+        scan_poll_match = re.match(r"^/api/identify-players/([^/]+)$", path)
+        if scan_poll_match and method == "GET":
+            sid = scan_poll_match.group(1)
+            with _SCAN_LOCK:
+                raw = dict(_SCAN_STORE.get(sid, {"status": "not_found"}))
+            # Return client-safe data: include unknowns_client, NOT unknowns_internal
+            response = {
+                "status": raw.get("status"),
+                "near_name": raw.get("near_name"),
+                "far_name": raw.get("far_name"),
+                "id_status": raw.get("id_status"),
+                "error": raw.get("error"),
+                "unknowns": raw.get("unknowns_client", []),
+                "logs": raw.get("logs", []),
+            }
+            return _respond_json(start_response, response)
+
+        if path == "/api/enroll-player" and method == "POST":
+            form = _read_form(environ)
+            scan_id = str(form.get("scan_id", "")).strip()
+            role = str(form.get("role", "")).strip()  # "near" or "far"
+            name = str(form.get("name", "")).strip()
+            if not name:
+                return _respond_json(start_response, {"error": "Name required"}, status="400 Bad Request")
+            with _SCAN_LOCK:
+                scan_data = dict(_SCAN_STORE.get(scan_id, {}))
+            if not scan_data or scan_data.get("status") != "done":
+                return _respond_json(start_response, {"error": "Scan not found or not finished"}, status="404 Not Found")
+            unknowns_internal = scan_data.get("unknowns_internal", [])
+            target = next((u for u in unknowns_internal if u["role"] == role), None)
+            if target is None:
+                return _respond_json(start_response, {"error": f"No unknown face for role={role}"}, status="400 Bad Request")
+            try:
+                import numpy as np
+                from backend.player_identity import FaceDB
+                face_db_path = Path(__file__).resolve().parent.parent / "data" / "players" / "faces.json"
+                face_db = FaceDB(face_db_path)
+                embedding = np.array(target["embedding"], dtype=np.float32)
+                face_db.enroll(name, embedding)
+                face_db.save()
+                # Update scan store: mark role as identified
+                with _SCAN_LOCK:
+                    if scan_id in _SCAN_STORE:
+                        _SCAN_STORE[scan_id]["unknowns_internal"] = [
+                            u for u in _SCAN_STORE[scan_id].get("unknowns_internal", [])
+                            if u["role"] != role
+                        ]
+                        _SCAN_STORE[scan_id]["unknowns_client"] = [
+                            u for u in _SCAN_STORE[scan_id].get("unknowns_client", [])
+                            if u["role"] != role
+                        ]
+                        if role == "near":
+                            _SCAN_STORE[scan_id]["near_name"] = name
+                        else:
+                            _SCAN_STORE[scan_id]["far_name"] = name
+                        updated = dict(_SCAN_STORE[scan_id])
+                return _respond_json(start_response, {
+                    "status": "enrolled",
+                    "role": role,
+                    "name": name,
+                    "near_name": updated.get("near_name"),
+                    "far_name": updated.get("far_name"),
+                    "unknowns": updated.get("unknowns_client", []),
+                })
+            except Exception as exc:
+                return _respond_json(start_response, {"error": str(exc)}, status="500 Internal Server Error")
 
         if path == "/api/job-status" and method == "GET":
             job_id = str(_query_params(environ).get("job_id", "")).strip()

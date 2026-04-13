@@ -76,7 +76,7 @@ class ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
     daemon_threads = True
 
 
-def _start_heartbeat_watcher(timeout_sec: float = 20.0) -> "list[float]":
+def _start_heartbeat_watcher(timeout_sec: float = 120.0) -> "list[float]":
     import os
     import time
 

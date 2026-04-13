@@ -17,7 +17,7 @@ TEMPLATES = {
       var elapsedSec = 0;
       function _setText(id, val) { var el = document.getElementById(id); if (el && val !== undefined) el.textContent = val; }
       function _syncElapsed(label) {
-        var em = (label || "").match(/(\d+)\s*phút\s*(\d+)\s*giây/);
+        var em = (label || "").match(/(\\d+)\\s*min\\s*(\\d+)\\s*sec/);
         if (em) elapsedSec = parseInt(em[1]) * 60 + parseInt(em[2]);
       }
       function pollStatus() {
@@ -55,7 +55,7 @@ TEMPLATES = {
         setInterval(function () {
           elapsedSec++;
           var mm = Math.floor(elapsedSec / 60), ss = elapsedSec % 60;
-          _setText("prog_elapsed", mm + " phút " + ss + " giây");
+          _setText("prog_elapsed", mm + " min " + ss + " sec");
         }, 1000);
         setInterval(pollStatus, {{ auto_refresh_sec * 1000 }});
       });
@@ -562,14 +562,14 @@ TEMPLATES = {
     document.addEventListener("DOMContentLoaded", function () {
       var elapsedEl = document.getElementById("prog_elapsed");
       if (elapsedEl) {
-        var m = elapsedEl.textContent.match(/(\d+)\s*phút\s*(\d+)\s*giây/);
+        var m = elapsedEl.textContent.match(/(\\d+)\\s*min\\s*(\\d+)\\s*sec/);
         if (m) {
           var elapsedSec = parseInt(m[1]) * 60 + parseInt(m[2]);
           setInterval(function () {
             elapsedSec++;
             var mm = Math.floor(elapsedSec / 60);
             var ss = elapsedSec % 60;
-            elapsedEl.textContent = mm + " phút " + ss + " giây";
+            elapsedEl.textContent = mm + " min " + ss + " sec";
           }, 1000);
         }
       }
@@ -622,15 +622,17 @@ TEMPLATES = {
       var corrBadge = document.getElementById("manually_corrected_badge");
       if (corrBadge) corrBadge.style.display = d.manually_corrected ? "inline" : "none";
 
-      // Update near/far player labels and button text for this point
+      // Update player labels and button text for this point
       var nearLbl = document.getElementById("near_player_label");
       if (nearLbl) nearLbl.textContent = d.near_abbrev || "";
       var farLbl = document.getElementById("far_player_label");
       if (farLbl) farLbl.textContent = d.far_abbrev || "";
+      var setLbl = document.getElementById("side_set_label");
+      if (setLbl) setLbl.textContent = d.set_number || "";
       var nearBtn = document.getElementById("review_action_near");
-      if (nearBtn) nearBtn.textContent = (d.near_abbrev || "NEAR") + " WIN";
+      if (nearBtn) nearBtn.textContent = (d.near_abbrev || "Player 1") + " WIN";
       var farBtn = document.getElementById("review_action_far");
-      if (farBtn) farBtn.textContent = (d.far_abbrev || "FAR") + " WIN";
+      if (farBtn) farBtn.textContent = (d.far_abbrev || "Player 2") + " WIN";
 
       // Update review form actions and hidden inputs
       var nearForm = document.getElementById("form_near_win");
@@ -727,7 +729,7 @@ TEMPLATES = {
 <div class="reviewer-shell">
   <div class="panel">
     <h2>The Reviewer</h2>
-    <div class="meta">{{ current_job.player_a_name }} (Near) vs {{ current_job.player_b_name }} (Far)</div>
+    <div class="meta">{{ current_job.player_a_name }} vs {{ current_job.player_b_name }}</div>
     <div class="meta" style="margin-top:4px;">Current rally: {{ current_point.id }} | {{ current_point.time_range }}</div>
     <div class="progress-card" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}">
       <div class="row" style="justify-content:space-between;">
@@ -773,7 +775,7 @@ TEMPLATES = {
             <td class="ss-num" style="color:#b71c1c;">{{ s.score_b }}</td>
             <td class="ss-status">{% if s.done %}✓{% else %}●{% endif %}</td>
           {% else %}
-            <td class="ss-none" colspan="4">chưa bắt đầu</td>
+            <td class="ss-none" colspan="4">not started</td>
           {% endif %}
         </tr>
         {% endfor %}
@@ -783,27 +785,27 @@ TEMPLATES = {
       <div class="meta" id="score_before_label">Before {{ current_point.id }}</div>
       <div class="meta" id="score_set_info">Set {{ scoreboard.set_number }} | Sets {{ scoreboard.sets_a }}-{{ scoreboard.sets_b }}</div>
       <div class="score-row" style="margin-top:8px;">
-        <div class="score-name">[NEAR] {{ current_job.player_a_name }}</div>
+        <div class="score-name">{{ current_job.player_a_name }}</div>
         <div class="score-big" id="score_a_val">{{ scoreboard.score_a }}</div>
       </div>
       <div class="score-row">
-        <div class="score-name">[FAR] {{ current_job.player_b_name }}</div>
+        <div class="score-name">{{ current_job.player_b_name }}</div>
         <div class="score-big" id="score_b_val">{{ scoreboard.score_b }}</div>
       </div>
     </div>
   </div>
   <div class="panel" id="main-panel">
     <h2 id="main_panel_title">{{ current_point.id }}</h2>
-    <div class="hint-box">Left Arrow = Near player win &nbsp;|&nbsp; Right Arrow = Far player win</div>
+    <div class="hint-box">← {{ current_near_abbrev }} Win &nbsp;|&nbsp; → {{ current_far_abbrev }} Win</div>
     <div class="meta" style="margin-top:12px;">
       AI: <strong id="ai_winner_text">{{ current_point.ai_winner_label }}</strong>
       <span id="manually_corrected_badge" style="color:#f39c12;display:{% if current_point.manually_corrected %}inline{% else %}none{% endif %}"> (manually corrected)</span>
       <span id="needs_input_warning" style="color:#e74c3c;display:{% if current_point.needs_input %}inline{% else %}none{% endif %}"> — no prediction, input required</span>
     </div>
     <div class="meta" id="side_context_line" style="margin-top:8px;color:#888;font-size:0.85em;">
-      NEAR: <strong id="near_player_label">{{ current_near_abbrev }}</strong>
+      Set <span id="side_set_label">{{ current_point.set_number }}</span>
       &nbsp;·&nbsp;
-      FAR: <strong id="far_player_label">{{ current_far_abbrev }}</strong>
+      <span id="near_player_label">{{ current_near_abbrev }}</span> vs <span id="far_player_label">{{ current_far_abbrev }}</span>
     </div>
     <div class="action-grid" style="margin-top:14px;">
       <form id="form_near_win" method="post" action="/jobs/{{ current_job.job_id }}/review/{{ current_point.id }}">
@@ -958,57 +960,294 @@ TEMPLATES = {
       <div class="message error" style="margin-bottom:14px;">{{ current_job.error_message }}</div>
     {% endif %}
     <form method="post" action="/jobs">
-      <div style="margin-bottom:12px;">
-        <label for="raw_video_path">Raw Video Path</label>
-        <div class="input-with-action">
+
+      <!-- ── Phase 1: video browse + identify ────────────────────────── -->
+      <div id="ph_browse">
+        <div class="input-with-action" style="margin-bottom:6px;">
           <input id="raw_video_path" name="raw_video_path" placeholder="C:/videos/match.mp4" value="{{ raw_video_path_value }}" required>
           <button class="secondary" type="button" onclick="openRawVideoBrowser()">Browse</button>
         </div>
-        <div class="meta" style="margin-top:8px;">Browse root: {{ raw_matches_root }}</div>
+        <div class="meta" style="margin-bottom:14px;">Browse root: {{ raw_matches_root }}</div>
+        <button class="secondary" type="button" id="btn_identify" onclick="startIdentifyPlayers()"
+                style="width:100%;padding:10px 0;font-size:1em;">
+          Identify Players
+        </button>
       </div>
-      <div class="grid two">
-        <div>
-          <label for="player_a_name">Player NEAR (Set 1)</label>
-          <input id="player_a_name" name="player_a_name" value="{{ player_a_value }}" required>
+
+      <!-- ── Phase scanning: live log terminal ───────────────────────── -->
+      <div id="ph_log" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <strong id="log_status_label" style="font-size:0.95em;">Identifying players...</strong>
+          <span style="display:flex;align-items:center;gap:10px;">
+            <span id="log_elapsed" style="font-family:monospace;color:#888;font-size:0.9em;min-width:3em;text-align:right;"></span>
+            <button class="secondary" type="button" id="btn_skip" style="display:none;padding:3px 10px;font-size:0.82em;"
+                    onclick="transitionToSetup()">Skip →</button>
+          </span>
         </div>
-        <div>
-          <label for="player_b_name">Player FAR (Set 1)</label>
-          <input id="player_b_name" name="player_b_name" value="{{ player_b_value }}" required>
+        <div class="progress-bar" style="margin-bottom:10px;">
+          <div id="id_progress_fill" class="progress-fill running" style="width:0%;transition:width 0.4s ease;"></div>
         </div>
+        <pre id="log_terminal"
+             style="background:#111;color:#c8c8c8;font-size:11px;padding:10px;border-radius:6px;
+                    min-height:150px;max-height:280px;overflow-y:auto;white-space:pre-wrap;
+                    word-break:break-all;font-family:'Consolas',monospace;margin:0;"></pre>
+        <div id="enroll_area" style="margin-top:10px;"></div>
       </div>
-      <div class="grid two" style="margin-top:12px;">
-        <div>
-          <label for="best_of">Format</label>
-          <select id="best_of" name="best_of">
-            <option value="3" {% if best_of_value == 3 %}selected{% endif %}>Best of 3</option>
-            <option value="5" {% if best_of_value == 5 %}selected{% endif %}>Best of 5</option>
-            <option value="7" {% if best_of_value == 7 %}selected{% endif %}>Best of 7</option>
+
+      <!-- ── Phase 2: full setup form ────────────────────────────────── -->
+      <div id="ph_setup" style="display:none;">
+        <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+          <span class="meta" id="video_path_summary" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+          <button class="secondary" type="button" style="white-space:nowrap;padding:3px 10px;font-size:0.82em;"
+                  onclick="backToBrowse()">← Change</button>
+        </div>
+        <div class="grid two">
+          <div>
+            <label for="player_a_name">Player 1 <span style="color:#888;font-size:0.85em;">(near side, set 1)</span></label>
+            <input id="player_a_name" name="player_a_name" value="{{ player_a_value }}" placeholder="Player name...">
+          </div>
+          <div>
+            <label for="player_b_name">Player 2 <span style="color:#888;font-size:0.85em;">(far side, set 1)</span></label>
+            <input id="player_b_name" name="player_b_name" value="{{ player_b_value }}" placeholder="Player name...">
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:12px;">
+          <div>
+            <label for="best_of">Format</label>
+            <select id="best_of" name="best_of">
+              <option value="3" {% if best_of_value == 3 %}selected{% endif %}>Best of 3</option>
+              <option value="5" {% if best_of_value == 5 %}selected{% endif %}>Best of 5</option>
+              <option value="7" {% if best_of_value == 7 %}selected{% endif %}>Best of 7</option>
+            </select>
+          </div>
+          <div>
+            <label for="trim_start">Trim Start</label>
+            <input id="trim_start" name="trim_start" value="{{ trim_start_value }}" placeholder="mm:ss or seconds">
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <label for="tournament_name">Tournament</label>
+          <input id="tournament_name" name="tournament_name" value="{{ current_job.tournament_name if current_job else '' }}" placeholder="e.g. WTT Champions Frankfurt 2025">
+        </div>
+        <div style="margin-top:8px;">
+          <label for="round_name">Round</label>
+          <input id="round_name" name="round_name" value="{{ current_job.round_name if current_job else '' }}" placeholder="e.g. Semifinal, Quarterfinal, Final...">
+        </div>
+        <div style="margin-top:12px;">
+          <label for="job_purpose">Job Purpose</label>
+          <select id="job_purpose" name="job_purpose">
+            <option value="output_only" {% if job_purpose_value == 'output_only' %}selected{% endif %}>Output Only — finish scoreboard video, no dataset write</option>
+            <option value="output_and_dataset" {% if job_purpose_value == 'output_and_dataset' %}selected{% endif %}>Output + Dataset — finish video and grow reviewed dataset</option>
           </select>
         </div>
-        <div>
-          <label for="trim_start">Trim Start</label>
-          <input id="trim_start" name="trim_start" value="{{ trim_start_value }}" placeholder="mm:ss or seconds">
+        <div class="point-actions" style="margin-top:16px;">
+          <button type="submit">Run AI Pipeline</button>
         </div>
       </div>
-      <div style="margin-top:12px;">
-        <label for="tournament_name">Tên giải đấu</label>
-        <input id="tournament_name" name="tournament_name" value="{{ current_job.tournament_name if current_job else '' }}" placeholder="VD: WTT Champions Frankfurt 2025">
-      </div>
-      <div style="margin-top:8px;">
-        <label for="round_name">Vòng đấu</label>
-        <input id="round_name" name="round_name" value="{{ current_job.round_name if current_job else '' }}" placeholder="VD: Bán kết, Tứ kết, Chung kết...">
-      </div>
-      <div style="margin-top:12px;">
-        <label for="job_purpose">Job Purpose</label>
-        <select id="job_purpose" name="job_purpose">
-          <option value="output_only" {% if job_purpose_value == 'output_only' %}selected{% endif %}>Output Only — finish scoreboard video, no dataset write</option>
-          <option value="output_and_dataset" {% if job_purpose_value == 'output_and_dataset' %}selected{% endif %}>Output + Dataset — finish video and grow reviewed dataset</option>
-        </select>
-      </div>
-      <div class="point-actions" style="margin-top:16px;">
-        <button type="submit">Run AI Pipeline</button>
-      </div>
+
     </form>
+    <script>
+    var _scanId = null;
+    var _logLineCount = 0;
+    var _elapsedSec = 0;
+    var _elapsedTimer = null;
+
+    var _SCAN_ESTIMATE_SEC = 240; // ~4 min estimate for progress bar
+
+    function _startElapsed() {
+      _elapsedSec = 0;
+      document.getElementById("log_elapsed").textContent = "0:00";
+      var fill = document.getElementById("id_progress_fill");
+      if (fill) { fill.style.width = "0%"; fill.className = "progress-fill running"; }
+      _elapsedTimer = setInterval(function() {
+        _elapsedSec++;
+        var m = Math.floor(_elapsedSec / 60), s = _elapsedSec % 60;
+        document.getElementById("log_elapsed").textContent = m + ":" + (s < 10 ? "0" : "") + s;
+        // Animate bar: approach 95% asymptotically, never reach 100% until done
+        var pct = Math.min(95, Math.round(_elapsedSec / _SCAN_ESTIMATE_SEC * 100));
+        if (fill) fill.style.width = pct + "%";
+      }, 1000);
+    }
+
+    function _stopElapsed() {
+      if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
+      var fill = document.getElementById("id_progress_fill");
+      if (fill) { fill.style.width = "100%"; fill.className = "progress-fill"; }
+    }
+
+    function _setPhase(phase) {
+      document.getElementById("ph_browse").style.display = phase === "browse" ? "" : "none";
+      document.getElementById("ph_log").style.display   = phase === "log"    ? "" : "none";
+      document.getElementById("ph_setup").style.display = phase === "setup"  ? "" : "none";
+    }
+
+    function startIdentifyPlayers() {
+      var videoPath = document.getElementById("raw_video_path").value.trim();
+      if (!videoPath) { alert("Select a video first."); return; }
+      _scanId = null;
+      _logLineCount = 0;
+      document.getElementById("log_terminal").textContent = "";
+      document.getElementById("enroll_area").innerHTML = "";
+      document.getElementById("log_status_label").textContent = "Identifying players...";
+      document.getElementById("btn_skip").style.display = "none";
+      _setPhase("log");
+      _startElapsed();
+      fetch("/api/identify-players", {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "video_path=" + encodeURIComponent(videoPath)
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) { _appendLog("ERROR: " + d.error); document.getElementById("btn_skip").style.display = ""; return; }
+        _scanId = d.scan_id;
+        _pollScan();
+      })
+      .catch(function(e) { _appendLog("Connection error: " + e); document.getElementById("btn_skip").style.display = ""; });
+    }
+
+    function _appendLog(line) {
+      var el = document.getElementById("log_terminal");
+      el.textContent += line + "\\n";
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function _pollScan() {
+      if (!_scanId) return;
+      fetch("/api/identify-players/" + _scanId)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var logs = d.logs || [];
+        for (var i = _logLineCount; i < logs.length; i++) { _appendLog(logs[i]); }
+        _logLineCount = logs.length;
+
+        if (d.status === "scanning") { setTimeout(_pollScan, 800); return; }
+
+        if (d.status === "failed") {
+          _stopElapsed();
+          document.getElementById("log_status_label").textContent = "Error — check log above.";
+          document.getElementById("btn_skip").style.display = "";
+          return;
+        }
+
+        // Done
+        _stopElapsed();
+        // Fill any identified names immediately
+        if (d.near_name) document.getElementById("player_a_name").value = d.near_name;
+        if (d.far_name)  document.getElementById("player_b_name").value  = d.far_name;
+
+        var idStatus = d.id_status || "failed";
+        var statusMsg = idStatus === "identified" ? "Both players identified."
+          : idStatus === "partial" ? "One player identified — enrollment needed."
+          : "Could not identify players — manual entry needed.";
+        document.getElementById("log_status_label").textContent = statusMsg;
+
+        // Build enrollment list: DB-unknown (face detected) + no-face unidentified players
+        var unknowns = d.unknowns || [];
+        var toEnroll = unknowns.slice();
+        var unknownRoles = unknowns.map(function(u) { return u.role; });
+        if (!d.near_name && unknownRoles.indexOf("near") === -1) {
+          toEnroll.push({ role: "near", crop_b64: null, no_face: true });
+        }
+        if (!d.far_name && unknownRoles.indexOf("far") === -1) {
+          toEnroll.push({ role: "far", crop_b64: null, no_face: true });
+        }
+
+        if (toEnroll.length > 0) {
+          _showEnrollForms(toEnroll);
+          document.getElementById("btn_skip").style.display = "";
+        } else {
+          transitionToSetup();
+        }
+      })
+      .catch(function(e) { _appendLog("Poll error: " + e); setTimeout(_pollScan, 2000); });
+    }
+
+    function _showEnrollForms(items) {
+      var header = "<div style='margin-bottom:8px;color:#f39c12;font-size:0.9em;'>Player info needed — fill to continue or click Skip:</div>";
+      var cards = "";
+      items.forEach(function(u) {
+        var lbl = u.role === "near" ? "near side (Player A)" : "far side (Player B)";
+        cards += "<div id='enroll_card_" + u.role + "' style='padding:8px;border:1px solid #555;border-radius:4px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;'>";
+        if (u.crop_b64) {
+          cards += "<img src='data:image/png;base64," + u.crop_b64 + "' style='width:60px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0;'>";
+        } else {
+          cards += "<div style='width:60px;height:60px;background:#1e1e1e;border:1px dashed #555;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#666;flex-shrink:0;'>?</div>";
+        }
+        cards += "<div style='flex:1;min-width:0;'>";
+        cards += "<div style='color:#f39c12;margin-bottom:4px;font-size:0.85em;'>Unknown — " + lbl + "</div>";
+        if (u.no_face) {
+          cards += "<div style='color:#888;font-size:0.78em;margin-bottom:6px;'>No face detected — name will be set for this match only (not added to face database)</div>";
+        } else {
+          cards += "<div style='color:#888;font-size:0.78em;margin-bottom:6px;'>Face detected but not in database — enter name to enroll</div>";
+        }
+        cards += "<div class='input-with-action' style='gap:6px;'>";
+        cards += "<input id='enroll_inp_" + u.role + "' placeholder='Player name...' style='flex:1;font-size:0.88em;'>";
+        if (u.no_face) {
+          cards += "<button class='secondary' type='button' style='padding:4px 10px;font-size:0.82em;white-space:nowrap;' data-role='" + u.role + "' onclick='setNameManually(this.dataset.role)'>Set name</button>";
+        } else {
+          cards += "<button class='secondary' type='button' style='padding:4px 10px;font-size:0.82em;white-space:nowrap;' data-role='" + u.role + "' onclick='enrollPlayer(this.dataset.role)'>Enroll</button>";
+        }
+        cards += "</div></div></div>";
+      });
+      document.getElementById("enroll_area").innerHTML = header + cards;
+    }
+
+    function _checkAllResolved() {
+      var area = document.getElementById("enroll_area");
+      if (!area) return;
+      var remaining = area.querySelectorAll("[id^='enroll_card_']");
+      if (remaining.length === 0) { transitionToSetup(); }
+    }
+
+    function setNameManually(role) {
+      var inp = document.getElementById("enroll_inp_" + role);
+      var name = inp ? inp.value.trim() : "";
+      if (!name) { alert("Enter player name first."); return; }
+      if (role === "near") document.getElementById("player_a_name").value = name;
+      else                 document.getElementById("player_b_name").value = name;
+      _appendLog("Set name: " + name + " (" + role + " side) — not enrolled in face DB");
+      var card = document.getElementById("enroll_card_" + role);
+      if (card) card.remove();
+      _checkAllResolved();
+    }
+
+    function enrollPlayer(role) {
+      var inp = document.getElementById("enroll_inp_" + role);
+      var name = inp ? inp.value.trim() : "";
+      if (!name) { alert("Enter player name first."); return; }
+      fetch("/api/enroll-player", {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "scan_id=" + encodeURIComponent(_scanId) + "&role=" + encodeURIComponent(role) + "&name=" + encodeURIComponent(name)
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) { alert("Error: " + d.error); return; }
+        _appendLog("Enrolled: " + name + " (" + role + " side)");
+        if (role === "near") document.getElementById("player_a_name").value = name;
+        else                 document.getElementById("player_b_name").value = name;
+        var card = document.getElementById("enroll_card_" + role);
+        if (card) card.remove();
+        _checkAllResolved();
+      })
+      .catch(function(e) { alert("Error: " + e); });
+    }
+
+    function transitionToSetup() {
+      var vp = document.getElementById("raw_video_path").value.trim();
+      document.getElementById("video_path_summary").textContent = vp;
+      _setPhase("setup");
+    }
+
+    function backToBrowse() {
+      _stopElapsed();
+      _scanId = null; _logLineCount = 0;
+      document.getElementById("log_terminal").textContent = "";
+      document.getElementById("enroll_area").innerHTML = "";
+      _setPhase("browse");
+    }
+    </script>
   </div>
   <div class="panel">
     <h2>Trim Start</h2>
@@ -1067,7 +1306,7 @@ TEMPLATES = {
   <div class="panel" id="main-panel">
     <h2>Main</h2>
     {% if current_job %}
-      <div class="meta">{{ current_job.player_a_name }} (Near) vs {{ current_job.player_b_name }} (Far)</div>
+      <div class="meta">{{ current_job.player_a_name }} vs {{ current_job.player_b_name }}</div>
       <div class="meta" style="margin-top:4px;">{{ current_job.raw_video_path }}</div>
     {% elif raw_video_path_value %}
       <div class="meta">{{ raw_video_path_value }}</div>
@@ -1300,8 +1539,8 @@ TEMPLATES = {
   </div>
   <div class="grid two" style="margin-top:12px;">
     <div class="stats">
-      <div class="stat"><strong>Player A</strong><div>{{ job.player_a_name }} (Near)</div></div>
-      <div class="stat"><strong>Player B</strong><div>{{ job.player_b_name }} (Far)</div></div>
+      <div class="stat"><strong>Player A</strong><div>{{ job.player_a_name }}</div></div>
+      <div class="stat"><strong>Player B</strong><div>{{ job.player_b_name }}</div></div>
       <div class="stat"><strong>Trim Start</strong><div>{{ trim_start_label }}</div></div>
       <div class="stat"><strong>Best Of</strong><div>{{ job.best_of }}</div></div>
     </div>

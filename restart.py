@@ -10,7 +10,9 @@ bat = ROOT / "_restart_tmp.bat"
 bat.write_text(
     "@echo off\n"
     "ping -n 3 127.0.0.1 >nul\n"
-    "taskkill /F /IM python.exe /T >nul 2>&1\n"
+    # Kill only the process listening on port 8765, not all python.exe instances
+    "for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr :8765 ^| findstr LISTENING') do "
+    "taskkill /F /PID %%a >nul 2>&1\n"
     "ping -n 2 127.0.0.1 >nul\n"
     f"start \"Scoreboard\" \"{python}\" \"{script}\"\n"
     f"del \"{bat}\"\n"
