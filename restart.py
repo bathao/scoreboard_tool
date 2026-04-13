@@ -1,26 +1,40 @@
+"""Restart the local scoreboard-tool server.
+
+Kills any existing process on port 8765, then opens a new console window
+with the server so logs are visible.
+"""
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 python = sys.executable
 script = str(ROOT / "scripts" / "run_local_web_ui.py")
 
-bat = ROOT / "_restart_tmp.bat"
-bat.write_text(
-    "@echo off\n"
-    "ping -n 3 127.0.0.1 >nul\n"
-    # Kill only the process listening on port 8765, not all python.exe instances
-    "for /f \"tokens=5\" %%a in ('netstat -ano ^| findstr :8765 ^| findstr LISTENING') do "
-    "taskkill /F /PID %%a >nul 2>&1\n"
-    "ping -n 2 127.0.0.1 >nul\n"
-    f"start \"Scoreboard\" \"{python}\" \"{script}\"\n"
-    f"del \"{bat}\"\n"
+# Kill existing server on port 8765 (Python subprocess — avoids bash/cmd path issues)
+result = subprocess.run(
+    "netstat -ano | findstr :8765 | findstr LISTENING",
+    shell=True, capture_output=True, text=True,
 )
+killed = False
+for line in result.stdout.strip().splitlines():
+    parts = line.split()
+    if parts:
+        pid = parts[-1]
+        subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
+        print(f"Killed old server (PID {pid})")
+        killed = True
 
+if not killed:
+    print("No existing server found on port 8765")
+
+time.sleep(1)
+
+# Start new server in a fresh independent console window
+# cmd /k keeps the window open even if the server crashes (shows error output)
 subprocess.Popen(
-    ["cmd", "/c", str(bat)],
-    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-    close_fds=True,
+    ["cmd", "/k", f'"{python}" "{script}"'],
+    creationflags=subprocess.CREATE_NEW_CONSOLE,
 )
-print("Restarting in ~5s... Server will be at http://127.0.0.1:8765")
+print("Server starting at http://127.0.0.1:8765")
