@@ -12,7 +12,7 @@ ROOT = Path(__file__).parent
 python = sys.executable
 script = str(ROOT / "scripts" / "run_local_web_ui.py")
 
-# Kill existing server on port 8765 (Python subprocess — avoids bash/cmd path issues)
+# Kill existing server on port 8765
 result = subprocess.run(
     "netstat -ano | findstr :8765 | findstr LISTENING",
     shell=True, capture_output=True, text=True,
@@ -31,10 +31,19 @@ if not killed:
 
 time.sleep(1)
 
-# Start new server in a fresh independent console window
-# cmd /k keeps the window open even if the server crashes (shows error output)
+# Write a tiny bat so cmd /k can reference a file path instead of a
+# command string — avoids the cmd.exe quote-escaping issue with subprocess.
+bat = ROOT / "_server.bat"
+bat.write_text(
+    f'@echo off\n'
+    f'"{python}" "{script}"\n',
+    encoding="utf-8",
+)
+
+# cmd /k keeps the window open after the server exits (shows errors).
+# CREATE_NEW_CONSOLE creates an independent window not tied to this process.
 subprocess.Popen(
-    ["cmd", "/k", f'"{python}" "{script}"'],
+    ["cmd", "/k", str(bat)],
     creationflags=subprocess.CREATE_NEW_CONSOLE,
 )
 print("Server starting at http://127.0.0.1:8765")
