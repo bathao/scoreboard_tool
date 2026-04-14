@@ -5915,3 +5915,60 @@ Priority 3 — Signal 2 (gap ≥ threshold): fallback when neither Signal 1 nor 
 ### Resume Point
 - Run `match_vinh_001__full.mp4` end-to-end through Web UI (Output Only) to validate full flow
 - Wire reviewed winner corrections from Review UI into `dataset/reviewed_matches/`
+
+---
+
+## Session 4 — 2026-04-14: Player ID fix pt.2 + GPU enforcement
+
+### Commits
+- `7d41c02` Fix player identification: skip early stop on same-player match, add 2-player fallback
+- `e726f6e` Fix start_server/restart: hardcode project venv Python instead of sys.executable
+- `a2a4f94` Enforce GPU-only execution: fail fast if CUDA not available
+
+### Player Identification — Algorithm Fixes
+
+**Root cause analysis (Player 2 scan always returning Vinh):**
+
+The Player 2 scan (rank=1, t=120–400s) collects face embeddings from the post-swap FAR zone to identify Player 2. Two compounding bugs:
+
+1. **Pre-swap noise → false early stop**: At t=120–220s, Vinh is still in FAR position (Set 1 not yet over). Those Vinh frames are excluded by `exclude_record` (sim_vinh ≥ 0.35). The *remaining* non-excluded frames have individually low sim_vinh (<0.35), but their 512-dim vector average renormalizes to sim_vinh=0.562 — above `_EARLY_STOP_SIM=0.55`. Scan stops at t=220s, before ever reaching the actual Thảo FAR period (~t=250s+).
+
+2. **Good Thảo frames are also excluded**: Thảo/Vinh cross-sim=0.582 means Thảo video faces also have sim_vinh ≈ 0.5, which is ≥ 0.35 exclusion threshold → Thảo's best frames get filtered out along with Vinh.
+
+**Fixes applied (`_scan_player_chunked` + `quick_identify_players_standalone`):**
+
+- `dont_stop_on` param: when the accumulated average hits early-stop sim but matches Player 1 identity, skip the stop and **reset `all_embs = []`** to discard pre-swap noise, then continue into the actual post-swap window
+- **2-player fallback**: after Player 2 scan completes, if result == Player 1 AND face DB has exactly 2 enrolled players → automatically assign the only other enrolled player as Player 2. Handles inherently high cross-similarity between players without needing perfect embedding discrimination.
+
+**Result:** `2_sets.mp4` → FAR=Trần Quang Vinh (sim=0.689 direct), NEAR=Nguyễn Bá Thảo (fallback), status=identified ✓
+
+### Enrollment Diagnosis
+
+Per-image sim analysis on all files in `data/face_crops/Thao/`:
+- `thao_face_frontal_score0.98.png`: sim_thao=0.488, sim_vinh=0.243 → **Thảo** ✓
+- `thao_face_game_side_score0.97.png`: sim_thao=0.642, sim_vinh=0.545 → **Thảo** ✓
+- `thao_face_relaxed_score0.95.png`: sim_thao=0.585, sim_vinh=0.294 → **Thảo** ✓
+- `thao_fullbody_orange_jersey_a_score0.98.png`: sim_thao=0.598, sim_vinh=**0.623** → **VINH** ← wrong image in Thao folder
+- `thao_fullbody_orange_jersey_b_score0.95.png`: sim_thao=0.622, sim_vinh=0.602 → Thảo (barely)
+- `thao_fullbody_playing_score0.71.png`: sim_thao=0.651, sim_vinh=0.635 → Thảo (barely)
+
+`thao_fullbody_orange_jersey_a_score0.98.png` is Vinh's face mislabeled in Thao folder — NOT deleted (pending user confirmation). Current enrollment uses only 3 clean face screenshots; cross-sim with Vinh = 0.582.
+
+### GPU Enforcement
+
+All inference paths now fail fast if CUDA not available:
+
+| File | Change |
+|------|--------|
+| `backend/player_identity.py` | `FaceEmbedder`: raise `RuntimeError` if `CUDAExecutionProvider` not in ONNX providers |
+| `backend/player_identification.py` | `torch.cuda.is_available()` check before YOLO load; `device=0` on predict |
+| `backend/set_boundary.py` | same cuda check + `device=0` on predict |
+| `scripts/enroll_player.py` | `device=0` on predict |
+
+### Other Fixes
+- `start_server.py` / `restart.py`: use `.venv/Scripts/python.exe` (relative to project ROOT) instead of `sys.executable` — prevents accidentally using a different project's venv
+
+### Resume Point
+- Verify GPU is available and test full pipeline on `2_sets.mp4` through Web UI
+- Confirm / delete `thao_fullbody_orange_jersey_a_score0.98.png` (likely Vinh)
+- Run `match_vinh_001__full.mp4` end-to-end (Output Only) to validate full flow

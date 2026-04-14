@@ -328,6 +328,21 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[done]` scoreboard position: bottom-right corner
 - `[done]` final output video saved to `outputs/` folder at repo root
 
+## Done (2026-04-14 Session 4 — player ID algorithm fix pt.2 + GPU enforcement)
+- `[done]` **Player 2 identification fix** (`backend/player_identification.py`):
+  - `dont_stop_on` param in `_scan_player_chunked()` — skips early stop and resets accumulated embeddings when the scan falsely converges to Player 1's identity (pre-swap noise); continues scanning until real Player 2 face window
+  - **2-player fallback**: if DB has exactly 2 enrolled players and Player 1 is identified, automatically assign the other player as Player 2 — handles high cross-similarity case (cross-sim=0.582 for Thảo/Vinh)
+  - Result on `2_sets.mp4`: FAR=Trần Quang Vinh (sim=0.689), NEAR=Nguyễn Bá Thảo (via fallback), status=identified
+- `[done]` **Thảo enrollment cleaned up**:
+  - Discovered `thao_fullbody_orange_jersey_a_score0.98.png` in Thao folder is actually Vinh's face (sim_vinh=0.623 > sim_thao=0.598)
+  - Re-enrolled Thảo with 3 clean YOLO-aligned face screenshots only (frontal, game_side, relaxed); cross-sim with Vinh = 0.582
+- `[done]` **`start_server.py` / `restart.py` venv fix**: hardcode `.venv/Scripts/python.exe` relative to project root instead of `sys.executable` — prevents using wrong venv when launched from another Python environment
+- `[done]` **GPU enforcement** — fail fast if CUDA not available (no silent CPU fallback):
+  - `FaceEmbedder` (`backend/player_identity.py`): raise `RuntimeError` if `CUDAExecutionProvider` not in ONNX Runtime providers
+  - `quick_identify_players_standalone()` (`backend/player_identification.py`): check `torch.cuda.is_available()` before loading YOLO; add `device=0` to predict call
+  - `backend/set_boundary.py`: same `torch.cuda` check + `device=0` on predict
+  - `scripts/enroll_player.py`: add `device=0` to YOLO predict call
+
 ## Done (2026-04-13 Session 3 — player ID algorithm fix + enrollment GUI)
 - `[done]` **`quick_identify_players_standalone()` algorithm fixed and verified**:
   - chunked scanning with early stop (`_CHUNK_SEC=20s`, `_EARLY_STOP_SIM=0.55`)
