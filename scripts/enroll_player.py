@@ -50,7 +50,7 @@ def _embed_from_full_frame(frame: np.ndarray, embedder: FaceEmbedder) -> list[np
     except Exception:
         return []
 
-    results = model.predict(frame, verbose=False, half=True)
+    results = model.predict(frame, verbose=False, half=True, device=0)
     if not results or results[0].boxes is None:
         return []
 

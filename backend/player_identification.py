@@ -191,7 +191,7 @@ def _detect_bodies_and_faces(
         }
     Sorted by area descending (near player = largest bbox = first).
     """
-    results = yolo_model.predict(frame, verbose=False, half=True)
+    results = yolo_model.predict(frame, verbose=False, half=True, device=0)
     if not results or results[0].boxes is None or len(results[0].boxes) == 0:
         return []
 
@@ -953,8 +953,8 @@ def quick_identify_players_standalone(
     _log("[quick_id] Loading ArcFace model...")
     try:
         embedder = FaceEmbedder(face_model_path)
-    except FileNotFoundError as exc:
-        _log(f"[quick_id] SKIP — face model not found: {exc}")
+    except (FileNotFoundError, RuntimeError) as exc:
+        _log(f"[quick_id] SKIP — {exc}")
         return IdentificationResult(
             near_name=None, far_name=None,
             near_jersey_hist=None, far_jersey_hist=None,
@@ -963,6 +963,9 @@ def quick_identify_players_standalone(
 
     _log("[quick_id] Loading YOLO pose model...")
     try:
+        import torch
+        if not torch.cuda.is_available():
+            raise RuntimeError("GPU required: torch.cuda.is_available() returned False")
         from ultralytics import YOLO
         yolo = YOLO(str(pose_weights_path))
     except Exception as exc:

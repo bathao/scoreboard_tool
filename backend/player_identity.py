@@ -241,9 +241,12 @@ class FaceEmbedder:
             raise ImportError("onnxruntime-gpu is required: pip install onnxruntime-gpu")
 
         providers = ort.get_available_providers()
-        # Prefer GPU
-        ep = "CUDAExecutionProvider" if "CUDAExecutionProvider" in providers else "CPUExecutionProvider"
-        self._session = ort.InferenceSession(str(model_path), providers=[ep])
+        if "CUDAExecutionProvider" not in providers:
+            raise RuntimeError(
+                "GPU required: CUDAExecutionProvider not available in onnxruntime.\n"
+                "Install onnxruntime-gpu and ensure CUDA 12 + cuDNN 9 are in PATH."
+            )
+        self._session = ort.InferenceSession(str(model_path), providers=["CUDAExecutionProvider"])
         self._input_name: str = self._session.get_inputs()[0].name
 
     def embed(self, face_bgr: np.ndarray) -> np.ndarray:

@@ -149,6 +149,9 @@ def populate_player_positions(
     except ImportError:
         return  # gracefully skip if ultralytics not available
 
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False")
+
     model = YOLO(pose_weights_path)
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -178,7 +181,7 @@ def populate_player_positions(
             ret, frame = cap.read()
             if not ret:
                 continue
-            results = model.predict(frame, verbose=False, half=True)
+            results = model.predict(frame, verbose=False, half=True, device=0)
             if not results or results[0].boxes is None or len(results[0].boxes) == 0:
                 continue
             boxes = results[0].boxes.xyxy.cpu().numpy()
