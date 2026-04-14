@@ -9,7 +9,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-python = sys.executable
+# Always use the venv bundled with this project, regardless of which Python
+# interpreter was used to launch this script.
+python = str(ROOT / ".venv" / "Scripts" / "python.exe")
 script = str(ROOT / "scripts" / "run_local_web_ui.py")
 
 # Kill existing server on port 8765

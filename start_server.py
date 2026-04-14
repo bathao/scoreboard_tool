@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-python = sys.executable
+# Always use the venv bundled with this project, regardless of which Python
+# interpreter was used to launch this script.
+python = str(ROOT / ".venv" / "Scripts" / "python.exe")
 script = str(ROOT / "scripts" / "run_local_web_ui.py")
 
 # Write a tiny bat so cmd /k can reference a file path instead of a
