@@ -173,14 +173,94 @@ def _accumulate_jersey(hists: list[np.ndarray]) -> Optional[np.ndarray]:
 
 
 # ---------------------------------------------------------------------------
+# Table ROI estimation
+# ---------------------------------------------------------------------------
+
+# ROI expansion fractions applied to the union bbox of the main two players.
+# X: 40% — filters players at adjacent tables (left/right of main table).
+# Y: 100% — players are tall; need extra headroom above the table to capture faces.
+TABLE_ROI_EXPAND_X: float = 0.40
+TABLE_ROI_EXPAND_Y: float = 1.00
+
+
+def estimate_table_roi(
+    video_path: str,
+    yolo_model,
+    n_frames: int = 8,
+    t_start: float = 2.0,
+    t_step: float = 5.0,
+    expand_x: float = TABLE_ROI_EXPAND_X,
+    expand_y: float = TABLE_ROI_EXPAND_Y,
+) -> Optional[tuple[float, float, float, float]]:
+    """Estimate the playing-table ROI from the top-2 player bboxes across several frames.
+
+    Algorithm:
+    1. Sample n_frames frames spread across [t_start, t_start + n_frames * t_step].
+    2. For each frame detect all bodies; keep only the 2 largest (main players).
+    3. Compute the union bbox of all collected boxes.
+    4. Expand horizontally by expand_x (default 40%) and vertically by expand_y (default 100%).
+       The larger Y expansion is necessary because players are tall — we need room above
+       the table surface to capture their full bodies and faces.
+
+    Returns (x1, y1, x2, y2) in pixel coords, or None if insufficient detections.
+    """
+    import cv2 as _cv2
+
+    all_boxes: list[np.ndarray] = []
+    frame_w = frame_h = 0
+
+    cap = _cv2.VideoCapture(str(video_path))
+    for i in range(n_frames):
+        t = t_start + i * t_step
+        cap.set(_cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_h, frame_w = frame.shape[:2]
+        results = yolo_model.predict(frame, verbose=False, half=True, device=0)
+        if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+            continue
+        boxes_raw = results[0].boxes.xyxy.cpu().numpy()
+        areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in boxes_raw]
+        top2_idx = sorted(range(len(boxes_raw)), key=lambda k: -areas[k])[:2]
+        for idx in top2_idx:
+            all_boxes.append(boxes_raw[idx])
+    cap.release()
+
+    if not all_boxes or frame_w == 0:
+        return None
+
+    arr = np.array(all_boxes)
+    x1 = float(arr[:, 0].min())
+    y1 = float(arr[:, 1].min())
+    x2 = float(arr[:, 2].max())
+    y2 = float(arr[:, 3].max())
+
+    bw = x2 - x1
+    bh = y2 - y1
+    x1 = max(0.0, x1 - bw * expand_x)
+    y1 = max(0.0, y1 - bh * expand_y)
+    x2 = min(float(frame_w), x2 + bw * expand_x)
+    y2 = min(float(frame_h), y2 + bh * expand_y)
+
+    return (x1, y1, x2, y2)
+
+
+# ---------------------------------------------------------------------------
 # Frame-level face + body detection helpers
 # ---------------------------------------------------------------------------
 
 def _detect_bodies_and_faces(
     frame: np.ndarray,
     yolo_model,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
 ) -> list[dict]:
     """Run YOLO pose inference on a frame and return structured detections.
+
+    Args:
+        roi_xyxy: Optional (x1, y1, x2, y2) pixel-coordinate ROI.  Only
+            detections whose bbox CENTER falls inside this region are kept.
+            Use estimate_table_roi() to compute it once per video.
 
     Returns a list of dicts:
         {
@@ -207,6 +287,16 @@ def _detect_bodies_and_faces(
     for i in range(len(boxes)):
         b = boxes[i]
         area = (b[2] - b[0]) * (b[3] - b[1])
+
+        # ROI filter: skip players whose bbox center is outside the table ROI.
+        # This prevents picking up players on adjacent tables.
+        if roi_xyxy is not None:
+            cx = (b[0] + b[2]) / 2.0
+            cy = (b[1] + b[3]) / 2.0
+            rx1, ry1, rx2, ry2 = roi_xyxy
+            if not (rx1 <= cx <= rx2 and ry1 <= cy <= ry2):
+                continue
+
         detections.append({
             "bbox_xyxy": b,
             "area": area,
@@ -271,6 +361,40 @@ def _face_display_crop(
     return cv2.resize(crop, (out_size, out_size), interpolation=cv2.INTER_LINEAR)
 
 
+def _face_kpts_in_head_region(
+    kpts_xy: np.ndarray,
+    kpts_conf: np.ndarray,
+    bbox_xyxy: np.ndarray,
+    head_fraction: float = 0.35,
+) -> bool:
+    """Return True if all visible face keypoints (nose, eyes) lie inside the
+    expected head region of this body's bounding box.
+
+    Prevents keypoint contamination: in crowded frames YOLO sometimes assigns
+    facial keypoints from the large NEAR player (rank-0) to the small FAR
+    player's detection (rank-1), causing a crop of the wrong person.
+
+    head_fraction: fraction of bbox height counted as 'head' (top of bbox).
+    """
+    x1, y1, x2, y2 = bbox_xyxy
+    bh = y2 - y1
+    bw = x2 - x1
+    # Head region: top head_fraction of bbox height, with small margins
+    head_y_max = y1 + bh * head_fraction
+    x_margin = bw * 0.20   # 20% bbox-width margin on each horizontal side
+    y_top_margin = bh * 0.12  # allow keypoints slightly above bbox top (head sticks out)
+
+    for idx in [_KPT_NOSE, _KPT_LEYE, _KPT_REYE]:
+        if kpts_conf[idx] < _MIN_KPT_CONF:
+            continue  # low-confidence keypoint — ignore
+        kx, ky = kpts_xy[idx]
+        in_x = (x1 - x_margin) <= kx <= (x2 + x_margin)
+        in_y = (y1 - y_top_margin) <= ky <= head_y_max
+        if not in_x or not in_y:
+            return False
+    return True
+
+
 def _try_embed_face(
     frame: np.ndarray,
     det: dict,
@@ -278,7 +402,8 @@ def _try_embed_face(
 ) -> Optional[tuple[np.ndarray, np.ndarray, float]]:
     """Try to extract and embed the face from a single body detection.
 
-    Only succeeds when nose AND both eyes are clearly visible (conf >= MIN_FACE_CONF).
+    Only succeeds when nose AND both eyes are clearly visible (conf >= MIN_FACE_CONF)
+    AND the face keypoints are inside this body's head region (contamination guard).
     No fallback to back-of-head crops.
 
     Returns (embedding, display_crop_bgr, face_visibility_score) or None.
@@ -291,21 +416,29 @@ def _try_embed_face(
     if score < MIN_FACE_CONF:
         return None  # face not visible — skip this frame
 
-    # Aligned crop for ArcFace embedding
-    aligned = align_face_from_keypoints(frame, kpts_xy, kpts_conf, out_size=112)
-    if aligned is None:
+    # Reject frames where YOLO's face keypoints have leaked into another person's
+    # face region (common when rank-1 FAR body is small and rank-0 NEAR body is large).
+    if not _face_kpts_in_head_region(kpts_xy, kpts_conf, det["bbox_xyxy"]):
         return None
 
-    # Sanity: reject uniform/dark crops (alignment may produce blank result)
-    if aligned.std() < 8.0:
-        return None
-
-    # Display crop (natural orientation, larger) for human inspection
+    # Display crop (natural orientation, square crop centered on nose/eyes).
+    # Used for both human inspection AND ArcFace embedding, keeping the embedding
+    # method consistent with enroll_player.py --crop (which also uses simple resize).
+    #
+    # Why not align_face_from_keypoints here:
+    #   In a side-camera setup, YOLO's affine alignment distorts the face at angle,
+    #   producing embeddings that do NOT match the enrolled templates (which were
+    #   created from simple-resize crops).  Using the same method for both enrollment
+    #   and identification is more important than using "perfect" alignment.
     display = _face_display_crop(frame, kpts_xy, kpts_conf, out_size=224)
     if display is None:
-        display = aligned  # fallback
+        return None
 
-    emb = embedder.embed(aligned)
+    embed_crop = cv2.resize(display, (112, 112), interpolation=cv2.INTER_LINEAR)
+    if embed_crop.std() < 8.0:
+        return None
+
+    emb = embedder.embed(embed_crop)
     return emb, display, score
 
 
@@ -320,6 +453,7 @@ def _collect_face_embeddings_in_window(
     yolo_model,
     embedder: FaceEmbedder,
     sample_fps: float = BOUNDARY_SAMPLE_FPS,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
 ) -> list[dict]:
     """Sample frames in [t_start, t_end] and extract face embeddings.
 
@@ -341,7 +475,7 @@ def _collect_face_embeddings_in_window(
         ret, frame = cap.read()
         if not ret:
             break
-        dets = _detect_bodies_and_faces(frame, yolo_model)
+        dets = _detect_bodies_and_faces(frame, yolo_model, roi_xyxy=roi_xyxy)
         for rank, det in enumerate(dets[:2]):  # top 2 bodies (near + far)
             result = _try_embed_face(frame, det, embedder)
             if result is not None:
@@ -368,6 +502,7 @@ def _collect_jersey_hists_for_set(
     yolo_model,
     idle_offset_sec: float = 2.0,
     n_per_rally: int = 2,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
 ) -> dict[str, list[np.ndarray]]:
     """Sample jersey histograms at idle moments (t_end + offset) within a set.
 
@@ -384,7 +519,7 @@ def _collect_jersey_hists_for_set(
             ret, frame = cap.read()
             if not ret:
                 continue
-            dets = _detect_bodies_and_faces(frame, yolo_model)
+            dets = _detect_bodies_and_faces(frame, yolo_model, roi_xyxy=roi_xyxy)
             if len(dets) >= 1:
                 h = extract_jersey_hist(frame, dets[0]["bbox_xyxy"])
                 if h is not None:
@@ -527,6 +662,16 @@ def run_player_identification(
             status="failed",
         )
 
+    # --- Estimate table ROI ---
+    # Only consider players whose body center falls inside this region.
+    # Prevents picking up players at adjacent tables.
+    _log("[player_id] Estimating table ROI from early frames...")
+    roi = estimate_table_roi(video_path, yolo)
+    if roi is not None:
+        _log(f"[player_id]   ROI: x=[{roi[0]:.0f},{roi[2]:.0f}]  y=[{roi[1]:.0f},{roi[3]:.0f}]")
+    else:
+        _log("[player_id]   ROI estimation failed — scanning full frame (may pick up adjacent tables)")
+
     # --- Phase B: build sampling windows ---
     #
     # Two independent capture strategies (body_rank flips after swap, so they cannot share a pool):
@@ -568,7 +713,7 @@ def run_player_identification(
     # FAR player: rank=1 from early window (faces camera consistently in set 1).
     _log("[player_id] Scanning t=1s–40s for FAR player (rank=1)...")
     early_results = _collect_face_embeddings_in_window(
-        video_path, 1.0, 40.0, yolo, embedder, sample_fps=4.0
+        video_path, 1.0, 40.0, yolo, embedder, sample_fps=4.0, roi_xyxy=roi
     )
     early_far = [r for r in early_results if r["body_rank"] == 1]
     far_candidates.extend(early_far)
@@ -601,7 +746,7 @@ def run_player_identification(
             break
     _log(f"[player_id] Scanning t=1s–{t_set1_end:.0f}s for NEAR player (rank=0, 1 fps)...")
     near_early_results = _collect_face_embeddings_in_window(
-        video_path, 1.0, t_set1_end, yolo, embedder, sample_fps=1.0
+        video_path, 1.0, t_set1_end, yolo, embedder, sample_fps=1.0, roi_xyxy=roi
     )
     near_early_raw = [r for r in near_early_results if r["body_rank"] == 0]
     if far_quick_record is not None and near_early_raw:
@@ -627,7 +772,7 @@ def run_player_identification(
             t_end = t_swap + 27.0
             _log(f"[player_id] Scanning set-start window {t_start:.0f}s–{t_end:.0f}s for NEAR player (rank=1)...")
             swap_results = _collect_face_embeddings_in_window(
-                video_path, t_start, t_end, yolo, embedder, sample_fps=4.0
+                video_path, t_start, t_end, yolo, embedder, sample_fps=4.0, roi_xyxy=roi
             )
             swap_rank1 = [r for r in swap_results if r["body_rank"] == 1]
             _log(f"[player_id]   → {len(swap_rank1)} rank=1 embeddings (of {len(swap_results)} total)")
@@ -712,7 +857,7 @@ def run_player_identification(
     for sn in set_numbers:
         set_pts = [p for p in pts if p.set_number == sn]
         rally_ends = [p.t_end for p in set_pts]
-        hists = _collect_jersey_hists_for_set(video_path, rally_ends, yolo)
+        hists = _collect_jersey_hists_for_set(video_path, rally_ends, yolo, roi_xyxy=roi)
         near_hists_all.extend(hists["near"])
         far_hists_all.extend(hists["far"])
 
@@ -757,6 +902,7 @@ def resolve_near_far_by_jersey(
     near_jersey_hist: np.ndarray,
     far_jersey_hist: np.ndarray,
     yolo_model,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
 ) -> Optional[tuple[str, str]]:
     """Given a new frame after a set boundary, determine which body is now NEAR/FAR.
 
@@ -766,7 +912,7 @@ def resolve_near_far_by_jersey(
     Note: This function returns role order ("near_body_is_player_a": bool).
     The caller maps roles to player names using the session binding.
     """
-    dets = _detect_bodies_and_faces(frame, yolo_model)
+    dets = _detect_bodies_and_faces(frame, yolo_model, roi_xyxy=roi_xyxy)
     if len(dets) < 2:
         return None
 

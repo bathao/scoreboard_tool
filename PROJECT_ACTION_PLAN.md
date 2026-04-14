@@ -328,6 +328,25 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - `[done]` scoreboard position: bottom-right corner
 - `[done]` final output video saved to `outputs/` folder at repo root
 
+## Done (2026-04-14 Session 5 — player ID NEAR/FAR assignment fix)
+- `[done]` **Table ROI filter** (`backend/player_identification.py`):
+  - `estimate_table_roi()` — samples early frames, union of top-2 player bboxes, expand X=40% Y=100%
+  - `roi_xyxy` param added to `_detect_bodies_and_faces()`, `_collect_face_embeddings_in_window()`, `_collect_jersey_hists_for_set()`, `resolve_near_far_by_jersey()`, `run_player_identification()`
+  - `backend/set_boundary.py` `populate_player_positions()` also accepts `roi_xyxy`
+  - Prevents picking up players at adjacent tables as rank=0/rank=1
+- `[done]` **Keypoint contamination guard** (`_face_kpts_in_head_region`):
+  - Validates nose/eye keypoints are within top 35% of body bbox — prevents cross-person keypoint leakage
+- `[done]` **Embedding method fix (main fix)**:
+  - Changed `_try_embed_face()` from `align_face_from_keypoints()` (affine warp 112x112) to `_face_display_crop()` resized to 112x112 (simple square crop)
+  - Now consistent with enrollment via `enroll_player.py --crop` — same embedding space for both enrollment and identification
+  - Result: rank=1 FAR (Thảo) correctly matched (sim_thao=0.55 >> sim_vinh=0.18) instead of mismatched (old: sim_vinh=0.52 >> sim_thao=0.37)
+- `[done]` **ONNX CUDA DLL fix** (`backend/player_identity.py`):
+  - `os.add_dll_directory(torch_lib)` registers PyTorch's bundled `cublasLt64_12.dll` for onnxruntime-gpu
+  - `ort.set_default_logger_severity(4)` suppresses onnxruntime stderr noise
+  - `CUDAExecutionProvider` now detected correctly, ArcFace runs on GPU
+- `[done]` **Installed `torchcodec`** — removes torchvision video decoding deprecation warning in Qwen VL pipeline
+- `[doing]` Verify `2_sets.mp4` end-to-end: Thảo=FAR, Vinh=NEAR
+
 ## Done (2026-04-14 Session 4 — player ID algorithm fix pt.2 + GPU enforcement)
 - `[done]` **Player 2 identification fix** (`backend/player_identification.py`):
   - `dont_stop_on` param in `_scan_player_chunked()` — skips early stop and resets accumulated embeddings when the scan falsely converges to Player 1's identity (pre-swap noise); continues scanning until real Player 2 face window

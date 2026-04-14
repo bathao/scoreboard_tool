@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+import numpy as np
+
 from backend.rally_timeline_contract import RallyTimeline, RallyTimelinePoint, counts_toward_score
 
 # Default threshold: gaps longer than this (in seconds) are set boundary candidates.
@@ -128,6 +130,7 @@ def populate_player_positions(
     video_path: str,
     pose_weights_path: str,
     samples_per_rally: int = 4,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
 ) -> None:
     """Fill player_a_mean_x / player_b_mean_x on each RallyTimelinePoint in-place.
 
@@ -138,6 +141,11 @@ def populate_player_positions(
     player_a is initialised as the LEFT-side player in the first rally.
     After a side swap, player_a_mean_x will shift from ~left to ~right of frame.
     This crossing of the frame midline is the set-boundary signal.
+
+    Args:
+        roi_xyxy: Optional (x1, y1, x2, y2) pixel ROI — only bodies whose bbox
+            center falls inside this region are considered.  Pass the value from
+            estimate_table_roi() to exclude players at adjacent tables.
 
     The function does NOT re-run the full tracking pipeline — it is a lightweight
     post-hoc pass (~seconds on GPU for a full match).
@@ -185,6 +193,20 @@ def populate_player_positions(
             if not results or results[0].boxes is None or len(results[0].boxes) == 0:
                 continue
             boxes = results[0].boxes.xyxy.cpu().numpy()
+            if len(boxes) < 1:
+                continue
+
+            # ROI filter: only keep boxes whose center falls inside the table ROI.
+            if roi_xyxy is not None:
+                rx1, ry1, rx2, ry2 = roi_xyxy
+                keep = []
+                for b in boxes:
+                    cx = (b[0] + b[2]) / 2.0
+                    cy = (b[1] + b[3]) / 2.0
+                    if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
+                        keep.append(b)
+                boxes = np.array(keep) if keep else np.empty((0, 4))
+
             if len(boxes) < 2:
                 continue
             areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in boxes]

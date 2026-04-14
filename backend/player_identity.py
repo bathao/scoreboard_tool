@@ -235,16 +235,41 @@ class FaceEmbedder:
                 f"ArcFace model not found: {model_path}\n"
                 f"Run: python scripts/download_face_models.py"
             )
+        # onnxruntime-gpu on Windows needs CUDA DLLs (cublasLt64_12.dll etc.) to be
+        # findable by the OS DLL loader.  PyTorch bundles these DLLs in its own lib dir.
+        # Use os.add_dll_directory() (Python 3.8+) which works with LoadLibraryEx and
+        # does NOT suffer from the PATH-not-searched limitation on Windows.
+        import os as _os, sys as _sys
+        _torch_lib = None
+        for _p in _sys.path:
+            _candidate = _os.path.join(_p, "torch", "lib")
+            if _os.path.isdir(_candidate):
+                _torch_lib = _candidate
+                break
+        if _torch_lib:
+            # add_dll_directory is Windows-only (Python 3.8+); no-op on other platforms.
+            if hasattr(_os, "add_dll_directory"):
+                _os.add_dll_directory(_torch_lib)
+            # Also keep PATH in sync for any code that checks it.
+            if _torch_lib not in _os.environ.get("PATH", ""):
+                _os.environ["PATH"] = _torch_lib + _os.pathsep + _os.environ.get("PATH", "")
+
         try:
             import onnxruntime as ort
         except ImportError:
             raise ImportError("onnxruntime-gpu is required: pip install onnxruntime-gpu")
 
+        # Suppress onnxruntime's internal DLL-not-found noise from the server log.
+        # We handle provider availability ourselves; no need for ort's stderr spam.
+        # 4 = FATAL only (hides ERROR + WARNING messages from ort's C++ layer).
+        ort.set_default_logger_severity(4)
+
         providers = ort.get_available_providers()
         if "CUDAExecutionProvider" not in providers:
             raise RuntimeError(
                 "GPU required: CUDAExecutionProvider not available in onnxruntime.\n"
-                "Install onnxruntime-gpu and ensure CUDA 12 + cuDNN 9 are in PATH."
+                "Install onnxruntime-gpu and ensure CUDA 12 + cuDNN 9 are accessible.\n"
+                f"torch lib dir registered: {_torch_lib!r}"
             )
         self._session = ort.InferenceSession(str(model_path), providers=["CUDAExecutionProvider"])
         self._input_name: str = self._session.get_inputs()[0].name

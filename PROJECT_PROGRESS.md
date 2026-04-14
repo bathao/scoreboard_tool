@@ -5918,6 +5918,78 @@ Priority 3 — Signal 2 (gap ≥ threshold): fallback when neither Signal 1 nor 
 
 ---
 
+## Session 5 — 2026-04-14: Player ID assignment fix (NEAR/FAR swap bug)
+
+### Root Cause: Wrong NEAR/FAR Assignment
+
+Running `2_sets.mp4` through GUI gave FAR=Vinh, NEAR=Thảo — the **opposite** of reality (Vinh wears glasses and is at NEAR; Thảo at FAR).
+
+**Investigation steps:**
+1. Wrote `scripts/diag_save_face_crops.py` — saves annotated frames with YOLO bboxes + keypoints, plus face crops per rank, with similarity scores overlay.
+2. Diagnostic output: rank=0 (NEAR) has faceQ≈0 (back to camera); rank=1 (FAR) has faceQ=0.8–0.99 (facing camera). Confirmed: rank=0=Vinh (glasses visible in side profile), rank=1=Thảo (facing camera).
+3. All rank=1 embeddings matched **Vinh** instead of Thảo (sim_vinh=0.39–0.55, sim_thao=0.05–0.38).
+4. User observation: "Vinh wears glasses, Thảo doesn't — how can they be confused?"
+5. User observation: rank=1 display crops showed wrong faces — **players from adjacent tables**.
+
+**Three independent bugs found and fixed:**
+
+### Fix 1: Table ROI filter — exclude adjacent table players
+
+`estimate_table_roi()` added to `backend/player_identification.py`:
+- Samples 8 frames, takes top-2 largest bboxes (main players), computes union bbox
+- Expands X by 40% (filter left/right adjacent tables), Y by 100% (capture full player height including faces above table level)
+- `roi_xyxy` parameter threaded through:
+  - `_detect_bodies_and_faces()` — filters by bbox center inside ROI
+  - `_collect_face_embeddings_in_window()`
+  - `_collect_jersey_hists_for_set()`
+  - `resolve_near_far_by_jersey()`
+  - `run_player_identification()` — auto-estimates ROI on startup
+- `backend/set_boundary.py` `populate_player_positions()` — also accepts `roi_xyxy`
+
+Note: for `2_sets.mp4` the ROI spans full frame (players already cover entire frame), but this fix will help for other venue setups with adjacent tables clearly separated.
+
+### Fix 2: Keypoint contamination guard
+
+`_face_kpts_in_head_region()` added to `backend/player_identification.py`:
+- Checks that nose/eye YOLO keypoints lie within the expected head region (top 35%) of the body's bounding box
+- Prevents YOLO from assigning facial keypoints from a nearby large player (rank-0) to the small FAR player's body detection (rank-1)
+- Called in `_try_embed_face()` before any embedding computation
+
+### Fix 3: Embedding method mismatch (THE MAIN FIX)
+
+**Root cause:** `thao_t*.jpg` display crops were enrolled via `enroll_player.py --crop` → simple resize 224→112 → ArcFace embedding. But the live scan in `_try_embed_face()` used `align_face_from_keypoints()` → affine warp → 112x112 → ArcFace embedding. Two different embedding spaces → sim_thao artificially low vs sim_vinh.
+
+**Before fix:** rank=1 (Thảo) → sim_vinh=0.52, sim_thao=0.37 → matched VINH (wrong)
+**After fix:** rank=1 (Thảo) → sim_thao=0.55, sim_vinh=0.18 → matched THẢO (correct)
+
+**Change in `_try_embed_face()`:** replaced `align_face_from_keypoints()` (affine warp) with `_face_display_crop()` resized to 112x112 (simple square crop). This matches the enrollment method and is more robust for side-camera setups where the affine alignment can distort angled faces.
+
+### Fix 4: ONNX Runtime CUDA DLL resolution
+
+`cublasLt64_12.dll` error resolved:
+- Root cause: onnxruntime-gpu needs cuBLAS DLL, which PyTorch bundles at `.venv/.../torch/lib/` but onnxruntime can't find it
+- Fix in `FaceEmbedder.__init__`: `os.add_dll_directory(torch_lib_path)` before importing onnxruntime (Python 3.8+ Windows API)
+- Also: `ort.set_default_logger_severity(4)` suppresses onnxruntime's stderr noise
+- Result: `CUDAExecutionProvider` now detected, ArcFace runs on GPU, no more warning spam
+
+### Other
+- Installed `torchcodec` to suppress `torchvision` video decoding deprecation warning in Qwen VL pipeline (step 4/4)
+
+### Files Changed
+| File | Changes |
+|------|---------|
+| `backend/player_identification.py` | +`estimate_table_roi()`, +`_face_kpts_in_head_region()`, ROI param throughout, display-crop embedding in `_try_embed_face()` |
+| `backend/player_identity.py` | `os.add_dll_directory()` for torch CUDA DLLs, `ort.set_default_logger_severity(4)` |
+| `backend/set_boundary.py` | `roi_xyxy` param in `populate_player_positions()` |
+| `scripts/diag_save_face_crops.py` | New diagnostic tool — saves annotated frames + face crops with sims |
+
+### Resume Point
+- Waiting for `2_sets.mp4` to finish running through GUI — verify Thảo=FAR, Vinh=NEAR
+- Confirm / delete `thao_fullbody_orange_jersey_a_score0.98.png` (likely Vinh)
+- Run `match_vinh_001__full.mp4` end-to-end (Output Only) to validate full flow
+
+---
+
 ## Session 4 — 2026-04-14: Player ID fix pt.2 + GPU enforcement
 
 ### Commits
