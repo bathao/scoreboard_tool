@@ -807,6 +807,7 @@ def _scan_player_chunked(
     match_threshold: float = DEFAULT_MATCH_THRESHOLD,
     early_stop_sim: float = _EARLY_STOP_SIM,
     exclude_record: Optional["PlayerRecord"] = None,
+    dont_stop_on: Optional["PlayerRecord"] = None,
     log_fn=None,
 ) -> tuple:
     """Scan one player window in chunks; stop early if a confident match is found.
@@ -815,6 +816,9 @@ def _scan_player_chunked(
         exclude_record: If set, embeddings similar to this player (>= match_threshold)
                         are filtered out before matching. Used to prevent Player 2's
                         window from matching Player 1 before the side swap.
+        dont_stop_on: If set, never early-stop when the match is this player. Used
+                      for Player 2 scan so it skips past the pre-swap period where
+                      the accumulated average falsely converges toward Player 1.
 
     Returns:
         (all_embeddings, matched_record_or_None, matched_sim_or_None)
@@ -862,11 +866,19 @@ def _scan_player_chunked(
             if record is not None:
                 sim = face_similarity(avg, record.embedding_array())
                 _log(f"[quick_id]   t={chunk_end:.0f}s: {len(all_embs)} embs → {record.name} (sim={sim:.3f})")
-                if sim >= early_stop_sim:
+                blocked = (
+                    dont_stop_on is not None
+                    and record.player_id == dont_stop_on.player_id
+                )
+                if sim >= early_stop_sim and not blocked:
                     matched_record = record
                     matched_sim = sim
                     _log(f"[quick_id]   → early stop: confident match for {record.name}")
                     break
+                elif sim >= early_stop_sim and blocked:
+                    _log(f"[quick_id]   → skipping early stop (match is Player 1, continuing scan)")
+                    # Reset accumulated embeddings so we don't carry the pre-swap noise forward
+                    all_embs = []
             else:
                 _log(f"[quick_id]   t={chunk_end:.0f}s: {len(all_embs)} embs → no match yet")
         else:
@@ -984,6 +996,7 @@ def quick_identify_players_standalone(
         yolo=yolo, embedder=embedder, face_db=face_db,
         sample_fps=2.0, match_threshold=match_threshold,
         exclude_record=p1_match,
+        dont_stop_on=p1_match,
         log_fn=log_fn,
     )
     _log(f"[quick_id] Player 2: {len(p2_embs)} embeddings collected")
@@ -991,6 +1004,22 @@ def quick_identify_players_standalone(
         _log(f"[quick_id] Player 2 identified: {p2_match.name} (sim={p2_sim:.3f})")
     else:
         _log(f"[quick_id] Player 2: no match found in DB — {'face detected, needs enrollment' if p2_embs else 'no face detected'}")
+
+    # ── Fallback: if Player 2 scan failed or returned the same match as Player 1,
+    #    and there are exactly 2 players in the DB, the other must be Player 2.
+    #    This handles the case where face similarity is too close to distinguish via
+    #    embedding averaging (e.g. cross-sim > 0.5 between the two enrolled players).
+    if p1_match is not None and (
+        p2_match is None or p2_match.player_id == p1_match.player_id
+    ):
+        other_players = [r for r in face_db.records if r.player_id != p1_match.player_id]
+        if len(other_players) == 1:
+            p2_match = other_players[0]
+            p2_sim = None
+            _log(
+                f"[quick_id] Player 2 fallback: only other enrolled player is"
+                f" '{p2_match.name}' — assigning as Player 2"
+            )
 
     # ── Map to near/far names (Player 1 = FAR in set 1, Player 2 = NEAR in set 1)
     far_name:  Optional[str] = p1_match.name if p1_match else None
