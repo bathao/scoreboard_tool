@@ -13,6 +13,63 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-15` (2_sets.mp4 boundary debug confirms Step 3 is still wrong)
+
+### What Was Checked
+
+- Confirmed Step 2 player identification now resolves the two enrolled players on
+  `inputs/raw_matches/2_sets.mp4` without the old "assign the only other player in
+  the DB" fallback.
+- Ran command-line rally/boundary debug on the same input:
+  - `python scripts/debug_set_boundaries.py --video inputs/raw_matches/2_sets.mp4 --best-of 3 --trim 0`
+- Goal of this run: verify the current Step 3 rally detector on a continuous
+  2-set input before trying to continue the full product flow.
+
+### What Failed
+
+- The current debug output is still wrong on all core boundary questions for
+  `2_sets.mp4`.
+- Current code output:
+  - total rallies detected = `24`
+  - set 1 = `9` rallies
+  - set 2 = `15` rallies
+  - detected boundary = index `9` (`pt_0009 -> pt_0010`)
+  - detected swap window = about `200.67s -> 204.44s`
+- Operator verdict: all of the above are wrong for this input.
+- Signal breakdown from the debug run:
+  - `Signal 1 (score)` = no boundary
+  - `Signal 2 (gap >= 60s)` = no boundary, max gap only `51.3s`
+  - `Signal 3 (side swap)` = boundary `[9]`
+- Practical read:
+  - the current set-boundary result is not trustworthy because the upstream
+    rally detector is already wrong
+  - the current bug is not "slightly off timing"; it is wrong on:
+    - total detected rallies
+    - per-set rally counts
+    - swap timing
+
+### Artifact / Resume Handle
+
+- Debug job created:
+  - `runtime_jobs/20260415T141829Z__2_sets/`
+- Command to reopen the saved timeline later:
+  - `python scripts/diagnose_set_boundaries.py 20260415T141829Z__2_sets`
+
+### Resume Point
+
+1. Treat `2_sets.mp4` as the active blocking bug for Step 3.
+2. Do not continue with "run full Web UI flow on 2_sets.mp4" until the rally
+   detector is fixed on this input.
+3. Next debugging target:
+   - identify why the continuous 2-set video collapses to `24` rallies and a
+     false boundary around `200.67s -> 204.44s`
+   - compare the continuous-video signal traces against the per-set isolated
+     clips that were previously known to work
+   - inspect where the detector merges or drops rallies around the real set-end
+     / side-swap interval
+
+---
+
 ## Work Log - `2026-04-13` Session 3 (Player ID Algorithm Fix + Enrollment GUI)
 
 ### What Was Done This Session

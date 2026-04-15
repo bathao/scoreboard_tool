@@ -260,6 +260,94 @@ CUDA DLL resolution on Windows: `os.add_dll_directory(torch_lib_path)` is called
 before `import onnxruntime` to make PyTorch's bundled `cublasLt64_12.dll`
 discoverable to onnxruntime-gpu (Session 5 fix).
 
+## Side-Swap Detection (CLI helper for Step 3 debug)
+
+Script: `scripts/detect_side_swap.py`. Independent of Step 3 rally detection.
+Determines the timestamp at which the two players have physically swapped sides
+of the table — i.e. the boundary between Set N and Set N+1 (or the mid-set
+swap at total score 5 in a deciding set).
+
+Useful when Step 3 produces a wrong set boundary on multi-set continuous video,
+because side-swap is a guaranteed physical event in table tennis (rule of ITTF)
+and provides ground truth for splitting the timeline.
+
+### Inputs (relies on Step 1 + Step 2 having run)
+- Video file
+- Face DB with the two playing identities enrolled (Step 2 invariant: names
+  are always known by the time Step 3 runs)
+- YOLOv8x-table + YOLOv8x-pose + ArcFace weights
+
+### Algorithm
+
+1. **Detect Table ROI + player zone** (reuses
+   `detect_table_roi_and_player_zone()` from `backend/player_identification.py`).
+   Compute `table_center_x = roi.x + roi.w / 2`.
+
+2. **Sample frames every `sample_step` seconds** (default 2 s) through the full
+   video. Per frame:
+   - Run YOLOv8x-pose; filter detections to those whose bbox center lies inside
+     the player zone (excludes adjacent-table players)
+   - Take the top-2 bodies by area
+   - Per body, compute `cx`; classify side as `L` if `cx < table_center_x`
+     else `R`
+   - Run ArcFace via the display-crop method (matches enrollment); match against
+     the face DB; assign identity (player name or `None`)
+
+3. **Auto-select the two main players** as the two identities with the most
+   matched samples (do not assume the face DB has exactly two records).
+
+4. **Per-identity side timeline**: list of `(t, side)` for each player.
+
+5. **Smoothed side at time `t`**: dominant side in a `±window` second sliding
+   window (default `window = 10 s`); requires `min_samples = 2` and
+   `min_majority_frac = 0.6`. Returns `None` when the data is sparse or evenly
+   split (transitioning).
+
+6. **Baseline (Set 1) sides**: dominant side per player in `[baseline_start,
+   baseline_end]` (default 10–60 s). The two baseline sides must be opposite;
+   if not, abort.
+
+7. **Search for swap** (walk forward from `baseline_end`):
+
+   At each timestamp `t`, classify the candidate as one of:
+
+   | Mode | Condition |
+   |------|-----------|
+   | `both`   | Both players' smoothed sides observed flipped |
+   | `a-only` | Player A clearly flipped; Player B has no contrary evidence (sparse data, e.g. back-to-camera) — accept by symmetry: two players physically must be on opposite sides |
+   | `b-only` | Mirror of `a-only` |
+
+   Then verify **stability**: state must not return to the baseline state for
+   the next `stability_seconds` (default 15 s). The first stable candidate
+   wins.
+
+8. **Backtrack** from the swap-detected timestamp: walk backward in `step`
+   increments; continue past `None` (no data) but stop on any explicit return
+   to the baseline state. The earliest non-baseline timestamp is
+   `T_swap_start`.
+
+### Output
+- `T_swap_start` (seconds): the timestamp from which the post-swap state begins
+- Set 1 timeline range: `t < T_swap_start`
+- Set 2 timeline range: `t >= T_swap_start`
+- The algorithm reports the swap window `[T_last_set1, T_swap_start]` so the
+  operator can verify visually
+
+### Verified result on `inputs/raw_matches/2_sets.mp4` (`2026-04-15`)
+- Detected `T_swap_start = 172.00 s` — confirmed correct by operator
+- Mode used: `a-only` (player B was facing away from the camera too often for
+  reliable face matching during the transition window)
+- Step 3 rally detection on the same input is still buggy (24 rallies, wrong
+  per-set counts — see Known Issues), but this script gives a trustworthy
+  set boundary independent of rally detection
+
+### CLI usage
+```
+python scripts/detect_side_swap.py --video <path> [--sample-step 2.0] [--smooth-window 10.0] [--stability-seconds 15.0]
+```
+
+---
+
 ## Internal `current_step` Values
 
 The `MatchJob.current_step` field uses machine-readable values (separate from
@@ -281,7 +369,21 @@ and any saved job files that reference them.
 ## Known Issues
 
 See `PROJECT_PROGRESS.md` for current known bugs:
-- **Multi-set continuous video** — rally detection (Step 3/5) fails when a
+- **Multi-set continuous video** - rally detection (Step 3/5) fails when a
   single input contains multiple sets concatenated. Each set in isolation works
   correctly. Likely cause: energy normalization or hysteresis thresholds do not
   cope with the 60–120s inter-set break.
+- **Current failure signature on `inputs/raw_matches/2_sets.mp4` (`2026-04-15`)**
+  - Command run: `python scripts/debug_set_boundaries.py --video inputs/raw_matches/2_sets.mp4 --best-of 3 --trim 0`
+  - Current code output:
+    - total rallies detected = `24`
+    - set 1 = `9` rallies
+    - set 2 = `15` rallies
+    - detected side-swap boundary = index `9` (`pt_0009 -> pt_0010`)
+    - detected swap window = about `200.67s -> 204.44s`
+  - Operator verdict: all three are wrong for this input
+    - wrong set-1 rally count
+    - wrong set-2 rally count
+    - wrong swap timing
+  - Practical meaning: do not treat `2_sets.mp4` set counts or swap timing as
+    trustworthy until Step 3 rally detection is fixed.

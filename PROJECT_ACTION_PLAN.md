@@ -413,10 +413,21 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Operating rule: Web UI first; CLI only for narrow isolated debug
 
 ### Immediate next tasks (in priority order)
-1. `[doing]` Run `inputs/raw_matches/2_sets.mp4` end-to-end through Web UI (`Output Only`)
-   - shorter test input: 6.3 min, 2 sets, BO3 — faster to validate the full pipeline loop
-   - `match_vinh_001__full.mp4` (BO5, ~30-40 min) deferred until pipeline is confirmed working
-   - validate: Step 1b player ID, set boundary detection (1 boundary), full review → export
+1. `[doing]` Fix Step 3 rally detection on `inputs/raw_matches/2_sets.mp4` before any more end-to-end validation
+   - latest debug command:
+     - `python scripts/debug_set_boundaries.py --video inputs/raw_matches/2_sets.mp4 --best-of 3 --trim 0`
+   - latest wrong output from current code:
+     - total rallies = `24`
+     - set 1 = `9`
+     - set 2 = `15`
+     - detected swap window = about `200.67s -> 204.44s`
+   - operator verdict:
+     - set-1 rally count wrong
+     - set-2 rally count wrong
+     - swap timing wrong
+   - consequence:
+     - do not treat `2_sets.mp4` as "pipeline validated"
+     - do not move to `match_vinh_001__full.mp4` yet
 2. `[todo]` Wire reviewed winner corrections from UI into dataset storage:
    - canonical: `dataset/reviewed_matches/`
    - rolling finetune: `dataset/collections/finetune_dataset/`
