@@ -144,8 +144,9 @@ def populate_player_positions(
 
     Args:
         roi_xyxy: Optional (x1, y1, x2, y2) pixel ROI — only bodies whose bbox
-            center falls inside this region are considered.  Pass the value from
-            estimate_table_roi() to exclude players at adjacent tables.
+            center falls inside this region are considered.  Pass the player zone
+            from detect_table_roi_and_player_zone() to exclude players at
+            adjacent tables.
 
     The function does NOT re-run the full tracking pipeline — it is a lightweight
     post-hoc pass (~seconds on GPU for a full match).

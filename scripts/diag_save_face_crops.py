@@ -23,11 +23,12 @@ import cv2
 import numpy as np
 
 from backend.player_identity import align_face_from_keypoints, FaceEmbedder, FaceDB, face_similarity
-from backend.player_identification import _face_kpts_in_head_region, estimate_table_roi
+from backend.player_identification import _face_kpts_in_head_region, detect_table_roi_and_player_zone
 
-FACE_MODEL_PATH = ROOT / "data" / "models" / "face" / "w600k_r50.onnx"
-FACE_DB_PATH    = ROOT / "data" / "players" / "faces.json"
-POSE_WEIGHTS    = ROOT / "backend" / "weights" / "yolov8x-pose.pt"
+FACE_MODEL_PATH  = ROOT / "data" / "models" / "face" / "w600k_r50.onnx"
+FACE_DB_PATH     = ROOT / "data" / "players" / "faces.json"
+POSE_WEIGHTS     = ROOT / "weights" / "yolov8x-pose.pt"
+TABLE_WEIGHTS    = ROOT / "weights" / "yolov8x_table.pt"
 
 _KPT_NOSE = 0
 _KPT_LEYE = 1
@@ -84,12 +85,13 @@ def main():
     db = FaceDB(FACE_DB_PATH)
     print(f"  DB players: {[r.name for r in db.records]}")
 
-    print(f"\nEstimating table ROI...")
-    roi = estimate_table_roi(str(args.video), yolo)
+    print(f"\nDetecting table ROI + player zone...")
+    table_roi, roi = detect_table_roi_and_player_zone(str(args.video), str(TABLE_WEIGHTS))
     if roi:
-        print(f"  ROI: x=[{roi[0]:.0f},{roi[2]:.0f}]  y=[{roi[1]:.0f},{roi[3]:.0f}]")
+        print(f"  table ROI: x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}")
+        print(f"  player zone: x=[{roi[0]:.0f},{roi[2]:.0f}]  y=[{roi[1]:.0f},{roi[3]:.0f}]")
     else:
-        print(f"  ROI estimation failed — scanning full frame")
+        print(f"  table ROI detection failed — scanning full frame")
 
     print(f"\nScanning {args.video} from t={args.t_start}s to t={args.t_end}s at {args.fps} fps\n")
 

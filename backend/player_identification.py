@@ -102,6 +102,9 @@ class IdentificationResult:
     far_jersey_hist: Optional[np.ndarray]
     status: str               # "identified" | "partial" | "failed"
     unknown_faces: list[UnknownFace] = dataclasses.field(default_factory=list)
+    # Table ROI detected at the start of identification; reused downstream by
+    # rally detection to avoid running YOLOv8x-table twice on the same video.
+    table_roi: Optional[object] = None  # TableROI (avoid top-level import cycle)
 
     @property
     def is_complete(self) -> bool:
@@ -173,77 +176,74 @@ def _accumulate_jersey(hists: list[np.ndarray]) -> Optional[np.ndarray]:
 
 
 # ---------------------------------------------------------------------------
-# Table ROI estimation
+# Table ROI + player zone
 # ---------------------------------------------------------------------------
 
-# ROI expansion fractions applied to the union bbox of the main two players.
-# X: 40% — filters players at adjacent tables (left/right of main table).
-# Y: 100% — players are tall; need extra headroom above the table to capture faces.
-TABLE_ROI_EXPAND_X: float = 0.40
-TABLE_ROI_EXPAND_Y: float = 1.00
+# Player zone = Table ROI bbox expanded on each side by these fractions of the
+# table bbox width/height.  The zone filters out players at adjacent tables.
+# X: 30% on each side (total +60% width) — trims adjacent-table spill
+# Y: 110% on each side (total +220% height) — extra headroom for tall players
+#    above the table surface to capture full body + faces
+PLAYER_ZONE_EXPAND_X: float = 0.30
+PLAYER_ZONE_EXPAND_Y: float = 1.10
 
 
-def estimate_table_roi(
+def detect_table_roi_and_player_zone(
     video_path: str,
-    yolo_model,
-    n_frames: int = 8,
-    t_start: float = 2.0,
-    t_step: float = 5.0,
-    expand_x: float = TABLE_ROI_EXPAND_X,
-    expand_y: float = TABLE_ROI_EXPAND_Y,
-) -> Optional[tuple[float, float, float, float]]:
-    """Estimate the playing-table ROI from the top-2 player bboxes across several frames.
+    table_weights_path: str,
+    device: str = "cuda",
+    expand_x: float = PLAYER_ZONE_EXPAND_X,
+    expand_y: float = PLAYER_ZONE_EXPAND_Y,
+):
+    """Detect the table ROI (YOLOv8x-table) and derive the player zone around it.
 
-    Algorithm:
-    1. Sample n_frames frames spread across [t_start, t_start + n_frames * t_step].
-    2. For each frame detect all bodies; keep only the 2 largest (main players).
-    3. Compute the union bbox of all collected boxes.
-    4. Expand horizontally by expand_x (default 40%) and vertically by expand_y (default 100%).
-       The larger Y expansion is necessary because players are tall — we need room above
-       the table surface to capture their full bodies and faces.
+    The table ROI is the bounding box of the actual table surface.  The player
+    zone is that bbox expanded by (expand_x, expand_y) on each side to cover
+    where players stand and move; it is used to filter face captures to the
+    main match and exclude players at adjacent tables.
 
-    Returns (x1, y1, x2, y2) in pixel coords, or None if insufficient detections.
+    Args:
+        video_path:         Path to the video file.
+        table_weights_path: Path to YOLOv8x-table weights.
+        device:             Torch device for table detection.
+        expand_x, expand_y: Per-side expansion fractions of the table bbox.
+
+    Returns:
+        (table_roi, player_zone_xyxy):
+          - table_roi: TableROI object (raw detection, pass-through to rally pipeline)
+          - player_zone_xyxy: (x1, y1, x2, y2) pixel-coord bbox for identification filtering
+
+        Returns (None, None) if detection fails.
     """
     import cv2 as _cv2
+    from backend.ai_table_roi_dl import DLConfig, detect_table_roi_dl
 
-    all_boxes: list[np.ndarray] = []
-    frame_w = frame_h = 0
+    try:
+        roi = detect_table_roi_dl(
+            str(video_path),
+            cfg=DLConfig(weights_path=str(table_weights_path), device=device),
+        )
+    except Exception:
+        return None, None
+
+    if roi is None or roi.w <= 0 or roi.h <= 0:
+        return None, None
 
     cap = _cv2.VideoCapture(str(video_path))
-    for i in range(n_frames):
-        t = t_start + i * t_step
-        cap.set(_cv2.CAP_PROP_POS_MSEC, t * 1000.0)
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame_h, frame_w = frame.shape[:2]
-        results = yolo_model.predict(frame, verbose=False, half=True, device=0)
-        if not results or results[0].boxes is None or len(results[0].boxes) == 0:
-            continue
-        boxes_raw = results[0].boxes.xyxy.cpu().numpy()
-        areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in boxes_raw]
-        top2_idx = sorted(range(len(boxes_raw)), key=lambda k: -areas[k])[:2]
-        for idx in top2_idx:
-            all_boxes.append(boxes_raw[idx])
+    frame_w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    frame_h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     cap.release()
+    if frame_w <= 0 or frame_h <= 0:
+        return None, None
 
-    if not all_boxes or frame_w == 0:
-        return None
+    bw = float(roi.w)
+    bh = float(roi.h)
+    px1 = max(0.0, float(roi.x) - bw * expand_x)
+    py1 = max(0.0, float(roi.y) - bh * expand_y)
+    px2 = min(float(frame_w), float(roi.x + roi.w) + bw * expand_x)
+    py2 = min(float(frame_h), float(roi.y + roi.h) + bh * expand_y)
 
-    arr = np.array(all_boxes)
-    x1 = float(arr[:, 0].min())
-    y1 = float(arr[:, 1].min())
-    x2 = float(arr[:, 2].max())
-    y2 = float(arr[:, 3].max())
-
-    bw = x2 - x1
-    bh = y2 - y1
-    x1 = max(0.0, x1 - bw * expand_x)
-    y1 = max(0.0, y1 - bh * expand_y)
-    x2 = min(float(frame_w), x2 + bw * expand_x)
-    y2 = min(float(frame_h), y2 + bh * expand_y)
-
-    return (x1, y1, x2, y2)
+    return roi, (px1, py1, px2, py2)
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +599,7 @@ def run_player_identification(
     face_db: FaceDB,
     face_model_path: Optional[Path] = None,
     match_threshold: float = DEFAULT_MATCH_THRESHOLD,
+    table_weights_path: Optional[str] = None,
     log_fn=None,
 ) -> IdentificationResult:
     """Scan the video to identify who is NEAR and FAR.
@@ -662,15 +663,25 @@ def run_player_identification(
             status="failed",
         )
 
-    # --- Estimate table ROI ---
-    # Only consider players whose body center falls inside this region.
-    # Prevents picking up players at adjacent tables.
-    _log("[player_id] Estimating table ROI from early frames...")
-    roi = estimate_table_roi(video_path, yolo)
-    if roi is not None:
-        _log(f"[player_id]   ROI: x=[{roi[0]:.0f},{roi[2]:.0f}]  y=[{roi[1]:.0f},{roi[3]:.0f}]")
+    # --- Detect table ROI + derive player zone ---
+    # The player zone is the table bbox expanded by X+30%, Y+110% on each side;
+    # only bodies whose center falls inside it are considered.  Prevents picking
+    # up players at adjacent tables.
+    table_roi = None
+    roi = None
+    if table_weights_path:
+        _log("[player_id] Detecting table ROI (YOLOv8x-table)...")
+        table_roi, roi = detect_table_roi_and_player_zone(video_path, table_weights_path)
+        if table_roi is not None:
+            _log(
+                f"[player_id]   table ROI: x={table_roi.x} y={table_roi.y} "
+                f"w={table_roi.w} h={table_roi.h}"
+            )
+            _log(f"[player_id]   player zone: x=[{roi[0]:.0f},{roi[2]:.0f}] y=[{roi[1]:.0f},{roi[3]:.0f}]")
+        else:
+            _log("[player_id]   table ROI detection failed — scanning full frame (may pick up adjacent tables)")
     else:
-        _log("[player_id]   ROI estimation failed — scanning full frame (may pick up adjacent tables)")
+        _log("[player_id] No table weights provided — scanning full frame (may pick up adjacent tables)")
 
     # --- Phase B: build sampling windows ---
     #
@@ -890,6 +901,7 @@ def run_player_identification(
         far_jersey_hist=far_jersey,
         status=status,
         unknown_faces=unknown_faces,
+        table_roi=table_roi,
     )
 
 
@@ -941,6 +953,25 @@ _CHUNK_SEC: float = 20.0         # scan in 20-second chunks
 _MIN_EMBS_FOR_MATCH: int = 5     # minimum face embeddings before attempting a match
 
 
+def _match_embedding_group(
+    embs: list[dict],
+    face_db: "FaceDB",
+    match_threshold: float,
+) -> tuple[Optional["PlayerRecord"], Optional[float]]:
+    """Average a group of embeddings and match it against the face DB."""
+    if len(embs) < _MIN_EMBS_FOR_MATCH:
+        return None, None
+
+    emb_arr = np.stack([r["embedding"] for r in embs])
+    avg = emb_arr.mean(axis=0)
+    avg = avg / (np.linalg.norm(avg) + 1e-9)
+    record = face_db.match(avg, threshold=match_threshold)
+    if record is None:
+        return None, None
+    sim = face_similarity(avg, record.embedding_array())
+    return record, sim
+
+
 def _scan_player_chunked(
     video_path: str,
     t_start: float,
@@ -954,6 +985,7 @@ def _scan_player_chunked(
     early_stop_sim: float = _EARLY_STOP_SIM,
     exclude_record: Optional["PlayerRecord"] = None,
     dont_stop_on: Optional["PlayerRecord"] = None,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
     log_fn=None,
 ) -> tuple:
     """Scan one player window in chunks; stop early if a confident match is found.
@@ -987,7 +1019,8 @@ def _scan_player_chunked(
     while t < t_end:
         chunk_end = min(t + _CHUNK_SEC, t_end)
         results = _collect_face_embeddings_in_window(
-            video_path, t, chunk_end, yolo, embedder, sample_fps=sample_fps
+            video_path, t, chunk_end, yolo, embedder, sample_fps=sample_fps,
+            roi_xyxy=roi_xyxy,
         )
         chunk_embs = [r for r in results if r["body_rank"] == rank]
 
@@ -1005,12 +1038,8 @@ def _scan_player_chunked(
         all_embs.extend(chunk_embs)
 
         if len(all_embs) >= _MIN_EMBS_FOR_MATCH:
-            emb_arr = np.stack([r["embedding"] for r in all_embs])
-            avg = emb_arr.mean(axis=0)
-            avg = avg / (np.linalg.norm(avg) + 1e-9)
-            record = face_db.match(avg, threshold=match_threshold)
-            if record is not None:
-                sim = face_similarity(avg, record.embedding_array())
+            record, sim = _match_embedding_group(all_embs, face_db, match_threshold)
+            if record is not None and sim is not None:
                 _log(f"[quick_id]   t={chunk_end:.0f}s: {len(all_embs)} embs → {record.name} (sim={sim:.3f})")
                 blocked = (
                     dont_stop_on is not None
@@ -1034,15 +1063,90 @@ def _scan_player_chunked(
 
     # Final match attempt with all collected embeddings (if no early stop)
     if matched_record is None and len(all_embs) >= _MIN_EMBS_FOR_MATCH:
-        emb_arr = np.stack([r["embedding"] for r in all_embs])
-        avg = emb_arr.mean(axis=0)
-        avg = avg / (np.linalg.norm(avg) + 1e-9)
-        record = face_db.match(avg, threshold=match_threshold)
+        record, sim = _match_embedding_group(all_embs, face_db, match_threshold)
         if record is not None:
-            matched_sim = face_similarity(avg, record.embedding_array())
+            matched_sim = sim
             matched_record = record
 
     return all_embs, matched_record, matched_sim
+
+
+def _scan_player_best_chunk_match(
+    video_path: str,
+    t_start: float,
+    t_end: float,
+    rank: int,
+    yolo,
+    embedder: "FaceEmbedder",
+    face_db: "FaceDB",
+    sample_fps: float = 2.0,
+    match_threshold: float = DEFAULT_MATCH_THRESHOLD,
+    early_stop_sim: float = _EARLY_STOP_SIM,
+    exclude_record: Optional["PlayerRecord"] = None,
+    reject_record: Optional["PlayerRecord"] = None,
+    roi_xyxy: Optional[tuple[float, float, float, float]] = None,
+    log_fn=None,
+) -> tuple[list[dict], Optional["PlayerRecord"], Optional[float]]:
+    """Scan independent chunks and keep the best non-rejected chunk-level match."""
+    def _log(msg: str) -> None:
+        if log_fn:
+            log_fn(msg)
+
+    excl_emb: Optional[np.ndarray] = (
+        exclude_record.embedding_array() if exclude_record is not None else None
+    )
+
+    all_embs: list[dict] = []
+    best_record: Optional["PlayerRecord"] = None
+    best_sim: Optional[float] = None
+
+    t = t_start
+    while t < t_end:
+        chunk_end = min(t + _CHUNK_SEC, t_end)
+        results = _collect_face_embeddings_in_window(
+            video_path, t, chunk_end, yolo, embedder, sample_fps=sample_fps,
+            roi_xyxy=roi_xyxy,
+        )
+        chunk_embs = [r for r in results if r["body_rank"] == rank]
+
+        if excl_emb is not None:
+            n_before = len(chunk_embs)
+            chunk_embs = [
+                r for r in chunk_embs
+                if face_similarity(r["embedding"], excl_emb) < match_threshold
+            ]
+            n_excl = n_before - len(chunk_embs)
+            if n_excl > 0 and exclude_record is not None:
+                _log(f"[quick_id]   t={chunk_end:.0f}s: excluded {n_excl} frames similar to {exclude_record.name}")
+
+        all_embs.extend(chunk_embs)
+
+        if len(chunk_embs) < _MIN_EMBS_FOR_MATCH:
+            _log(f"[quick_id]   t={chunk_end:.0f}s: {len(chunk_embs)} candidate embs in chunk (need {_MIN_EMBS_FOR_MATCH})")
+            t = chunk_end
+            continue
+
+        record, sim = _match_embedding_group(chunk_embs, face_db, match_threshold)
+        if record is None or sim is None:
+            _log(f"[quick_id]   t={chunk_end:.0f}s: {len(chunk_embs)} embs in chunk -> no match")
+            t = chunk_end
+            continue
+
+        if reject_record is not None and record.player_id == reject_record.player_id:
+            _log(f"[quick_id]   t={chunk_end:.0f}s: chunk rejected -> still collapses to {record.name} (sim={sim:.3f})")
+            t = chunk_end
+            continue
+
+        _log(f"[quick_id]   t={chunk_end:.0f}s: chunk match -> {record.name} (sim={sim:.3f})")
+        if best_record is None or best_sim is None or sim > best_sim:
+            best_record = record
+            best_sim = sim
+        if sim >= early_stop_sim:
+            _log(f"[quick_id]   -> early stop: confident chunk match for {record.name}")
+            break
+        t = chunk_end
+
+    return all_embs, best_record, best_sim
 
 
 def _best_unknown_face(embs: list[dict], role: str) -> Optional["UnknownFace"]:
@@ -1065,6 +1169,7 @@ def quick_identify_players_standalone(
     face_db: "FaceDB",
     face_model_path: Optional[Path] = None,
     match_threshold: float = DEFAULT_MATCH_THRESHOLD,
+    table_weights_path: Optional[str] = None,
     log_fn=None,
 ) -> "IdentificationResult":
     """Identify both players from video without a rally timeline.
@@ -1122,12 +1227,36 @@ def quick_identify_players_standalone(
             status="failed",
         )
 
+    # ── Detect table ROI + derive player zone ────────────────────────────────
+    # Player zone = table bbox + X+30%/Y+110% on each side; filters out players
+    # at adjacent tables.  Also returned in the result so Step 3 can reuse the
+    # Table ROI instead of running YOLOv8x-table a second time on the same video.
+    table_roi = None
+    roi_xyxy = None
+    if table_weights_path:
+        _log("[quick_id] Detecting table ROI (YOLOv8x-table)...")
+        table_roi, roi_xyxy = detect_table_roi_and_player_zone(video_path, table_weights_path)
+        if table_roi is not None:
+            _log(
+                f"[quick_id]   table ROI: x={table_roi.x} y={table_roi.y} "
+                f"w={table_roi.w} h={table_roi.h}"
+            )
+            _log(
+                f"[quick_id]   player zone: x=[{roi_xyxy[0]:.0f},{roi_xyxy[2]:.0f}] "
+                f"y=[{roi_xyxy[1]:.0f},{roi_xyxy[3]:.0f}]"
+            )
+        else:
+            _log("[quick_id]   table ROI detection failed — scanning full frame (may pick up adjacent tables)")
+    else:
+        _log("[quick_id] No table weights provided — scanning full frame (may pick up adjacent tables)")
+
     # ── Player 1: FAR in set 1, rank=1, t=1–120s ─────────────────────────────
     _log("[quick_id] Player 1 — FAR position, scanning t=1–120s (rank=1, 4 fps)...")
     p1_embs, p1_match, p1_sim = _scan_player_chunked(
         video_path, 1.0, 120.0, rank=1,
         yolo=yolo, embedder=embedder, face_db=face_db,
         sample_fps=4.0, match_threshold=match_threshold,
+        roi_xyxy=roi_xyxy,
         log_fn=log_fn,
     )
     _log(f"[quick_id] Player 1: {len(p1_embs)} embeddings collected")
@@ -1140,12 +1269,13 @@ def quick_identify_players_standalone(
     # Exclude Player 1's face so pre-swap frames (still showing Player 1 at rank=1)
     # don't contaminate the Player 2 average embedding.
     _log("[quick_id] Player 2 — NEAR→FAR swap zone, scanning t=120–400s (rank=1, 2 fps, excluding Player 1)...")
-    p2_embs, p2_match, p2_sim = _scan_player_chunked(
+    p2_embs, p2_match, p2_sim = _scan_player_best_chunk_match(
         video_path, 120.0, 400.0, rank=1,
         yolo=yolo, embedder=embedder, face_db=face_db,
         sample_fps=2.0, match_threshold=match_threshold,
         exclude_record=p1_match,
-        dont_stop_on=p1_match,
+        reject_record=p1_match,
+        roi_xyxy=roi_xyxy,
         log_fn=log_fn,
     )
     _log(f"[quick_id] Player 2: {len(p2_embs)} embeddings collected")
@@ -1158,17 +1288,57 @@ def quick_identify_players_standalone(
     #    and there are exactly 2 players in the DB, the other must be Player 2.
     #    This handles the case where face similarity is too close to distinguish via
     #    embedding averaging (e.g. cross-sim > 0.5 between the two enrolled players).
+    _log("[quick_id] Player 2 refinement â€” evaluating early-window and clean post-swap evidence...")
+    p2_legacy_embs = list(p2_embs)
+    p2_legacy_match = p2_match
+    p2_legacy_sim = p2_sim
+
+    p2_early_embs, p2_early_match, p2_early_sim = _scan_player_chunked(
+        video_path, 1.0, 40.0, rank=0,
+        yolo=yolo, embedder=embedder, face_db=face_db,
+        sample_fps=2.0, match_threshold=match_threshold,
+        roi_xyxy=roi_xyxy,
+        log_fn=log_fn,
+    )
+    if p2_early_match is not None:
+        _log(f"[quick_id] Player 2 early-window candidate: {p2_early_match.name} (sim={p2_early_sim:.3f})")
+    else:
+        _log(f"[quick_id] Player 2 early-window candidate: none â€” {'face detected, needs enrollment' if p2_early_embs else 'no face detected'}")
+
+    p2_late_embs = list(p2_legacy_embs)
+    p2_late_match = p2_legacy_match
+    p2_late_sim = p2_legacy_sim
+    if p2_late_match is not None:
+        _log(f"[quick_id] Player 2 post-swap candidate: {p2_late_match.name} (sim={p2_late_sim:.3f})")
+    else:
+        _log(f"[quick_id] Player 2 post-swap candidate: none â€” {'face detected, needs enrollment' if p2_late_embs else 'no face detected'}")
+
+    p2_embs = list(p2_early_embs) + list(p2_late_embs)
+    p2_candidates: list[tuple[str, "PlayerRecord", float]] = []
+    if p2_early_match is not None and p2_early_sim is not None:
+        if p1_match is None or p2_early_match.player_id != p1_match.player_id:
+            p2_candidates.append(("early_window", p2_early_match, p2_early_sim))
+        else:
+            _log("[quick_id] Player 2 early-window candidate rejected â€” same identity as Player 1")
+    if p2_late_match is not None and p2_late_sim is not None:
+        if p1_match is None or p2_late_match.player_id != p1_match.player_id:
+            p2_candidates.append(("post_swap", p2_late_match, p2_late_sim))
+        else:
+            _log("[quick_id] Player 2 post-swap candidate rejected â€” same identity as Player 1")
+
+    if p2_candidates:
+        source, p2_match, p2_sim = max(p2_candidates, key=lambda item: item[2])
+        _log(f"[quick_id] Player 2 refined selection from {source}: {p2_match.name} (sim={p2_sim:.3f})")
+    else:
+        p2_match = p2_legacy_match
+        p2_sim = p2_legacy_sim
+
     if p1_match is not None and (
         p2_match is None or p2_match.player_id == p1_match.player_id
     ):
-        other_players = [r for r in face_db.records if r.player_id != p1_match.player_id]
-        if len(other_players) == 1:
-            p2_match = other_players[0]
-            p2_sim = None
-            _log(
-                f"[quick_id] Player 2 fallback: only other enrolled player is"
-                f" '{p2_match.name}' — assigning as Player 2"
-            )
+        p2_match = None
+        p2_sim = None
+        _log("[quick_id] Player 2 unresolved after refinement - leaving as unknown (no fallback guessing)")
 
     # ── Map to near/far names (Player 1 = FAR in set 1, Player 2 = NEAR in set 1)
     far_name:  Optional[str] = p1_match.name if p1_match else None
@@ -1205,4 +1375,5 @@ def quick_identify_players_standalone(
         far_jersey_hist=None,
         status=status,
         unknown_faces=unknown_faces,
+        table_roi=table_roi,
     )

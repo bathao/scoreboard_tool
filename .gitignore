@@ -29,6 +29,7 @@ dataset/collections/finetune_dataset/cache/
 training_runs/
 runtime_jobs/
 logs/*.log
+*.bat
 yolov8x_table.pt
 yolov8n-pose.pt
 yolov8x-pose.pt

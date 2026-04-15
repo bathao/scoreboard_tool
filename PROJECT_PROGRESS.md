@@ -5983,8 +5983,25 @@ Note: for `2_sets.mp4` the ROI spans full frame (players already cover entire fr
 | `backend/set_boundary.py` | `roi_xyxy` param in `populate_player_positions()` |
 | `scripts/diag_save_face_crops.py` | New diagnostic tool — saves annotated frames + face crops with sims |
 
+### Known Bug: Rally detection fails on multi-set continuous video
+
+**Symptom:** `2_sets.mp4` (2 sets concatenated in one video) → rally detection completely wrong.
+Each set passed in isolation detects correctly.
+
+**Hypothesis:** Rally detection algorithm (hysteresis state machine, energy normalization,
+or endpoint refinement) does not handle multi-set continuous video correctly. Possible causes:
+- Energy normalization (10th–95th percentile) is computed over the whole video → the 60–120s
+  inter-set break drags the percentile range down → thresholds become wrong
+- `max_gap_sec` too short → splits rallies during set breaks
+- `_split_long_segment_on_dips()` cuts incorrectly when energy shifts between sets
+- Player/ball energy signals are polluted by the side-swap walk between sets (players walking
+  around creates noise spikes)
+
+**Next step (Session 6):** Debug per the plan above — start by visualizing energy signals,
+compare multi-set output vs single-set output, identify where the algorithm diverges.
+
 ### Resume Point
-- Waiting for `2_sets.mp4` to finish running through GUI — verify Thảo=FAR, Vinh=NEAR
+- **CRITICAL:** Fix rally detection on multi-set video (bug above)
 - Confirm / delete `thao_fullbody_orange_jersey_a_score0.98.png` (likely Vinh)
 - Run `match_vinh_001__full.mp4` end-to-end (Output Only) to validate full flow
 

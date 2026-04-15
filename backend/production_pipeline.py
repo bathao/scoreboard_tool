@@ -406,35 +406,59 @@ def run_initial_job_pipeline(
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
-    _job_log(job_dir, "Step 1/4: trim_input — cutting working video with GPU encoder")
+    _job_log(job_dir, "Step 1/5: trim_input — cutting working video with GPU encoder")
     trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
-    _job_log(job_dir, "Step 1/4: trim_input — done")
+    _job_log(job_dir, "Step 1/5: trim_input — done")
 
-    # Step 1b: player identification — runs BEFORE rally detection so player names
-    # are available for all downstream steps.  Uses a standalone scan (no timeline needed).
-    # Skipped if both player names are already provided (user filled them via UI scan or manually).
+    # Step 2: player identification — runs BEFORE rally detection so player names
+    # are available for all downstream steps.  Also detects the table ROI once
+    # so Step 3 can reuse it (the table-ROI detector is run here even when
+    # identification itself is skipped, because Step 3 always needs the ROI).
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="player_identification")
     _names_already_set = bool(job.player_a_name.strip() and job.player_b_name.strip())
+    table_roi = None   # shared across Step 2 → Step 3 to avoid duplicate detection
+
     if _names_already_set:
-        _job_log(job_dir, f"Step 1b: player_identification — skipped (names already provided: {job.player_a_name!r}, {job.player_b_name!r})")
+        _job_log(
+            job_dir,
+            f"Step 2/5: identify_players — names already provided ({job.player_a_name!r}, {job.player_b_name!r}); "
+            "skipping face identification but still detecting table ROI for Step 3",
+        )
+        try:
+            from backend.player_identification import detect_table_roi_and_player_zone
+            table_roi, _zone = detect_table_roi_and_player_zone(
+                job.artifacts.working_video_path, config.table_weights_path,
+            )
+            if table_roi is not None:
+                _job_log(
+                    job_dir,
+                    f"Step 2/5: identify_players — table ROI: x={table_roi.x} y={table_roi.y} "
+                    f"w={table_roi.w} h={table_roi.h}",
+                )
+            else:
+                _job_log(job_dir, "Step 2/5: identify_players — table ROI detection failed")
+        except Exception as exc:
+            _job_log(job_dir, f"Step 2/5: identify_players — table ROI detection FAILED: {exc}")
     else:
-        _job_log(job_dir, "Step 1b: player_identification — scanning face DB for known players")
+        _job_log(job_dir, "Step 2/5: identify_players — scanning face DB for known players")
         try:
             from backend.player_identity import FaceDB
             from backend.player_identification import quick_identify_players_standalone
 
             face_db_path = PROJECT_ROOT / "data" / "players" / "faces.json"
             face_db = FaceDB(face_db_path)
+            id_result = quick_identify_players_standalone(
+                job.artifacts.working_video_path,
+                config.pose_weights_path,
+                face_db,
+                table_weights_path=config.table_weights_path,
+                log_fn=lambda msg: _job_log(job_dir, msg),
+            )
+            table_roi = id_result.table_roi
             if len(face_db) == 0:
-                _job_log(job_dir, "Step 1b: player_identification — face DB is empty, skipping")
+                _job_log(job_dir, "Step 2/5: identify_players — face DB is empty, no names resolved")
             else:
-                id_result = quick_identify_players_standalone(
-                    job.artifacts.working_video_path,
-                    config.pose_weights_path,
-                    face_db,
-                    log_fn=lambda msg: _job_log(job_dir, msg),
-                )
                 resolved_near = id_result.near_name
                 resolved_far = id_result.far_name
                 if resolved_near is not None or resolved_far is not None:
@@ -451,19 +475,21 @@ def run_initial_job_pipeline(
                     save_match_job(job)
                     _job_log(
                         job_dir,
-                        f"Step 1b: player_identification — NEAR={resolved_near!r} FAR={resolved_far!r}"
+                        f"Step 2/5: identify_players — NEAR={resolved_near!r} FAR={resolved_far!r}"
                         f" → player_a={job.player_a_name!r} player_b={job.player_b_name!r}"
                         f" (status={id_result.status})",
                     )
                 else:
-                    _job_log(job_dir, f"Step 1b: player_identification — no faces matched (status={id_result.status}), keeping user names")
+                    _job_log(job_dir, f"Step 2/5: identify_players — no faces matched (status={id_result.status}), keeping user names")
         except Exception as exc:
-            _job_log(job_dir, f"Step 1b: player_identification — FAILED: {exc} — keeping user-provided names")
+            _job_log(job_dir, f"Step 2/5: identify_players — FAILED: {exc} — keeping user-provided names")
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="generate_rally_timeline")
-    _job_log(job_dir, "Step 2/4: generate_rally_timeline — loading YOLO models and detecting rallies (slowest step)")
+    _job_log(job_dir, "Step 3/5: detect_rallies — loading YOLO models and detecting rallies (slowest step)")
     build_rally_timeline = _load_build_rally_timeline()
+    if table_roi is not None:
+        _job_log(job_dir, "Step 3/5: detect_rallies — reusing table ROI from Step 2 (skipping re-detection)")
     timeline = build_rally_timeline(
         job.artifacts.working_video_path,
         config.table_weights_path,
@@ -476,13 +502,14 @@ def run_initial_job_pipeline(
         player_signal_source=config.rally_player_signal_source,
         ball_fuse_gain=config.rally_ball_fuse_gain,
         ball_signal_source=config.rally_ball_signal_source,
+        table_roi=table_roi,
         log_fn=lambda msg: _job_log(job_dir, msg),
     )
     timeline.video_path = str(Path(job.artifacts.working_video_path).resolve()).replace("\\", "/")
-    _job_log(job_dir, f"Step 2/4: generate_rally_timeline — done, {len(timeline.points)} rallies detected")
+    _job_log(job_dir, f"Step 3/5: detect_rallies — done, {len(timeline.points)} rallies detected")
 
     _check_stop()
-    _job_log(job_dir, "Step 2b: populate_player_positions — sampling YOLO X positions for set-boundary Signal 3")
+    _job_log(job_dir, "Step 3/5: detect_rallies (sampling player positions) — sampling YOLO X positions for set-boundary Signal 3")
     try:
         populate_player_positions(
             timeline,
@@ -490,9 +517,9 @@ def run_initial_job_pipeline(
             config.pose_weights_path,
         )
         n_pos = sum(1 for p in timeline.points if p.player_a_mean_x is not None)
-        _job_log(job_dir, f"Step 2b: populate_player_positions — done, {n_pos}/{len(timeline.points)} rallies have position data")
+        _job_log(job_dir, f"Step 3/5: detect_rallies (sampling player positions) — done, {n_pos}/{len(timeline.points)} rallies have position data")
     except Exception as exc:
-        _job_log(job_dir, f"Step 2b: populate_player_positions — FAILED: {exc} — set boundary will use Signal 1+2 only")
+        _job_log(job_dir, f"Step 3/5: detect_rallies (sampling player positions) — FAILED: {exc} — set boundary will use Signal 1+2 only")
 
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
     if not timeline.points:
@@ -503,17 +530,17 @@ def run_initial_job_pipeline(
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)
-    _job_log(job_dir, f"Step 3/4: export_review_clips — cutting {len(timeline.points)} clips in parallel")
+    _job_log(job_dir, f"Step 4/5: export_clips — cutting {len(timeline.points)} clips in parallel")
     review_clips = export_review_clips(
         timeline,
         working_video_path=job.artifacts.working_video_path,
         review_clips_dir=job.artifacts.review_clips_dir,
     )
-    _job_log(job_dir, f"Step 3/4: export_review_clips — done, {len(review_clips)} clips")
+    _job_log(job_dir, f"Step 4/5: export_clips — done, {len(review_clips)} clips")
 
     _check_stop()
     update_job_runtime_state(job, status="running", current_step="predict_winners_with_adapter", timeline=timeline)
-    _job_log(job_dir, "Step 4/4: predict_winners_with_adapter — loading Qwen3-VL adapter")
+    _job_log(job_dir, "Step 5/5: predict_winners — loading Qwen3-VL adapter")
     predictor = WinnerAdapterPredictor(config)
     timeline = _apply_adapter_predictions(
         timeline,
@@ -527,7 +554,7 @@ def run_initial_job_pipeline(
     apply_set_numbers(timeline, best_of=job.best_of)
     timeline.score_validation = build_score_validation(timeline, expected_scope="any")
     save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
-    _job_log(job_dir, "Step 4/4: predict_winners_with_adapter — done")
+    _job_log(job_dir, "Step 5/5: predict_winners — done")
 
     review_status = build_review_status(timeline)
     next_status = "ready_for_final" if review_status["final_export_ready"] else "needs_review"

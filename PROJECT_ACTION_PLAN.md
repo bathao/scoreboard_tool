@@ -345,7 +345,8 @@ Put detailed explanations, experiments, failures, and resume notes in:
   - `ort.set_default_logger_severity(4)` suppresses onnxruntime stderr noise
   - `CUDAExecutionProvider` now detected correctly, ArcFace runs on GPU
 - `[done]` **Installed `torchcodec`** — removes torchvision video decoding deprecation warning in Qwen VL pipeline
-- `[doing]` Verify `2_sets.mp4` end-to-end: Thảo=FAR, Vinh=NEAR
+- `[done]` Verify `2_sets.mp4` player identification: Thảo=FAR, Vinh=NEAR ✓
+- `[blocked]` **Rally detection wrong on multi-set continuous video**: input `2_sets.mp4` (2 sets concatenated) → rallies completely wrong, even though each set in isolation detects correctly. Likely: energy normalization or hysteresis thresholds don't cope with the 60–120s inter-set break. **→ Session 6**
 
 ## Done (2026-04-14 Session 4 — player ID algorithm fix pt.2 + GPU enforcement)
 - `[done]` **Player 2 identification fix** (`backend/player_identification.py`):

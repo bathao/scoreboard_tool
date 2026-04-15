@@ -3058,6 +3058,7 @@ def extract_multistream_signals(
     ball_signal_source: str = "none",
     ball_tracking_profile: str = "support",
     device: str = "cuda",
+    table_roi: Optional[TableROI] = None,
     log_fn=None,
 ) -> MultiStreamSignals:
     if not torch.cuda.is_available() and device == "cuda":
@@ -3078,14 +3079,22 @@ def extract_multistream_signals(
         raise FileNotFoundError(f"Pose weights not found: {pose_w_path}")
 
     info = probe_video_ffprobe(str(v_path))
-    if log_fn:
-        log_fn("detecting table ROI...")
-    roi = detect_table_roi_dl(
-        str(v_path),
-        cfg=DLConfig(weights_path=str(table_w_path), device=device),
-    )
-    if log_fn:
-        log_fn(f"table ROI detected: x={roi.as_tuple()[0]} y={roi.as_tuple()[1]} w={roi.as_tuple()[2]} h={roi.as_tuple()[3]}")
+    if table_roi is not None:
+        roi = table_roi
+        if log_fn:
+            log_fn(
+                f"reusing table ROI from caller: x={roi.as_tuple()[0]} y={roi.as_tuple()[1]} "
+                f"w={roi.as_tuple()[2]} h={roi.as_tuple()[3]}"
+            )
+    else:
+        if log_fn:
+            log_fn("detecting table ROI...")
+        roi = detect_table_roi_dl(
+            str(v_path),
+            cfg=DLConfig(weights_path=str(table_w_path), device=device),
+        )
+        if log_fn:
+            log_fn(f"table ROI detected: x={roi.as_tuple()[0]} y={roi.as_tuple()[1]} w={roi.as_tuple()[2]} h={roi.as_tuple()[3]}")
     if player_signal_source == "none":
         timestamps, table_energies = _extract_production_table_energies(
             str(v_path),
