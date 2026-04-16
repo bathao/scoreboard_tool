@@ -15,12 +15,10 @@ This file describes **what is**, not **what should be**:
 ```
 A. Setup (Web UI)
     ↓
-B. Initial Job Pipeline   (run_initial_job_pipeline)
-   ├─ Step 1/5 — trim_input
-   ├─ Step 2/5 — identify_players   (skipped if names already set)
-   ├─ Step 3/5 — detect_rallies
-   ├─ Step 4/5 — export_clips
-   └─ Step 5/5 — predict_winners
+B. Initial Job Pipeline   (staged, with operator confirmation pauses)
+   ├─ Stage 1: trim_input + detect_sets           → PAUSE (confirm sets)
+   ├─ Stage 2: detect_rallies per set              → PAUSE (confirm rally counts)
+   └─ Stage 3: export_clips + predict_winners      → auto → review
     ↓
 C. Review (operator UI loop)
     ↓
@@ -350,18 +348,62 @@ python scripts/detect_side_swap.py --video <path> [--sample-step 2.0] [--smooth-
 
 ## Internal `current_step` Values
 
-The `MatchJob.current_step` field uses machine-readable values (separate from
-the human-readable "Step N/5" labels above). UI progress tracking in
-`web_ui/progress.py` depends on these exact strings:
+The `MatchJob.current_step` field uses machine-readable values. UI progress
+tracking in `web_ui/progress.py` and the staged pipeline in
+`backend/production_pipeline.py` depend on these exact strings.
 
-| Log label | `current_step` value |
-|-----------|---------------------|
-| Step 1/5 trim_input | `"trim_input"` |
-| Step 2/5 identify_players | `"player_identification"` |
-| Step 3/5 detect_rallies | `"generate_rally_timeline"` |
-| Step 4/5 export_clips | `"export_review_clips"` |
-| Step 5/5 predict_winners | `"predict_winners_with_adapter"` |
-| D2 final export | `"final_export"` |
+### Staged pipeline (current — debug-first GUI with operator pauses)
+
+```
+run_pipeline_stage_trim_and_detect_sets()
+  ├─ trim_input          (running)       — trim video (ffmpeg nvenc)
+  ├─ detect_sets         (running)       — side-swap detection (reuse Table ROI)
+  └─ confirm_sets        (awaiting_confirmation)  ← PAUSE
+
+run_pipeline_stage_detect_rallies()
+  ├─ detect_rallies      (running)       — per-set clip cut + rally detection
+  └─ confirm_rallies     (awaiting_confirmation)  ← PAUSE
+
+run_pipeline_stage_predict()
+  ├─ export_review_clips          (running)  — cut per-rally clips
+  ├─ predict_winners_with_adapter (running)  — Qwen3-VL inference
+  └─ ai_ready                     (needs_review / ready_for_final)
+```
+
+| `current_step` | `status` | Stage | Action |
+|----------------|----------|-------|--------|
+| `"trim_input"` | `running` | 1 | Trim video |
+| `"detect_sets"` | `running` | 1 | Side-swap detection |
+| `"confirm_sets"` | `awaiting_confirmation` | — | **PAUSE**: confirm set count + swap times |
+| `"detect_rallies"` | `running` | 2 | Per-set rally detection |
+| `"confirm_rallies"` | `awaiting_confirmation` | — | **PAUSE**: confirm per-set rally counts |
+| `"export_review_clips"` | `running` | 3 | Cut per-rally clips |
+| `"predict_winners_with_adapter"` | `running` | 3 | Qwen3-VL winner prediction |
+| `"ai_ready"` | `needs_review` | — | Pipeline done, enter review |
+| `"review_updated"` | `needs_review` / `ready_for_final` | — | After each review action |
+
+### Legacy pipeline (old — runs A-to-Z without pauses)
+
+Still available via `run_initial_job_pipeline()` and `POST /jobs/<id>/run`.
+
+| `current_step` | Step |
+|----------------|------|
+| `"trim_input"` | Step 1/5 |
+| `"player_identification"` | Step 2/5 |
+| `"generate_rally_timeline"` | Step 3/5 |
+| `"export_review_clips"` | Step 4/5 |
+| `"predict_winners_with_adapter"` | Step 5/5 |
+| `"ai_ready"` | Done |
+
+### Export + other (shared by both flows)
+
+| `current_step` | `status` |
+|----------------|----------|
+| `"final_export"` | `running` |
+| `"final_export_complete"` | `completed` |
+| `"preview_ready"` | varies |
+| `"preview_skipped_no_known_winner"` | `needs_review` |
+| `"failed"` | `failed` |
 
 Do not rename `current_step` values without also updating `web_ui/progress.py`
 and any saved job files that reference them.

@@ -563,6 +563,489 @@ def run_initial_job_pipeline(
     return job
 
 
+# ---------------------------------------------------------------------------
+# Staged pipeline — runs one stage at a time, pauses for operator confirmation
+# between stages.  The GUI shows output + "Next" button at each pause point.
+#
+# Stage flow:
+#   stage_trim_and_identify → status "awaiting_confirmation" / step "confirm_players"
+#   stage_detect_sets        → status "awaiting_confirmation" / step "confirm_sets"
+#   stage_detect_rallies     → status "awaiting_confirmation" / step "confirm_rallies"
+#   stage_predict_winners    → status "needs_review"
+# ---------------------------------------------------------------------------
+
+def run_pipeline_stage_trim_and_detect_sets(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+) -> MatchJob:
+    """Stage 1 + 3.1: trim video, detect table ROI, detect side swaps.
+
+    Player names are already confirmed by the operator in the setup form
+    BEFORE this stage runs — no confirm_players pause needed.
+
+    Pauses at confirm_sets for operator to verify set count + swap times.
+    """
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = job.artifacts.job_dir
+
+    # Step 1: trim
+    update_job_runtime_state(job, status="running", current_step="trim_input", error_message="")
+    _job_log(job_dir, "Step 1/5: trim_input — cutting working video with GPU encoder")
+    trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
+    _job_log(job_dir, "Step 1/5: trim_input — done")
+
+    # Recover or detect table ROI.  If Step 2 (identification scan) already
+    # detected it, the ROI is stored in job.timeline_summary["table_roi"] —
+    # reuse it instead of running YOLOv8x-table again.
+    update_job_runtime_state(job, status="running", current_step="detect_sets")
+    table_roi = None
+    roi_data = job.timeline_summary.get("table_roi")
+    if roi_data and roi_data.get("w", 0) > 0:
+        from backend.ai_table_roi import TableROI
+        table_roi = TableROI(
+            x=int(roi_data["x"]), y=int(roi_data["y"]),
+            w=int(roi_data["w"]), h=int(roi_data["h"]),
+            confidence=float(roi_data.get("confidence", 1.0)),
+        )
+        _job_log(job_dir, f"Step 3.1: detect_sets — reusing table ROI from Step 2: "
+                 f"x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}")
+    else:
+        try:
+            from backend.player_identification import detect_table_roi_and_player_zone
+            _job_log(job_dir, "Step 3.1: detect_sets — detecting table ROI (not cached from Step 2)")
+            table_roi, _zone = detect_table_roi_and_player_zone(
+                job.artifacts.working_video_path, config.table_weights_path,
+            )
+            if table_roi is not None:
+                _job_log(job_dir, f"Step 3.1: detect_sets — table ROI: x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}")
+                job.timeline_summary["table_roi"] = {
+                    "x": table_roi.x, "y": table_roi.y,
+                    "w": table_roi.w, "h": table_roi.h,
+                    "confidence": table_roi.confidence,
+                }
+            else:
+                _job_log(job_dir, "Step 3.1: detect_sets — table ROI detection FAILED")
+        except Exception as exc:
+            _job_log(job_dir, f"Step 3.1: detect_sets — table ROI FAILED: {exc}")
+
+    # Now run side-swap detection (reuses code from detect_side_swap.py)
+    _job_log(job_dir, "Step 3.1: detect_sets — detecting side swaps to find set boundaries")
+
+    import sys as _sys
+    if str(SCRIPTS_DIR) not in _sys.path:
+        _sys.path.append(str(SCRIPTS_DIR))
+    from detect_side_swap import (
+        sample_positions, smoothed_side, baseline_state,
+        find_swap, refine_swap_to_transition_window,
+        classify_side, SIDE_L, SIDE_R,
+    )
+    from backend.player_identity import FaceDB, FaceEmbedder, face_similarity
+    from backend.player_identification import (
+        _detect_bodies_and_faces, _try_embed_face, DEFAULT_MATCH_THRESHOLD,
+    )
+
+    video_path = job.artifacts.working_video_path
+
+    # Derive player zone from table ROI
+    if table_roi is not None and table_roi.w > 0:
+        import cv2
+        cap = cv2.VideoCapture(str(video_path))
+        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        cap.release()
+        bw, bh = float(table_roi.w), float(table_roi.h)
+        table_center_x = table_roi.x + table_roi.w / 2.0
+        player_zone = (
+            max(0.0, table_roi.x - bw * 0.40),
+            max(0.0, table_roi.y - bh * 1.00),
+            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.40),
+            min(float(frame_h), table_roi.y + table_roi.h + bh * 1.00),
+        )
+
+        face_db = FaceDB(PROJECT_ROOT / "data" / "players" / "faces.json")
+        face_model_path = PROJECT_ROOT / "data" / "models" / "face" / "w600k_r50.onnx"
+        embedder = FaceEmbedder(face_model_path)
+        from ultralytics import YOLO
+        yolo = YOLO(str(config.pose_weights_path))
+
+        _job_log(job_dir, "Step 3.1: detect_sets — sampling player positions")
+        records = sample_positions(
+            str(video_path), yolo, embedder, face_db, player_zone, table_center_x,
+            sample_step=2.0, match_threshold=DEFAULT_MATCH_THRESHOLD,
+        )
+
+        from collections import Counter
+        identity_counts = Counter(r["identity"] for r in records if r["identity"])
+        top2 = identity_counts.most_common(2)
+
+        swaps_info: list[dict] = []
+        n_sets = 1
+        if len(top2) >= 2:
+            name_a, _ = top2[0]
+            name_b, _ = top2[1]
+            tl_a = [(r["t"], r["side"]) for r in records if r["identity"] == name_a]
+            tl_b = [(r["t"], r["side"]) for r in records if r["identity"] == name_b]
+            init_a = baseline_state(tl_a, 10, 60)
+            init_b = baseline_state(tl_b, 10, 60)
+            duration = max(r["t"] for r in records) if records else 0.0
+
+            if init_a is not None and init_b is not None and init_a != init_b:
+                cur_a, cur_b = init_a, init_b
+                cursor = 60.0
+                while cursor <= duration:
+                    result = find_swap(tl_a, tl_b, cursor, duration, 2.0, cur_a, cur_b, 60.0, 15.0)
+                    if result is None:
+                        break
+                    t_swap, mode = result
+                    fl_a = SIDE_R if cur_a == SIDE_L else SIDE_L
+                    fl_b = SIDE_R if cur_b == SIDE_L else SIDE_L
+                    t_bs, t_be = refine_swap_to_transition_window(
+                        str(video_path), yolo, player_zone, table_center_x, t_swap,
+                        table_roi=table_roi, search_before=90.0, search_after=10.0,
+                    )
+                    cutoff = t_be if t_be else t_swap
+                    swaps_info.append({"t_swap": float(t_swap), "t_break_start": float(t_bs) if t_bs else None,
+                                       "t_break_end": float(t_be) if t_be else None, "t_cutoff": float(cutoff), "mode": mode})
+                    _job_log(job_dir, f"Step 3.1: detect_sets — swap: break ends at {cutoff:.1f}s (mode={mode})")
+                    cur_a, cur_b = fl_a, fl_b
+                    cursor = t_swap + 62.0
+            else:
+                _job_log(job_dir, "Step 3.1: detect_sets — baseline sides ambiguous, assuming 1 set")
+        else:
+            _job_log(job_dir, f"Step 3.1: detect_sets — only {len(top2)} player(s) identified, assuming 1 set")
+
+        n_sets = len(swaps_info) + 1
+        job.timeline_summary["detected_sets"] = {
+            "n_sets": n_sets, "swaps": swaps_info, "duration": float(duration),
+        }
+    else:
+        _job_log(job_dir, "Step 3.1: detect_sets — no table ROI, assuming 1 set")
+        job.timeline_summary["detected_sets"] = {"n_sets": 1, "swaps": [], "duration": 0.0}
+        n_sets = 1
+
+    _job_log(job_dir, f"Step 3.1: detect_sets — {n_sets} set(s) detected")
+
+    # Pause for operator confirmation
+    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+    _job_log(job_dir, "Paused — waiting for operator to confirm set count and swap times")
+    save_match_job(job)
+    return job
+
+
+def run_pipeline_stage_detect_sets(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+) -> MatchJob:
+    """Stage 3.1: detect side swaps to determine set count and boundaries.
+    Pauses for operator confirmation."""
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = job.artifacts.job_dir
+
+    update_job_runtime_state(job, status="running", current_step="detect_sets")
+    _job_log(job_dir, "Step 3.1: detect_sets — detecting side swaps to find set boundaries")
+
+    # Import swap detection functions
+    import sys as _sys
+    if str(SCRIPTS_DIR) not in _sys.path:
+        _sys.path.append(str(SCRIPTS_DIR))
+    from detect_side_swap import (
+        sample_positions, smoothed_side, baseline_state,
+        find_swap, refine_swap_to_transition_window,
+        classify_side, SIDE_L, SIDE_R,
+    )
+    from backend.player_identity import FaceDB, FaceEmbedder, face_similarity
+    from backend.player_identification import (
+        detect_table_roi_and_player_zone, _detect_bodies_and_faces,
+        _try_embed_face, DEFAULT_MATCH_THRESHOLD,
+    )
+
+    video_path = job.artifacts.working_video_path
+
+    # Recover table ROI from job metadata (saved by stage 1+2)
+    table_roi = None
+    roi_data = job.timeline_summary.get("table_roi")
+    if roi_data:
+        from backend.ai_table_roi import TableROI
+        table_roi = TableROI(
+            x=int(roi_data["x"]), y=int(roi_data["y"]),
+            w=int(roi_data["w"]), h=int(roi_data["h"]),
+            confidence=float(roi_data.get("confidence", 1.0)),
+        )
+
+    if table_roi is None:
+        _job_log(job_dir, "Step 3.1: detect_sets — detecting table ROI (not cached)")
+        table_roi, _zone = detect_table_roi_and_player_zone(video_path, config.table_weights_path)
+
+    if table_roi is None or table_roi.w <= 0:
+        _job_log(job_dir, "Step 3.1: detect_sets — FAILED: table ROI not detected")
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets",
+                                 error_message="Table ROI detection failed")
+        save_match_job(job)
+        return job
+
+    table_center_x = table_roi.x + table_roi.w / 2.0
+    _job_log(job_dir, f"Step 3.1: detect_sets — table center x={table_center_x:.0f}")
+
+    # Derive player zone from table ROI
+    import cv2
+    cap = cv2.VideoCapture(str(video_path))
+    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    cap.release()
+    bw, bh = float(table_roi.w), float(table_roi.h)
+    player_zone = (
+        max(0.0, table_roi.x - bw * 0.40),
+        max(0.0, table_roi.y - bh * 1.00),
+        min(float(frame_w), table_roi.x + table_roi.w + bw * 0.40),
+        min(float(frame_h), table_roi.y + table_roi.h + bh * 1.00),
+    )
+
+    # Load models
+    _job_log(job_dir, "Step 3.1: detect_sets — loading models for swap detection")
+    face_db = FaceDB(PROJECT_ROOT / "data" / "players" / "faces.json")
+    face_model_path = PROJECT_ROOT / "data" / "models" / "face" / "w600k_r50.onnx"
+    embedder = FaceEmbedder(face_model_path)
+    from ultralytics import YOLO
+    yolo = YOLO(str(config.pose_weights_path))
+
+    # Sample positions
+    _job_log(job_dir, "Step 3.1: detect_sets — sampling player positions across video")
+    records = sample_positions(
+        str(video_path), yolo, embedder, face_db, player_zone, table_center_x,
+        sample_step=2.0, match_threshold=DEFAULT_MATCH_THRESHOLD,
+    )
+
+    from collections import Counter
+    identity_counts = Counter(r["identity"] for r in records if r["identity"])
+    top2 = identity_counts.most_common(2)
+
+    if len(top2) < 2:
+        _job_log(job_dir, f"Step 3.1: detect_sets — only {len(top2)} player(s) identified, cannot detect swaps")
+        job.timeline_summary["detected_sets"] = {"n_sets": 1, "swaps": [], "note": "insufficient face data"}
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+        save_match_job(job)
+        return job
+
+    name_a, _ = top2[0]
+    name_b, _ = top2[1]
+    tl_a = [(r["t"], r["side"]) for r in records if r["identity"] == name_a]
+    tl_b = [(r["t"], r["side"]) for r in records if r["identity"] == name_b]
+    init_a = baseline_state(tl_a, 10, 60)
+    init_b = baseline_state(tl_b, 10, 60)
+    duration = max(r["t"] for r in records) if records else 0.0
+
+    if init_a is None or init_b is None or init_a == init_b:
+        _job_log(job_dir, "Step 3.1: detect_sets — baseline sides not opposite, assuming 1 set")
+        job.timeline_summary["detected_sets"] = {"n_sets": 1, "swaps": [], "note": "baseline ambiguous"}
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+        save_match_job(job)
+        return job
+
+    # Find all swaps
+    swaps_info: list[dict] = []
+    cur_a, cur_b = init_a, init_b
+    cursor = 60.0
+    while cursor <= duration:
+        result = find_swap(tl_a, tl_b, cursor, duration, 2.0, cur_a, cur_b, 60.0, 15.0)
+        if result is None:
+            break
+        t_swap, mode = result
+        fl_a = SIDE_R if cur_a == SIDE_L else SIDE_L
+        fl_b = SIDE_R if cur_b == SIDE_L else SIDE_L
+        t_bs, t_be = refine_swap_to_transition_window(
+            str(video_path), yolo, player_zone, table_center_x, t_swap,
+            table_roi=table_roi, search_before=90.0, search_after=10.0,
+        )
+        cutoff = t_be if t_be else t_swap
+        swaps_info.append({"t_swap": float(t_swap), "t_break_start": float(t_bs) if t_bs else None,
+                           "t_break_end": float(t_be) if t_be else None, "t_cutoff": float(cutoff), "mode": mode})
+        _job_log(job_dir, f"Step 3.1: detect_sets — swap detected: break ends at {cutoff:.1f}s (mode={mode})")
+        cur_a, cur_b = fl_a, fl_b
+        cursor = t_swap + 62.0
+
+    n_sets = len(swaps_info) + 1
+    _job_log(job_dir, f"Step 3.1: detect_sets — {n_sets} set(s) detected, {len(swaps_info)} swap(s)")
+
+    # Save results for GUI display + next stage
+    job.timeline_summary["detected_sets"] = {
+        "n_sets": n_sets,
+        "swaps": swaps_info,
+        "duration": float(duration),
+    }
+    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+    _job_log(job_dir, "Paused — waiting for operator to confirm set count and swap times")
+    save_match_job(job)
+    return job
+
+
+def run_pipeline_stage_detect_rallies(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+) -> MatchJob:
+    """Stage 3.2: detect rallies per set using confirmed set boundaries.
+    Cuts per-set clips, runs rally detection on each, pauses for confirmation."""
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = job.artifacts.job_dir
+
+    update_job_runtime_state(job, status="running", current_step="detect_rallies")
+
+    video_path = job.artifacts.working_video_path
+    sets_data = job.timeline_summary.get("detected_sets", {})
+    n_sets = sets_data.get("n_sets", 1)
+    swaps = sets_data.get("swaps", [])
+    duration = sets_data.get("duration", 0.0)
+
+    # Recover table ROI
+    table_roi = None
+    roi_data = job.timeline_summary.get("table_roi")
+    if roi_data:
+        from backend.ai_table_roi import TableROI
+        table_roi = TableROI(x=int(roi_data["x"]), y=int(roi_data["y"]),
+                             w=int(roi_data["w"]), h=int(roi_data["h"]),
+                             confidence=float(roi_data.get("confidence", 1.0)))
+
+    # Build set boundaries
+    cutoffs = [s["t_cutoff"] for s in swaps]
+    boundaries = [0.0] + cutoffs + [duration + 10]
+
+    build_rally_timeline = _load_build_rally_timeline()
+    all_points = []
+    per_set_counts: list[dict] = []
+    set_clips_dir = Path(job_dir) / "set_clips"
+    set_clips_dir.mkdir(parents=True, exist_ok=True)
+
+    for si in range(n_sets):
+        t_lo = boundaries[si]
+        t_hi = boundaries[si + 1]
+        _job_log(job_dir, f"Step 3.2: detect_rallies — Set {si+1}/{n_sets} [{t_lo:.1f}s .. {t_hi:.1f}s]")
+
+        # Cut per-set clip
+        clip_path = str(set_clips_dir / f"set{si+1}.mp4")
+        cmd = ["ffmpeg", "-y", "-ss", f"{t_lo:.3f}", "-to", f"{t_hi:.3f}",
+               "-i", str(video_path), "-c", "copy", clip_path]
+        _run_ffmpeg(cmd)
+
+        # Run rally detection on clip with pre-detected table ROI
+        timeline = build_rally_timeline(
+            clip_path, config.table_weights_path,
+            pose_weights_path=config.pose_weights_path,
+            best_of=job.best_of, stride=config.rally_stride, mode=config.rally_mode,
+            player_margin_px=config.rally_player_margin_px,
+            player_fuse_gain=config.rally_player_fuse_gain,
+            player_signal_source=config.rally_player_signal_source,
+            ball_fuse_gain=config.rally_ball_fuse_gain,
+            ball_signal_source=config.rally_ball_signal_source,
+            table_roi=table_roi,
+            log_fn=lambda msg: _job_log(job_dir, msg),
+        )
+
+        # Offset timestamps back to full-video time
+        for p in timeline.points:
+            p.t_start += t_lo
+            p.t_end += t_lo
+            if p.active_start is not None:
+                p.active_start += t_lo
+            if p.active_end is not None:
+                p.active_end += t_lo
+            p.set_number = si + 1
+
+        n_scoring = sum(1 for p in timeline.points if counts_toward_score(p))
+        n_let = len(timeline.points) - n_scoring
+        _job_log(job_dir, f"Step 3.2: detect_rallies — Set {si+1}: {n_scoring} scoring + {n_let} LETs = {len(timeline.points)} total")
+        per_set_counts.append({"set": si + 1, "scoring": n_scoring, "lets": n_let, "total": len(timeline.points)})
+        all_points.extend(timeline.points)
+
+    # Re-number point IDs sequentially across all sets
+    for i, p in enumerate(all_points):
+        p.id = f"pt_{i+1:04d}"
+
+    # Save merged timeline
+    from backend.rally_timeline_contract import RallyTimeline, save_rally_timeline
+    merged_timeline = RallyTimeline(
+        video_path=str(Path(video_path).resolve()).replace("\\", "/"),
+        video_fps=timeline.video_fps if all_points else 30.0,
+        best_of=job.best_of,
+        created_at=timeline.created_at if all_points else "",
+        roi=timeline.roi if all_points else {},
+        points=all_points,
+        analysis_metadata={"detector_mode": config.rally_mode, "staged_pipeline": True,
+                           "per_set_counts": per_set_counts},
+    )
+    save_rally_timeline(Path(job.artifacts.timeline_json_path), merged_timeline)
+
+    # Save per-set rally counts for GUI display
+    job.timeline_summary["per_set_rallies"] = per_set_counts
+    job.timeline_summary["total_rallies"] = len(all_points)
+
+    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_rallies", timeline=merged_timeline)
+    _job_log(job_dir, f"Paused — waiting for operator to confirm rally counts ({len(all_points)} total across {n_sets} sets)")
+    save_match_job(job)
+    return job
+
+
+def run_pipeline_stage_predict(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+    stop_check: "Callable[[], bool] | None" = None,
+) -> MatchJob:
+    """Stage 4+5: export clips + predict winners.  Runs to completion (no pause)."""
+    from typing import Callable
+
+    def _check_stop() -> None:
+        if stop_check and stop_check():
+            raise RuntimeError("stopped_by_operator")
+
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = job.artifacts.job_dir
+    timeline = load_rally_timeline(Path(job.artifacts.timeline_json_path))
+
+    if not timeline.points:
+        raise RuntimeError("No rallies in timeline — cannot predict winners.")
+
+    # Step 4: export clips
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="export_review_clips", timeline=timeline)
+    _job_log(job_dir, f"Step 4/5: export_clips — cutting {len(timeline.points)} clips in parallel")
+    review_clips = export_review_clips(
+        timeline,
+        working_video_path=job.artifacts.working_video_path,
+        review_clips_dir=job.artifacts.review_clips_dir,
+    )
+    _job_log(job_dir, f"Step 4/5: export_clips — done, {len(review_clips)} clips")
+
+    # Step 5: predict winners
+    _check_stop()
+    update_job_runtime_state(job, status="running", current_step="predict_winners_with_adapter", timeline=timeline)
+    _job_log(job_dir, "Step 5/5: predict_winners — loading Qwen3-VL adapter")
+    predictor = WinnerAdapterPredictor(config)
+    timeline = _apply_adapter_predictions(
+        timeline,
+        predictions_jsonl_path=job.artifacts.predictions_jsonl_path,
+        predictor=predictor,
+        review_clips=review_clips,
+        adapter_dir=config.adapter_dir,
+        best_of=job.best_of,
+        player_a_starts_near=job.player_a_starts_near,
+    )
+    timeline.score_validation = build_score_validation(timeline, expected_scope="any")
+    save_rally_timeline(Path(job.artifacts.timeline_json_path), timeline)
+    _job_log(job_dir, "Step 5/5: predict_winners — done")
+
+    review_status = build_review_status(timeline)
+    next_status = "ready_for_final" if review_status["final_export_ready"] else "needs_review"
+    update_job_runtime_state(job, status=next_status, current_step="ai_ready", timeline=timeline)
+    _job_log(job_dir, f"Pipeline complete — {len(timeline.points)} rallies ready for review, status={next_status}")
+    return job
+
+
 def render_job_preview(job_or_path: MatchJob | str | Path) -> MatchJob:
     job = _load_or_raise_job(job_or_path)
     timeline = load_job_timeline(job)

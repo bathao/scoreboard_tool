@@ -21,6 +21,7 @@ def _run_identification_scan(
     video_path: str,
     pose_weights_path: str,
     face_db_path: Path,
+    table_weights_path: str = "",
 ) -> None:
     """Background thread: run quick_identify_players_standalone and store result."""
     import base64
@@ -41,6 +42,7 @@ def _run_identification_scan(
             video_path,
             pose_weights_path,
             face_db,
+            table_weights_path=table_weights_path or None,
             log_fn=_log,
         )
 
@@ -60,6 +62,15 @@ def _run_identification_scan(
                 "embedding": u.face_embedding.tolist(),  # stored server-side only
             })
 
+        # Persist table ROI so it can be reused by the pipeline (avoids re-detection).
+        table_roi_dict = None
+        if result.table_roi is not None:
+            table_roi_dict = {
+                "x": result.table_roi.x, "y": result.table_roi.y,
+                "w": result.table_roi.w, "h": result.table_roi.h,
+                "confidence": result.table_roi.confidence,
+            }
+
         with _SCAN_LOCK:
             _SCAN_STORE[scan_id] = {
                 "status": "done",
@@ -68,6 +79,7 @@ def _run_identification_scan(
                 "id_status": result.status,
                 "unknowns_client": unknowns_client,    # safe to return to browser
                 "unknowns_internal": unknowns_internal,  # server-side only (has embedding)
+                "table_roi": table_roi_dict,             # reused by pipeline stage 3.1
             }
     except Exception as exc:
         with _SCAN_LOCK:
@@ -323,7 +335,8 @@ def create_local_web_app(
                 _SCAN_STORE[scan_id] = {"status": "scanning", "logs": []}
             threading.Thread(
                 target=_run_identification_scan,
-                args=(scan_id, video_path, str(config.pose_weights_path), face_db_path),
+                args=(scan_id, video_path, str(config.pose_weights_path), face_db_path,
+                      str(config.table_weights_path)),
                 daemon=True,
             ).start()
             return _respond_json(start_response, {"scan_id": scan_id})
@@ -469,12 +482,22 @@ def create_local_web_app(
                 )
             except Exception as exc:
                 return _redirect(start_response, f"/?kind=error&message={quote_plus(str(exc))}")
+            # Carry table_roi from identification scan into the job so Stage 3.1
+            # does not re-run YOLOv8x-table detection.
+            _form_scan_id = str(form.get("scan_id", "")).strip()
+            if _form_scan_id:
+                with _SCAN_LOCK:
+                    _scan_data = _SCAN_STORE.get(_form_scan_id, {})
+                _cached_roi = _scan_data.get("table_roi")
+                if _cached_roi:
+                    job.timeline_summary["table_roi"] = _cached_roi
+                    save_match_job(job)
+            from backend.production_pipeline import run_pipeline_stage_trim_and_detect_sets
             ok, msg = runner.start(
                 job.job_id,
-                lambda current_job_id: run_initial_job_pipeline(
+                lambda current_job_id: run_pipeline_stage_trim_and_detect_sets(
                     job_json_path_from_id(current_job_id, jobs_root),
                     config=config,
-                    stop_check=lambda: runner.is_stop_requested(current_job_id),
                 ),
             )
             kind = "info" if ok else "error"
@@ -492,6 +515,38 @@ def create_local_web_app(
             from backend.production_pipeline import _job_log, LOGS_DIR
             _job_log(str(LOGS_DIR / job_id), "Stop requested by operator — will stop after current step")
             return _redirect(start_response, f"/?job_id={job_id}&kind=info&message={quote_plus('Stop requested — will stop after current step finishes')}")
+
+        # "Next step" — advance the staged pipeline from the current confirmation
+        # pause to the next stage.  Dispatches based on current_step:
+        #   confirm_players → detect_sets
+        #   confirm_sets    → detect_rallies
+        #   confirm_rallies → predict (steps 4+5, runs to completion)
+        next_step_match = re.match(r"^/jobs/([^/]+)/next-step$", path)
+        if next_step_match and method == "POST":
+            job_id = next_step_match.group(1)
+            try:
+                _job = load_match_job(job_json_path_from_id(job_id, jobs_root))
+            except Exception as exc:
+                return _redirect(start_response, f"/?job_id={job_id}&kind=error&message={quote_plus(str(exc))}")
+            step = _job.current_step
+            from backend.production_pipeline import (
+                run_pipeline_stage_detect_sets,
+                run_pipeline_stage_detect_rallies,
+                run_pipeline_stage_predict,
+            )
+            stage_map = {
+                "confirm_sets": lambda cid: run_pipeline_stage_detect_rallies(
+                    job_json_path_from_id(cid, jobs_root), config=config),
+                "confirm_rallies": lambda cid: run_pipeline_stage_predict(
+                    job_json_path_from_id(cid, jobs_root), config=config,
+                    stop_check=lambda: runner.is_stop_requested(cid)),
+            }
+            stage_fn = stage_map.get(step)
+            if stage_fn is None:
+                return _redirect(start_response, f"/?job_id={job_id}&kind=error&message={quote_plus(f'No next step from {step}')}")
+            ok, msg = runner.start(job_id, stage_fn)
+            kind = "info" if ok else "error"
+            return _redirect(start_response, f"/?job_id={job_id}&kind={kind}&message={quote_plus(msg)}")
 
         run_match = re.match(r"^/jobs/([^/]+)/run$", path)
         if run_match and method == "POST":

@@ -916,6 +916,112 @@ TEMPLATES = {
       setInterval(fetchLog, 3000);
     })();
   </script>
+  {% elif current_job and current_job.status == 'awaiting_confirmation' %}
+  {# ── CONFIRMATION PAUSE VIEW ── operator reviews output, clicks Next ── #}
+  <div class="panel" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="badge" style="font-size:13px;padding:4px 10px;background:#f0ad4e;color:#000;">⏸ AWAITING CONFIRMATION</span>
+        <span style="font-weight:600;">{{ current_job.player_a_name }} vs {{ current_job.player_b_name }}</span>
+        <span class="meta">Best of {{ current_job.best_of }}</span>
+      </div>
+    </div>
+
+    {% if current_job.current_step == 'confirm_sets' %}
+    <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.1 — Set Detection Complete</h3>
+      {% set sets_data = current_job.timeline_summary.get('detected_sets', {}) %}
+      {% set n_sets = sets_data.get('n_sets', 0) %}
+      {% set swaps = sets_data.get('swaps', []) %}
+      <p style="font-size:16px;font-weight:700;color:#fff;margin:0 0 12px;">{{ n_sets }} set(s) detected</p>
+      {% if swaps %}
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
+        <tr style="border-bottom:1px solid #333;">
+          <th style="text-align:left;padding:6px 12px;color:#aaa;font-size:12px;">Swap #</th>
+          <th style="text-align:left;padding:6px 12px;color:#aaa;font-size:12px;">Break Window</th>
+          <th style="text-align:left;padding:6px 12px;color:#aaa;font-size:12px;">Set Boundary</th>
+        </tr>
+        {% for s in swaps %}
+        <tr style="border-bottom:1px solid #222;">
+          <td style="padding:6px 12px;">{{ loop.index }}</td>
+          <td style="padding:6px 12px;">
+            {% if s.get('t_break_start') is not none and s.get('t_break_end') is not none %}
+              {{ "%.1f"|format(s.t_break_start) }}s — {{ "%.1f"|format(s.t_break_end) }}s
+            {% else %}
+              ~{{ "%.1f"|format(s.t_cutoff) }}s
+            {% endif %}
+          </td>
+          <td style="padding:6px 12px;font-weight:600;">Set {{ loop.index }} → Set {{ loop.index + 1 }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+      <p style="color:#aaa;font-size:13px;margin:10px 0 0;">If set count and swap times are correct, click <strong>Next</strong> to detect rallies per set.</p>
+    </div>
+
+    {% elif current_job.current_step == 'confirm_rallies' %}
+    <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.2 — Rally Detection Complete</h3>
+      {% set per_set = current_job.timeline_summary.get('per_set_rallies', []) %}
+      {% set total = current_job.timeline_summary.get('total_rallies', 0) %}
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
+        <tr style="border-bottom:1px solid #333;">
+          <th style="text-align:left;padding:6px 12px;color:#aaa;font-size:12px;">Set</th>
+          <th style="text-align:right;padding:6px 12px;color:#aaa;font-size:12px;">Scoring Rallies</th>
+          <th style="text-align:right;padding:6px 12px;color:#aaa;font-size:12px;">LETs</th>
+          <th style="text-align:right;padding:6px 12px;color:#aaa;font-size:12px;">Total</th>
+        </tr>
+        {% for s in per_set %}
+        <tr style="border-bottom:1px solid #222;">
+          <td style="padding:6px 12px;font-weight:600;">Set {{ s.set }}</td>
+          <td style="padding:6px 12px;text-align:right;">{{ s.scoring }}</td>
+          <td style="padding:6px 12px;text-align:right;">{{ s.lets }}</td>
+          <td style="padding:6px 12px;text-align:right;font-weight:600;">{{ s.total }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="border-top:2px solid #555;">
+          <td style="padding:6px 12px;font-weight:700;">TOTAL</td>
+          <td colspan="2"></td>
+          <td style="padding:6px 12px;text-align:right;font-weight:700;">{{ total }}</td>
+        </tr>
+      </table>
+      <p style="color:#aaa;font-size:13px;margin:10px 0 0;">If rally counts are correct, click <strong>Next</strong> to export clips and predict winners.</p>
+    </div>
+    {% endif %}
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;">
+      <form method="post" action="/jobs/{{ current_job.job_id }}/next-step" style="margin:0;">
+        <button type="submit" style="padding:10px 32px;font-size:15px;font-weight:700;background:#4a9;color:#000;border:none;border-radius:6px;cursor:pointer;">▶ Next</button>
+      </form>
+      <form method="post" action="/jobs/{{ current_job.job_id }}/stop" style="margin:0;">
+        <button type="submit" class="secondary" style="padding:10px 20px;font-size:13px;" onclick="return confirm('Stop pipeline?')">Stop</button>
+      </form>
+    </div>
+  </div>
+  {# Log panel (same as running view) #}
+  <div class="panel" style="padding:0;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:#111;">
+      <span style="color:#8fc;font-size:12px;font-family:monospace;font-weight:600;">pipeline.log — {{ current_job.job_id }}</span>
+    </div>
+    <pre id="pipeline_log" style="margin:0;background:#111;color:#d4d0c8;font-size:12.5px;line-height:1.6;padding:16px;height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-family:'Cascadia Code','Consolas','Fira Mono',monospace;">(loading log...)</pre>
+  </div>
+  <script>
+    (function () {
+      var jobId = "{{ current_job.job_id }}";
+      var logEl = document.getElementById("pipeline_log");
+      function fetchLog() {
+        fetch("/jobs/" + encodeURIComponent(jobId) + "/log")
+          .then(function (r) { return r.ok ? r.text() : null; })
+          .then(function (t) {
+            if (t === null || !logEl) return;
+            logEl.textContent = t || "(no output yet)";
+            logEl.scrollTop = logEl.scrollHeight;
+          }).catch(function () {});
+      }
+      fetchLog();
+    })();
+  </script>
+
   {% else %}
   {# ── SETUP / IDLE VIEW ── #}
   <div class="panel">
@@ -960,6 +1066,7 @@ TEMPLATES = {
       <div class="message error" style="margin-bottom:14px;">{{ current_job.error_message }}</div>
     {% endif %}
     <form method="post" action="/jobs">
+      <input type="hidden" name="scan_id" id="input_scan_id" value="">
 
       <!-- ── Phase 1: video browse + identify ────────────────────────── -->
       <div id="ph_browse">
@@ -1132,6 +1239,8 @@ TEMPLATES = {
 
         // Done
         _stopElapsed();
+        // Persist scan_id so POST /jobs can retrieve table_roi from scan store
+        document.getElementById("input_scan_id").value = _scanId || "";
         // Fill any identified names immediately
         if (d.near_name) document.getElementById("player_a_name").value = d.near_name;
         if (d.far_name)  document.getElementById("player_b_name").value  = d.far_name;

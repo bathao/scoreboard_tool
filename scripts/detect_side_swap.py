@@ -224,6 +224,197 @@ def find_swap(tl_a: list[tuple[float, str]],
     return None
 
 
+def _compute_table_energy_window(
+    video_path: str,
+    table_roi,
+    t_start: float,
+    t_end: float,
+    dense_step: float = 0.5,
+):
+    """Sample frames densely between t_start..t_end; for each consecutive pair,
+    compute mean absolute pixel difference inside the table ROI.  Returns a
+    list of (t, energy) tuples (one per pair, indexed by the LATER frame's t).
+
+    High energy = rally activity in table region (ball + arms in motion).
+    Low energy = nothing happening at the table (set break / inter-rally idle).
+    """
+    import cv2 as _cv2
+    cap = _cv2.VideoCapture(str(video_path))
+    samples: list[tuple[float, float]] = []
+    prev_gray = None
+    x, y, w, h = int(table_roi.x), int(table_roi.y), int(table_roi.w), int(table_roi.h)
+    t = t_start
+    while t <= t_end:
+        cap.set(_cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ret, frame = cap.read()
+        if not ret:
+            break
+        crop = frame[y:y + h, x:x + w]
+        if crop.size == 0:
+            t += dense_step
+            continue
+        gray = _cv2.cvtColor(crop, _cv2.COLOR_BGR2GRAY)
+        if prev_gray is not None and prev_gray.shape == gray.shape:
+            diff = _cv2.absdiff(gray, prev_gray)
+            energy = float(np.mean(diff))
+            samples.append((t, energy))
+        prev_gray = gray
+        t += dense_step
+    cap.release()
+    return samples
+
+
+def refine_swap_to_transition_window(
+    video_path: str,
+    yolo,
+    player_zone: tuple,
+    table_center_x: float,
+    coarse_t: float,
+    table_roi=None,
+    search_before: float = 90.0,
+    search_after: float = 10.0,
+    dense_step: float = 0.5,
+    log_fn=None,
+) -> tuple[float | None, float | None]:
+    """Refine a coarse swap timestamp to the actual set-break window using
+    **table motion energy** — the mean absolute pixel difference between
+    consecutive frames within the table ROI region.
+
+    During rally play the ball and arms create high motion energy on the table.
+    During a set break (players walking to chair, drinking water, discussing
+    with coach) the table region is essentially static → energy drops.
+
+    The break is identified as the longest contiguous low-energy period within
+    the asymmetric search window [coarse_t - search_before, coarse_t + search_after].
+
+    Returns:
+        (t_break_start, t_break_end):
+          - t_break_start ≈ t_end of last rally of the previous set
+          - t_break_end   ≈ t_start of first rally of the next set
+        Returns (None, None) if table_roi is not available or no break found.
+    """
+    if table_roi is None:
+        return None, None
+
+    import cv2 as _cv2
+    cap = _cv2.VideoCapture(str(video_path))
+    fps = cap.get(_cv2.CAP_PROP_FPS) or 30.0
+    n_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT) or 0)
+    duration = n_frames / fps if fps > 0 else 0.0
+    cap.release()
+
+    t_lo = max(0.0, coarse_t - search_before)
+    t_hi = min(duration, coarse_t + search_after)
+
+    # 1. Compute frame-to-frame table energy in the search window.
+    energy_samples = _compute_table_energy_window(
+        video_path, table_roi, t_lo, t_hi, dense_step=dense_step,
+    )
+    if len(energy_samples) < 10:
+        return None, None
+
+    times = [s[0] for s in energy_samples]
+    energies = [s[1] for s in energy_samples]
+
+    # 2. Smooth energy over a sliding window (mean of ±smooth_half seconds).
+    smooth_half = 3.0   # 6 s total sliding window
+    smoothed = []
+    for i, (t, _) in enumerate(energy_samples):
+        window_vals = [energies[j] for j in range(len(times))
+                       if abs(times[j] - t) <= smooth_half]
+        smoothed.append(sum(window_vals) / len(window_vals) if window_vals else 0.0)
+
+    if log_fn:
+        log_fn(f"  table energy: {len(energy_samples)} samples in "
+               f"[{t_lo:.0f}s..{t_hi:.0f}s]")
+        # Compact pattern: 'H' = high energy, '.' = low, scale relative to median
+        bucket_step = 2.0
+        median_e = sorted(smoothed)[len(smoothed) // 2] if smoothed else 1.0
+        bucket_t = t_lo
+        line = []
+        while bucket_t < t_hi:
+            bucket_vals = [smoothed[j] for j in range(len(times))
+                           if bucket_t <= times[j] < bucket_t + bucket_step]
+            if not bucket_vals:
+                line.append("?")
+            else:
+                avg = sum(bucket_vals) / len(bucket_vals)
+                line.append("H" if avg > median_e * 0.5 else ".")
+            bucket_t += bucket_step
+        log_fn(f"  pattern @ {t_lo:.0f}s..{t_hi:.0f}s (each char = {bucket_step}s):")
+        log_fn(f"    {''.join(line)}")
+
+    # 3. Find the set break as the sliding window with the LOWEST average
+    #    energy.  This is robust against brief energy spikes during the break
+    #    (e.g. a player's arm crossing the table ROI while walking past).
+    #
+    #    Sweep a window of `break_window_sec` seconds across the search range
+    #    and pick the position with minimum mean energy.  Then expand the
+    #    window outward as long as energy stays below an adaptive threshold.
+    break_window_sec = 15.0
+    n_win = max(1, int(break_window_sec / dense_step))
+    if len(smoothed) < n_win:
+        return None, None
+
+    # Sweep for minimum-energy window
+    best_mean = float("inf")
+    best_idx = 0
+    for i in range(len(smoothed) - n_win + 1):
+        win_mean = sum(smoothed[i:i + n_win]) / n_win
+        if win_mean < best_mean:
+            best_mean = win_mean
+            best_idx = i
+
+    # Adaptive threshold: break energy should be well below the median
+    median_e = sorted(smoothed)[len(smoothed) // 2]
+    expand_threshold = max(median_e * 0.4, best_mean * 2.0)
+
+    # Expand outward from the best window as long as energy stays low.
+    lo_idx = best_idx
+    hi_idx = best_idx + n_win - 1
+    while lo_idx > 0 and smoothed[lo_idx - 1] <= expand_threshold:
+        lo_idx -= 1
+    while hi_idx < len(smoothed) - 1 and smoothed[hi_idx + 1] <= expand_threshold:
+        hi_idx += 1
+
+    t_break_start = times[lo_idx]
+
+    # Break END refinement: the core low-energy window ends when energy rises
+    # slightly (e.g. player starts walking back to table), but actual play
+    # doesn't resume for several more seconds.  To find when play truly
+    # resumes, walk forward from the core end and look for the first SUSTAINED
+    # high-energy period (>= 75th percentile for >= 3 s).  That is the first
+    # rally of the new set.
+    p75 = sorted(smoothed)[min(len(smoothed) - 1, int(len(smoothed) * 0.75))]
+    rally_resume_idx = None
+    required_consecutive = max(1, int(3.0 / dense_step))  # ~6 samples at 0.5s
+    run = 0
+    for i in range(hi_idx, len(smoothed)):
+        if smoothed[i] >= p75:
+            run += 1
+            if run >= required_consecutive:
+                rally_resume_idx = i - required_consecutive + 1
+                break
+        else:
+            run = 0
+
+    if rally_resume_idx is not None:
+        t_break_end = times[rally_resume_idx]
+    else:
+        t_break_end = times[hi_idx]  # fallback to core end
+
+    break_dur = t_break_end - t_break_start
+
+    if log_fn:
+        log_fn(f"  break found: [{t_break_start:.1f}s .. {t_break_end:.1f}s] "
+               f"duration={break_dur:.1f}s  avg_energy={best_mean:.2f} "
+               f"(median={median_e:.2f}, p75={p75:.2f})")
+
+    if break_dur < 8.0:
+        return None, None
+    return t_break_start, t_break_end
+
+
 def backtrack_swap_start(tl_a: list[tuple[float, str]],
                          tl_b: list[tuple[float, str]],
                          t_swap: float,
@@ -266,6 +457,16 @@ def main() -> int:
                         help="Post-swap state must persist for this many seconds (default 15)")
     parser.add_argument("--match-threshold", type=float, default=DEFAULT_MATCH_THRESHOLD,
                         help=f"Face-DB match threshold (default {DEFAULT_MATCH_THRESHOLD})")
+    parser.add_argument("--best-of", type=int, default=None,
+                        help="If set (e.g. 3, 5, 7), infer number of sets played from swap count")
+    parser.add_argument("--no-refine", action="store_true",
+                        help="Skip dense-sample refinement step (faster, less precise)")
+    parser.add_argument("--refine-before", type=float, default=90.0,
+                        help="Dense-sample window: seconds BEFORE coarse swap (default 90)")
+    parser.add_argument("--refine-after", type=float, default=10.0,
+                        help="Dense-sample window: seconds AFTER coarse swap (default 10)")
+    parser.add_argument("--refine-step", type=float, default=0.5,
+                        help="Dense-sample step in seconds (default 0.5)")
     parser.add_argument("--save-csv", type=str, default=None,
                         help="Optional path to dump per-sample records as CSV")
     args = parser.parse_args()
@@ -373,61 +574,140 @@ def main() -> int:
         return 1
 
     # Find swap
-    print(f"\n[5/5] Searching for swap (stability >= {args.stability_seconds}s)...")
+    print(f"\n[5/5] Searching for ALL swaps (stability >= {args.stability_seconds}s)...")
     duration = max(r["t"] for r in records) if records else 0.0
-    swap_result = find_swap(
-        tl_a, tl_b,
-        search_start=args.baseline_end,
-        search_end=duration,
-        step=args.sample_step,
-        init_a=init_a, init_b=init_b,
-        stability_seconds=args.stability_seconds,
-        window=args.smooth_window,
-    )
+
+    # Iteratively detect every swap by walking forward.  After each swap, the
+    # current expected state becomes the swapped state, and we continue
+    # searching from past the stability window.
+    swaps: list[dict] = []   # each: {t_start, t_detect, mode, before_a/b, after_a/b}
+    current_a, current_b = init_a, init_b
+    search_cursor = args.baseline_end
+
+    while search_cursor <= duration:
+        swap_result = find_swap(
+            tl_a, tl_b,
+            search_start=search_cursor,
+            search_end=duration,
+            step=args.sample_step,
+            init_a=current_a, init_b=current_b,
+            stability_seconds=args.stability_seconds,
+            window=args.smooth_window,
+        )
+        if swap_result is None:
+            break
+        t_swap, swap_mode = swap_result
+
+        flipped_a = SIDE_R if current_a == SIDE_L else SIDE_L
+        flipped_b = SIDE_R if current_b == SIDE_L else SIDE_L
+        after_a = smoothed_side(tl_a, t_swap, window=args.smooth_window) or flipped_a
+        after_b = smoothed_side(tl_b, t_swap, window=args.smooth_window) or flipped_b
+
+        t_swap_start = backtrack_swap_start(
+            tl_a, tl_b, t_swap, after_a, after_b,
+            init_a=current_a, init_b=current_b,
+            step=args.sample_step,
+            max_lookback=30.0,
+            window=args.smooth_window,
+        )
+
+        # Refinement: dense-sample around the coarse swap point to locate
+        # the actual transition window (no rally configuration).
+        t_break_start, t_break_end = (None, None)
+        if not args.no_refine:
+            t_break_start, t_break_end = refine_swap_to_transition_window(
+                str(video_path), yolo, player_zone, table_center_x,
+                coarse_t=t_swap_start,
+                table_roi=table_roi,
+                search_before=args.refine_before,
+                search_after=args.refine_after,
+                dense_step=args.refine_step,
+                log_fn=lambda m: print(f"  [refine swap @ ~{t_swap_start:.0f}s] {m}"),
+            )
+
+        swaps.append({
+            "t_detect": t_swap,
+            "t_start": t_swap_start,
+            "mode": swap_mode,
+            "before_a": current_a, "before_b": current_b,
+            "after_a": after_a, "after_b": after_b,
+            "t_break_start": t_break_start,
+            "t_break_end": t_break_end,
+        })
+
+        # Advance: new "current" state is the swapped state; resume searching
+        # past the stability window so we don't immediately re-detect the same
+        # swap as a candidate.
+        current_a, current_b = after_a, after_b
+        search_cursor = t_swap + args.stability_seconds + args.sample_step
 
     print()
     print("=" * 70)
     print("RESULT")
     print("=" * 70)
-    if swap_result is None:
+    if not swaps:
         print(f"NO SWAP DETECTED in window [{args.baseline_end:.0f}s..{duration:.0f}s].")
-        print(f"  Set 1 sides: {name_a}={init_a}  {name_b}={init_b}")
+        print(f"  Baseline state: {name_a}={init_a}  {name_b}={init_b}")
+        print(f"  Inferred: only 1 set played (or video too short).")
         return 0
-    t_swap, swap_mode = swap_result
-    print(f"  Swap evidence mode: {swap_mode}")
 
-    # Post-swap state — derived by symmetry when one player has no data.
-    flipped_a = SIDE_R if init_a == SIDE_L else SIDE_L
-    flipped_b = SIDE_R if init_b == SIDE_L else SIDE_L
-    after_a = smoothed_side(tl_a, t_swap, window=args.smooth_window) or flipped_a
-    after_b = smoothed_side(tl_b, t_swap, window=args.smooth_window) or flipped_b
-    t_swap_start = backtrack_swap_start(
-        tl_a, tl_b, t_swap, after_a, after_b,
-        init_a=init_a, init_b=init_b,
-        step=args.sample_step,
-        max_lookback=30.0,
-        window=args.smooth_window,
-    )
-
-    # Find last timestamp where Set 1 state was still stable
-    t_last_set1 = None
-    for tt in sorted({rt for rt in (r["t"] for r in records) if rt < t_swap_start}, reverse=True):
-        sa = smoothed_side(tl_a, tt, window=args.smooth_window)
-        sb = smoothed_side(tl_b, tt, window=args.smooth_window)
-        if sa == init_a and sb == init_b:
-            t_last_set1 = tt
-            break
-
-    print(f"  Set 1 state:  {name_a}={init_a}  {name_b}={init_b}")
-    print(f"  Set 2 state:  {name_a}={after_a}  {name_b}={after_b}")
+    # Detailed per-swap report
+    print(f"  Initial state ({args.baseline_start:.0f}s..{args.baseline_end:.0f}s):"
+          f"  {name_a}={init_a}  {name_b}={init_b}")
     print()
-    print(f"  Swap window:  [{t_last_set1:.2f}s .. {t_swap_start:.2f}s]"
-          if t_last_set1 is not None else
-          f"  Swap window starts before sampled baseline; t_swap_start={t_swap_start:.2f}s")
-    print(f"  Set 1 timeline range:  t < {t_swap_start:.2f}s")
-    print(f"  Set 2 timeline range:  t >= {t_swap_start:.2f}s")
+    for i, s in enumerate(swaps, 1):
+        print(f"  Swap #{i}:  coarse t_start={s['t_start']:.2f}s  "
+              f"(detected at {s['t_detect']:.2f}s, mode={s['mode']})")
+        print(f"    before:  {name_a}={s['before_a']}  {name_b}={s['before_b']}")
+        print(f"    after :  {name_a}={s['after_a']}  {name_b}={s['after_b']}")
+        if s.get("t_break_start") is not None and s.get("t_break_end") is not None:
+            br_dur = s["t_break_end"] - s["t_break_start"]
+            print(f"    break window (refined):"
+                  f"  [{s['t_break_start']:.2f}s .. {s['t_break_end']:.2f}s]"
+                  f"  duration={br_dur:.1f}s")
+            print(f"      → t_end (last rally of previous set):  {s['t_break_start']:.2f}s")
+            print(f"      → t_start (first rally of next set):   {s['t_break_end']:.2f}s")
     print()
-    print(f"==> SET-SWAP START TIMESTAMP: {t_swap_start:.2f}s")
+
+    # Build timeline ranges per period (each period = between swaps).
+    # Use the refined break END as the cutoff so each period is
+    # "first rally of set N → first rally of set N+1 (exclusive)".
+    n_swaps = len(swaps)
+    print(f"  Total swaps: {n_swaps}")
+    cutoffs = []
+    for s in swaps:
+        # Prefer refined break end (start of next set's first rally).
+        # Fall back to coarse t_start if refinement failed.
+        cutoffs.append(s["t_break_end"] if s.get("t_break_end") is not None else s["t_start"])
+    boundaries = [0.0] + cutoffs + [duration]
+    print(f"  Periods (separated by swap):")
+    for i in range(len(boundaries) - 1):
+        print(f"    Period {i+1}:  [{boundaries[i]:.2f}s .. {boundaries[i+1]:.2f}s]"
+              f"   duration={boundaries[i+1] - boundaries[i]:.1f}s")
+    print()
+
+    # Infer number of sets played, given best-of N from the user.
+    best_of = args.best_of
+    if best_of is not None and best_of > 0:
+        sets_max = best_of
+        # In a deciding set (set N for BO_N where N is odd), there is an
+        # additional mid-set swap when the players' total score reaches 5.
+        # So number of sets played and number of swaps relate as:
+        #   no mid-set swap: n_swaps == n_sets - 1
+        #   with mid-set swap: n_swaps == n_sets   (only possible when reached deciding set)
+        candidates = []
+        for n_sets in range(1, sets_max + 1):
+            if n_swaps == n_sets - 1:
+                candidates.append((n_sets, "no mid-set swap"))
+            if n_sets == sets_max and n_swaps == n_sets:
+                candidates.append((n_sets, "with mid-set swap in deciding set"))
+        print(f"  Inference (best_of={best_of}):")
+        if candidates:
+            for n_sets, note in candidates:
+                print(f"    -> {n_sets} sets played   ({note})")
+        else:
+            print(f"    -> n_swaps={n_swaps} does not match any valid (sets, mid-swap) pattern for BO{best_of}.")
+            print(f"       Possible reasons: noisy data, missed swap, or false swap.")
     return 0
 
 

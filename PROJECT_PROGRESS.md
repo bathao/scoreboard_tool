@@ -13,6 +13,104 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-16` Session 6 (Side-swap detection + multi-set split)
+
+### What Was Done
+
+**Side-swap detection CLI** (`scripts/detect_side_swap.py`) — two-phase algorithm:
+
+Phase 1 (coarse): sample frames every 2 s, identify players via face DB,
+track per-identity side (L/R relative to table_center_x), smooth over sliding
+window, detect all swaps iteratively. Supports a-only / b-only symmetry
+inference when one player has sparse face data (back-to-camera).
+
+Phase 2 (refine): for each coarse swap, dense-sample frames (0.5 s) in an
+asymmetric window around the swap, compute table motion energy (mean abs pixel
+diff inside table ROI), find the lowest-energy 15 s window as the break core,
+expand to the first sustained high-energy period (= first rally of next set).
+
+**Verified on two inputs:**
+- `2_sets.mp4` (BO3): 1 swap, break `[140.5s .. 160.0s]`.
+  Ground truth: last rally ends ~148s, first rally resumes ~172s.
+  Precision: ~7 s early on start, ~12 s early on end — sufficient for
+  video splitting (Step 3 ignores quiet periods).
+- `match_vinh_001__full.mp4` (BO5): 3 swaps detected, correctly infers 4 sets.
+  Matches existing `dataset/reviewed_matches/match_vinh_001/set_01..set_04`.
+
+**Key findings / params:**
+- Default stability_seconds (15 s) produced 9 false swaps on BO5 video —
+  false flips during gameplay where smoothed side momentarily toggles.
+- `--stability-seconds 60 --smooth-window 15` filters correctly to 3 real swaps.
+- Table-energy-based refinement is more reliable than body-based "rally config"
+  detection, because during a fast swap walk players on opposite sides still
+  trigger false rally-config (YOLO sees 2 bodies opposite sides).
+- Break-end detection finds the first sustained high-energy period (p75) after
+  the low-energy core, but this can be 10-12 s before actual first rally
+  (player preparation period has low-but-not-zero energy).
+
+**Split-and-detect validated on `2_sets.mp4`:**
+
+Set 2 clip initially returned 0 rallies because table ROI detection failed on
+the clip (starts during set break with no clear table view). Fix: added
+`--table-roi` CLI arg to `generate_rally_timeline.py` so a pre-detected ROI
+from the full video can be passed in, skipping re-detection.
+
+Workflow (3 commands, no new script needed):
+```
+python scripts/detect_side_swap.py --video 2_sets.mp4 --best-of 3 --stability-seconds 60
+ffmpeg -y -i 2_sets.mp4 -to 160 -c copy set1.mp4
+ffmpeg -y -i 2_sets.mp4 -ss 160 -c copy set2.mp4
+python scripts/generate_rally_timeline.py --video set1.mp4 --out set1.json --best-of 3 --table-roi '{"x":842,"y":741,"w":716,"h":231}'
+python scripts/generate_rally_timeline.py --video set2.mp4 --out set2.json --best-of 3 --table-roi '{"x":842,"y":741,"w":716,"h":231}'
+```
+
+Results:
+- Set 1: **13 scoring rallies** [1.7s .. 145.2s]
+- Set 2: **17 scoring rallies** [9.5s .. 213.2s]
+- Total: **30 rallies** (vs 24 when run on continuous video — 6 more rallies
+  recovered by per-set detection)
+- **Operator verdict: both set rally counts are still WRONG.** The per-set
+  detection improved over continuous (30 vs 24) but still does not match the
+  actual rally counts in the video.
+
+Removed `scripts/count_rallies_per_set.py` (redundant — the existing main
+script with `--table-roi` does the same job without wrapper duplication).
+
+### What Is Still Broken
+- Rally detection (Step 3) produces wrong rally counts even on single-set
+  clips cut from `2_sets.mp4`. The swap-time detection is approximately
+  correct (~160s), but the rally detector itself is the remaining problem.
+- This is NOT a multi-set-specific bug — it is a rally detector accuracy
+  issue on this specific input video regardless of how the video is sliced.
+- Needs deeper investigation into why the player-mode detector misses or
+  merges rallies on this camera setup / venue.
+
+**GUI design direction change: debug-first, step-by-step confirmation**
+
+Operator decided to stop running the pipeline A-to-Z. New approach: the GUI
+pauses at each critical sub-step and waits for operator confirmation before
+continuing. If a sub-step is wrong, the operator can re-run just that sub-step
+instead of re-running the entire pipeline.
+
+New Step 3 sub-steps:
+- **Step 3.1 (detect sets)**: runs side-swap detection, shows operator
+  "N sets detected, swaps at T1, T2, ...". Operator confirms or re-runs.
+- **Step 3.2 (detect rallies per set)**: cuts per-set clips, runs rally
+  detection per clip, shows operator "Set 1: X rallies, Set 2: Y rallies".
+  Operator confirms per set or flags a specific set for re-detection.
+
+This decouples set-boundary detection (working) from rally detection (still
+buggy) — operator can confirm sets are correct and then debug rally detection
+set-by-set without re-running the whole pipeline.
+
+### Resume Point
+1. Implement Step 3.1 GUI pause (detect sets + operator confirmation)
+2. Implement Step 3.2 GUI pause (per-set rally count + operator confirmation)
+3. Debug rally detection on per-set clips of `2_sets.mp4` (rally-by-rally)
+4. Then run `match_vinh_001__full.mp4` end-to-end
+
+---
+
 ## Work Log - `2026-04-15` (2_sets.mp4 boundary debug confirms Step 3 is still wrong)
 
 ### What Was Checked

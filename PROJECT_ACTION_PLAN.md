@@ -413,21 +413,31 @@ Put detailed explanations, experiments, failures, and resume notes in:
 - Operating rule: Web UI first; CLI only for narrow isolated debug
 
 ### Immediate next tasks (in priority order)
-1. `[doing]` Fix Step 3 rally detection on `inputs/raw_matches/2_sets.mp4` before any more end-to-end validation
-   - latest debug command:
-     - `python scripts/debug_set_boundaries.py --video inputs/raw_matches/2_sets.mp4 --best-of 3 --trim 0`
-   - latest wrong output from current code:
-     - total rallies = `24`
-     - set 1 = `9`
-     - set 2 = `15`
-     - detected swap window = about `200.67s -> 204.44s`
-   - operator verdict:
-     - set-1 rally count wrong
-     - set-2 rally count wrong
-     - swap timing wrong
-   - consequence:
-     - do not treat `2_sets.mp4` as "pipeline validated"
-     - do not move to `match_vinh_001__full.mp4` yet
+1. `[done]` Side-swap detection CLI (`scripts/detect_side_swap.py`) — detects
+   all inter-set swap timestamps independent of Step 3 rally detection.
+   Verified on `2_sets.mp4` (1 swap, BO3) and `match_vinh_001__full.mp4` (3 swaps, 4 sets, BO5).
+2. `[done]` Split-and-detect workflow validated on `2_sets.mp4`:
+   - Side-swap detection finds break at 160s → ffmpeg cuts set1/set2 clips
+   - `generate_rally_timeline.py --table-roi '...'` runs per clip (passes
+     pre-detected table ROI to skip re-detection on clip start frames)
+   - Result: Set 1 = 13 rallies, Set 2 = 17 rallies, total = 30
+     (vs 24 on continuous video — 6 rallies recovered)
+   - Removed `scripts/count_rallies_per_set.py` (redundant)
+3. `[blocked]` Per-set rally counts still wrong on `2_sets.mp4` (13+17 detected
+   vs operator ground truth). Swap time ~160s is approximately correct, but
+   Step 3 rally detector itself is inaccurate on this input even on single-set
+   clips. Needs rally-by-rally debug before pipeline integration.
+4. `[doing]` Redesign GUI pipeline to pause at each sub-step for operator
+   confirmation (debug-first approach):
+   - Step 1 (trim): no pause needed
+   - Step 2 (identify): already pauses — operator confirms player names
+   - Step 3.1 (detect sets): NEW pause — operator confirms set count + swap times
+   - Step 3.2 (detect rallies per set): NEW pause — operator confirms per-set
+     rally counts; can re-run individual sets if wrong
+   - Step 4 (export clips): no pause — deterministic
+   - Step 5 (predict winners): no pause — goes to Phase C review loop
+   This ensures each sub-step output is human-verified before downstream
+   steps consume it. Trades speed for correctness.
 2. `[todo]` Wire reviewed winner corrections from UI into dataset storage:
    - canonical: `dataset/reviewed_matches/`
    - rolling finetune: `dataset/collections/finetune_dataset/`

@@ -1656,7 +1656,23 @@ def main() -> int:
     parser.add_argument("--player-signal-source", choices=["role_tracker", "nearest_two", "none"], default=PRODUCTION_RALLY_DEFAULTS.player_signal_source)
     parser.add_argument("--ball-fuse-gain", type=float, default=PRODUCTION_RALLY_DEFAULTS.ball_fuse_gain)
     parser.add_argument("--ball-signal-source", choices=["none", "classical"], default=PRODUCTION_RALLY_DEFAULTS.ball_signal_source)
+    parser.add_argument("--table-roi", type=str, default=None,
+                        help="Pre-detected table ROI as JSON: '{\"x\":N,\"y\":N,\"w\":N,\"h\":N}'. "
+                             "Skips YOLOv8x-table detection if provided.")
     args = parser.parse_args()
+
+    # Parse optional pre-detected table ROI
+    pre_table_roi = None
+    if args.table_roi:
+        import json as _json
+        from backend.ai_table_roi import TableROI
+        _roi_d = _json.loads(args.table_roi)
+        pre_table_roi = TableROI(
+            x=int(_roi_d["x"]), y=int(_roi_d["y"]),
+            w=int(_roi_d["w"]), h=int(_roi_d["h"]),
+            confidence=float(_roi_d.get("confidence", 1.0)),
+            method=str(_roi_d.get("method", "cli_override")),
+        )
 
     timeline = build_rally_timeline(
         args.video,
@@ -1670,6 +1686,7 @@ def main() -> int:
         player_signal_source=args.player_signal_source,
         ball_fuse_gain=args.ball_fuse_gain,
         ball_signal_source=args.ball_signal_source,
+        table_roi=pre_table_roi,
     )
     out_path = Path(args.out)
     save_rally_timeline(out_path, timeline)
