@@ -927,13 +927,77 @@ TEMPLATES = {
       </div>
     </div>
 
-    {% if current_job.current_step == 'confirm_sets' %}
+    {% if current_job.current_step == 'confirm_total_rallies' %}
+    <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.1 - Total Rally Start Detection Complete</h3>
+      {% set rally_data = current_job.timeline_summary.get('detected_total_rallies', {}) %}
+      {% set events = rally_data.get('events', []) %}
+      <p style="font-size:16px;font-weight:700;color:#fff;margin:0 0 12px;">
+        {{ rally_data.get('total', 0) }} total start(s)
+        <span style="color:#aaa;font-size:13px;font-weight:500;">
+          = {{ rally_data.get('scoring', 0) }} scoring + {{ rally_data.get('lets', 0) }} LET/non-scoring
+          {% if rally_data.get('needs_review', 0) %}+ {{ rally_data.get('needs_review', 0) }} needs-review row(s){% endif %}
+          {% if rally_data.get('rule_gap_review_count', 0) %} / {{ rally_data.get('rule_gap_review_count', 0) }} gap marker(s){% endif %}
+          {% if rally_data.get('rule_conflict_review_count', 0) %} / {{ rally_data.get('rule_conflict_review_count', 0) }} rule conflict(s){% endif %}
+        </span>
+      </p>
+      {% if rally_data.get('algorithm') or rally_data.get('error') %}
+      <p style="color:#aaa;font-size:12px;margin:0 0 10px;">
+        {% if rally_data.get('algorithm') %}Algorithm: <code>{{ rally_data.get('algorithm') }}</code>{% endif %}
+        {% if rally_data.get('error') %} &nbsp; Error: <code>{{ rally_data.get('error') }}</code>{% endif %}
+      </p>
+      {% endif %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin:12px 0;">
+        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
+          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">Start frame folder</div>
+          <code style="font-size:12px;word-break:break-all;">{{ rally_data.get('start_frames_dir', '-') }}</code>
+        </div>
+        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
+          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">CSV</div>
+          <code style="font-size:12px;word-break:break-all;">{{ rally_data.get('csv_path', '-') }}</code>
+        </div>
+      </div>
+      {% if events %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:12px 0 14px;">
+        {% for e in events %}
+        <div style="background:#111;border:1px solid #333;border-radius:8px;overflow:hidden;">
+          {% if e.get('image_file') %}
+          <a href="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" target="_blank">
+            <img src="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" style="width:100%;height:110px;object-fit:cover;display:block;">
+          </a>
+          {% endif %}
+          <div style="padding:8px;">
+            <div style="font-weight:700;font-size:13px;">{{ e.get('id') }} - {{ e.get('kind') }}</div>
+            <div style="color:#ccc;font-size:12px;">start {{ "%.3f"|format(e.get('t_start', 0.0)) }}s</div>
+            {% if e.get('server_player_name') %}
+            <div style="color:#bbb;font-size:11px;">server {{ e.get('server_player_name') }} ({{ e.get('starter_role') }})</div>
+            {% endif %}
+            {% if e.get('review_reason') %}
+            <div style="color:#fb8;font-size:11px;">{{ e.get('review_reason') }}</div>
+            {% endif %}
+            <div style="color:#777;font-size:11px;">{{ e.get('source') }} {{ e.get('point_id') }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <p style="color:#aaa;font-size:13px;margin:10px 0 0;">Step 3.2 is intentionally paused for now. Review the exported start-time frames and give feedback before we continue.</p>
+    </div>
+
+    {% elif current_job.current_step == 'confirm_sets' %}
     <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
       <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.1 — Set Detection Complete</h3>
       {% set sets_data = current_job.timeline_summary.get('detected_sets', {}) %}
       {% set n_sets = sets_data.get('n_sets', 0) %}
       {% set swaps = sets_data.get('swaps', []) %}
+      {% set break_candidates = sets_data.get('break_candidates', []) %}
       <p style="font-size:16px;font-weight:700;color:#fff;margin:0 0 12px;">{{ n_sets }} set(s) detected</p>
+      {% if sets_data.get('algorithm') or sets_data.get('note') %}
+      <p style="color:#aaa;font-size:12px;margin:0 0 10px;">
+        {% if sets_data.get('algorithm') %}Algorithm: <code>{{ sets_data.get('algorithm') }}</code>{% endif %}
+        {% if sets_data.get('note') %} &nbsp; Note: <code>{{ sets_data.get('note') }}</code>{% endif %}
+      </p>
+      {% endif %}
       {% if swaps %}
       <table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
         <tr style="border-bottom:1px solid #333;">
@@ -955,6 +1019,27 @@ TEMPLATES = {
         </tr>
         {% endfor %}
       </table>
+      {% endif %}
+      {% if break_candidates %}
+      <details style="margin:10px 0;">
+        <summary style="cursor:pointer;color:#ccc;font-size:13px;">Break candidates ({{ break_candidates|length }})</summary>
+        <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+          <tr style="border-bottom:1px solid #333;">
+            <th style="text-align:left;padding:5px 10px;color:#aaa;font-size:12px;">#</th>
+            <th style="text-align:left;padding:5px 10px;color:#aaa;font-size:12px;">Window</th>
+            <th style="text-align:right;padding:5px 10px;color:#aaa;font-size:12px;">Duration</th>
+            <th style="text-align:right;padding:5px 10px;color:#aaa;font-size:12px;">Avg Energy</th>
+          </tr>
+          {% for c in break_candidates %}
+          <tr style="border-bottom:1px solid #222;">
+            <td style="padding:5px 10px;">{{ loop.index }}</td>
+            <td style="padding:5px 10px;">{{ "%.1f"|format(c.t_break_start) }}s - {{ "%.1f"|format(c.t_break_end) }}s</td>
+            <td style="padding:5px 10px;text-align:right;">{{ "%.1f"|format(c.duration) }}s</td>
+            <td style="padding:5px 10px;text-align:right;">{{ "%.2f"|format(c.avg_energy) }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </details>
       {% endif %}
       <p style="color:#aaa;font-size:13px;margin:10px 0 0;">If set count and swap times are correct, click <strong>Next</strong> to detect rallies per set.</p>
     </div>
@@ -990,9 +1075,13 @@ TEMPLATES = {
     {% endif %}
 
     <div style="display:flex;gap:10px;margin-bottom:16px;">
+      {% if current_job.current_step != 'confirm_total_rallies' %}
       <form method="post" action="/jobs/{{ current_job.job_id }}/next-step" style="margin:0;">
         <button type="submit" style="padding:10px 32px;font-size:15px;font-weight:700;background:#4a9;color:#000;border:none;border-radius:6px;cursor:pointer;">▶ Next</button>
       </form>
+      {% else %}
+      <span class="meta" style="align-self:center;">Waiting for operator feedback before Step 3.2.</span>
+      {% endif %}
       <form method="post" action="/jobs/{{ current_job.job_id }}/stop" style="margin:0;">
         <button type="submit" class="secondary" style="padding:10px 20px;font-size:13px;" onclick="return confirm('Stop pipeline?')">Stop</button>
       </form>
@@ -1075,6 +1164,11 @@ TEMPLATES = {
           <button class="secondary" type="button" onclick="openRawVideoBrowser()">Browse</button>
         </div>
         <div class="meta" style="margin-bottom:14px;">Browse root: {{ raw_matches_root }}</div>
+        <div style="margin-bottom:14px;">
+          <label for="trim_start">Trim Start</label>
+          <input id="trim_start" name="trim_start" value="{{ trim_start_value }}" placeholder="mm:ss or seconds">
+          <div class="meta" style="margin-top:6px;">Identify Players will first trim the video from this timestamp, then scan the trimmed working video.</div>
+        </div>
         <button class="secondary" type="button" id="btn_identify" onclick="startIdentifyPlayers()"
                 style="width:100%;padding:10px 0;font-size:1em;">
           Identify Players
@@ -1118,19 +1212,13 @@ TEMPLATES = {
             <input id="player_b_name" name="player_b_name" value="{{ player_b_value }}" placeholder="Player name...">
           </div>
         </div>
-        <div class="grid two" style="margin-top:12px;">
-          <div>
-            <label for="best_of">Format</label>
-            <select id="best_of" name="best_of">
-              <option value="3" {% if best_of_value == 3 %}selected{% endif %}>Best of 3</option>
-              <option value="5" {% if best_of_value == 5 %}selected{% endif %}>Best of 5</option>
-              <option value="7" {% if best_of_value == 7 %}selected{% endif %}>Best of 7</option>
-            </select>
-          </div>
-          <div>
-            <label for="trim_start">Trim Start</label>
-            <input id="trim_start" name="trim_start" value="{{ trim_start_value }}" placeholder="mm:ss or seconds">
-          </div>
+        <div style="margin-top:12px;">
+          <label for="best_of">Format</label>
+          <select id="best_of" name="best_of">
+            <option value="3" {% if best_of_value == 3 %}selected{% endif %}>Best of 3</option>
+            <option value="5" {% if best_of_value == 5 %}selected{% endif %}>Best of 5</option>
+            <option value="7" {% if best_of_value == 7 %}selected{% endif %}>Best of 7</option>
+          </select>
         </div>
         <div style="margin-top:12px;">
           <label for="tournament_name">Tournament</label>
@@ -1148,7 +1236,7 @@ TEMPLATES = {
           </select>
         </div>
         <div class="point-actions" style="margin-top:16px;">
-          <button type="submit">Run AI Pipeline</button>
+          <button type="submit">Run AI Pipeline (Start Step 3)</button>
         </div>
       </div>
 
@@ -1190,9 +1278,11 @@ TEMPLATES = {
 
     function startIdentifyPlayers() {
       var videoPath = document.getElementById("raw_video_path").value.trim();
+      var trimStart = document.getElementById("trim_start").value.trim();
       if (!videoPath) { alert("Select a video first."); return; }
       _scanId = null;
       _logLineCount = 0;
+      document.getElementById("input_scan_id").value = "";
       document.getElementById("log_terminal").textContent = "";
       document.getElementById("enroll_area").innerHTML = "";
       document.getElementById("log_status_label").textContent = "Identifying players...";
@@ -1202,7 +1292,7 @@ TEMPLATES = {
       fetch("/api/identify-players", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
-        body: "video_path=" + encodeURIComponent(videoPath)
+        body: "video_path=" + encodeURIComponent(videoPath) + "&trim_start=" + encodeURIComponent(trimStart)
       })
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -1352,6 +1442,7 @@ TEMPLATES = {
     function backToBrowse() {
       _stopElapsed();
       _scanId = null; _logLineCount = 0;
+      document.getElementById("input_scan_id").value = "";
       document.getElementById("log_terminal").textContent = "";
       document.getElementById("enroll_area").innerHTML = "";
       _setPhase("browse");
@@ -1361,7 +1452,7 @@ TEMPLATES = {
   <div class="panel">
     <h2>Trim Start</h2>
     {% if main_video_src %}
-      <div class="meta">Preview raw video here, then type Trim Start manually in the Setup form.</div>
+      <div class="meta">Preview raw video here, then enter Trim Start before clicking Identify Players.</div>
       <video class="trim-player" controls preload="metadata" src="{{ main_video_src }}"></video>
     {% else %}
       <div class="hint-box">Choose the raw match video first. A small preview player will appear here for trim setup.</div>

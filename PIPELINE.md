@@ -1,29 +1,42 @@
 # Current Pipeline Implementation
 
 ## Purpose
-Snapshot of the production pipeline as currently implemented in code. Update this
-file whenever the pipeline structure changes (new step added, step removed, signal
-source swapped, model replaced, etc.).
+Snapshot of the pipeline contract and the current implementation shape. Update
+this file whenever the pipeline structure changes (new step added, step removed,
+signal source swapped, model replaced, etc.).
 
-This file describes **what is**, not **what should be**:
+This file describes the agreed active pipeline direction. If code has not caught
+up yet, mark that gap explicitly instead of hiding it:
 - `ROADMAP_PRODUCTION.md` = long-term target (what we want to be)
-- `PIPELINE.md` = current implementation (what we are now) ← **this file**
+- `PIPELINE.md` = active pipeline contract + implementation snapshot ← **this file**
 - `PROJECT_PROGRESS.md` = daily work log (how we got here)
 - `PROJECT_ACTION_PLAN.md` = operational board (what's next)
 
 ## Top-level Flow
+
+The Web UI direction is now **debug-mode first**, not a single black-box
+production run. The pipeline must stop at several checkpoints so the operator
+can verify the output before the next step consumes it.
+
 ```
 A. Setup (Web UI)
-    ↓
-B. Initial Job Pipeline   (staged, with operator confirmation pauses)
-   ├─ Stage 1: trim_input + detect_sets           → PAUSE (confirm sets)
-   ├─ Stage 2: detect_rallies per set              → PAUSE (confirm rally counts)
-   └─ Stage 3: export_clips + predict_winners      → auto → review
-    ↓
-C. Review (operator UI loop)
-    ↓
-D. Export (preview / final scoreboard render)
+   Select raw video + enter Trim Start
+    |
+B. Identify Players button
+   Step 1: Trim input video                         -> auto, no pause
+   Step 2: Identify players                         -> PAUSE / confirm or enroll
+    |
+C. Run AI Pipeline button
+   Step 3: Detect rallies                           -> PAUSE / confirm rally timeline
+   Step 4: Predict winners                          -> PAUSE / inspect AI predictions
+   Step 5: GUI confirm winners                      -> operator review loop
+   Step 6: Final output video with scoreboard       -> completed artifact
 ```
+
+Main rule: the GUI flow starts from **Identify Players**, not from **Run AI
+Pipeline**. The Identify step first trims the raw video, then identifies players
+on the trimmed working video. After the operator confirms player names, **Run AI
+Pipeline** starts from Step 3 only.
 
 ---
 
@@ -32,8 +45,12 @@ D. Export (preview / final scoreboard render)
 | Step | Action | Input | Output |
 |------|--------|-------|--------|
 | A1 | Browse and select raw video | filesystem | `raw_video_path` |
-| A2 | (Optional) Click "Identify Players" | `raw_video_path` + face DB | Pre-filled `player_a_name`, `player_b_name` |
-| A3 | Fill setup form: `best_of`, `trim_start_sec`, `player_a_starts_near` | UI form | `MatchJob` created on disk |
+| A2 | Enter `trim_start_sec` | UI form | Trim timestamp used by Step 1 |
+| A3 | Click `Identify Players` | `raw_video_path`, `trim_start_sec`, face DB | Trimmed working video + detected player names |
+| A4 | Confirm/enroll/edit players and fill setup fields | UI form | `MatchJob` created on disk when Run AI Pipeline is clicked |
+
+Player recognition is not just a setup shortcut. The `Identify Players` button
+runs Step 1 and Step 2 before a match job starts the heavier AI pipeline.
 
 **Files involved:**
 - `web_ui/app.py` — HTTP routes
@@ -42,159 +59,207 @@ D. Export (preview / final scoreboard render)
 
 ---
 
-## Phase B — Initial Job Pipeline
+## Phase B — Debug-Mode Job Pipeline
 
-Entry point: `run_initial_job_pipeline()` in `backend/production_pipeline.py`.
-Five sequential steps; all must succeed for the job to reach review state.
+This is the agreed Web UI pipeline contract. It is intentionally more
+interactive than the old production-style `run everything` flow.
 
-### Step 1/5 — `trim_input`
+### Step 1/6 — `trim_input`
 
-Cut the raw video from `trim_start_sec` to end using FFmpeg with NVIDIA hardware
-encoding (`h264_nvenc`).
+Cut the raw video from `trim_start_sec` to the end. This creates the working
+video that all later steps consume.
 
 | Property | Value |
 |----------|-------|
 | Function | `trim_input_video()` in `backend/production_pipeline.py` |
 | Input | `raw_video_path`, `trim_start_sec` |
 | Output artifact | `working_video.mp4` in job directory |
-| GPU | Required (`h264_nvenc`) |
-| Skip condition | `trim_start_sec <= 0.0001` → just copies the raw file |
+| GPU | Required. Uses an NVENC smoke check first, then CUDA hardware decode + NVIDIA NVENC encode (`h264_nvenc`) when trimming |
+| Skip condition | `trim_start_sec <= 0.0001` -> copy the raw file only after the NVENC smoke check passes |
+| UI checkpoint | None. Step 1 runs automatically when `Identify Players` is clicked and continues to Step 2 |
 
-### Step 2/5 — `identify_players`
+Current FFmpeg trim path:
 
-Detects the **table ROI** and runs a face-DB scan to resolve NEAR and FAR player
-identity. The table-ROI detector runs **unconditionally** (even when face
-identification is skipped) so that Step 3 can reuse the ROI without detecting it
-again on the same video.
+```text
+ffmpeg -y -hwaccel cuda -hwaccel_output_format cuda -ss <trim_start_sec> -i <raw_video_path> -map 0:v:0 -map 0:a? -c:v h264_nvenc -preset p1 -c:a copy -movflags +faststart <working_video_path>
+```
+
+If CUDA/NVENC is not available, Step 1 fails and the pipeline stops. There is
+no CPU fallback for this tool.
+
+### Step 2/6 — `identify_players`
+
+Detect the table ROI and identify the two players. This step is a first-class
+debug checkpoint because wrong identities poison winner prediction, review
+labels, and scoreboard names downstream.
 
 | Property | Value |
 |----------|-------|
 | Functions | `detect_table_roi_and_player_zone()` + `quick_identify_players_standalone()` in `backend/player_identification.py` |
-| Input | `working_video.mp4`, `pose_weights_path`, `table_weights_path`, `FaceDB` |
-| Output | `TableROI` (passed to Step 3) + updated `player_a_name`, `player_b_name` on the MatchJob |
+| Input | trimmed `working_video.mp4`, `pose_weights_path`, `table_weights_path`, `FaceDB` |
+| Output artifacts | `TableROI`, player-zone diagnostics, `player_a_name`, `player_b_name`, face crops for unknowns |
 | Models | YOLOv8x-table + YOLOv8x-pose + ArcFace (`w600k_r50.onnx`) |
 | GPU | Required (CUDA enforced for both ONNX and torch) |
-| Skip condition | Face scan is skipped if both names are already provided; table-ROI detection always runs |
+| UI checkpoint | Show detected players, confidence/evidence, face crops, and table/player-zone diagnostics |
 
-**What it does internally:**
-1. Detect table ROI (YOLOv8x-table) — runs once, shared with Step 3
-2. Derive player zone = table bbox expanded X +30%, Y +110% on each side
-3. Scan early window for FAR player (rank=1) — filter by player zone
-4. Scan early set-1 window for NEAR player (rank=0) as the primary pass
-5. If needed, run a post-swap rescue scan for Player 2 on rank=1 using clean chunk voting
-6. If identity is still unresolved, leave it as unknown for operator input/enrollment later
+**Rules:**
+1. Detect table ROI once and reuse it in Step 3.
+2. Derive player zone from the table ROI to exclude adjacent-table players.
+3. If a player is unresolved, keep the result as `unknown`.
+4. Never assign a player by guessing or by using a "only other DB person" fallback.
+5. The operator can confirm, manually name, or enroll a new player before Step 3.
+6. `Run AI Pipeline` must reuse the already-trimmed working video and start from Step 3.
 
 **Note:** Uses display crop (simple resize 224→112) for embedding to match the
-enrollment method (Session 5 fix).
+enrollment method.
 
-### Step 3/5 — `detect_rallies`
+### Step 3/6 — `detect_rallies`
 
-The slowest step. Loads YOLO models once, extracts multi-stream energy signals,
-applies hysteresis segmentation, refines endpoints, and samples player positions.
+Detect set boundaries and the rally timeline. In the current Web UI code,
+Step 3 is not one continuous black-box step. It is split into two staged
+sub-steps with two operator pauses:
+
+```text
+Run AI Pipeline
+  -> Step 3.1 detect_sets
+  -> PAUSE confirm_sets
+  -> Step 3.2 detect_rallies
+  -> PAUSE confirm_rallies
+  -> Step 4 predict_winners
+```
 
 | Property | Value |
 |----------|-------|
-| Functions | `build_rally_timeline()` in `scripts/generate_rally_timeline.py` + `populate_player_positions()` in `backend/set_boundary.py` |
-| Input | `working_video.mp4`, YOLO table + pose weights, `best_of` |
-| Output artifact | `timeline.json` (RallyTimeline) |
+| Stage entrypoints | `run_pipeline_stage_detect_sets()` + `run_pipeline_stage_detect_rallies()` in `backend/production_pipeline.py` |
+| Rally detector | `build_rally_timeline()` in `scripts/generate_rally_timeline.py` |
+| Input | `working_video.mp4`, confirmed players, `TableROI`, `best_of` |
+| Output artifacts | `set_clips/setN.mp4`, merged `timeline.json`, `timeline_summary.detected_sets`, `timeline_summary.per_set_rallies` |
 | GPU | Required (NVDEC for video decode + CUDA for YOLO) |
 | Default mode | `player` (YOLO pose wrist velocity as primary signal) |
+| UI checkpoints | Pause 1: confirm total rally/LET start-times. Later pauses TBD |
 
-**Reuses the Table ROI detected in Step 2** — avoids running YOLOv8x-table a
-second time on the same video. If Step 2 failed to produce a ROI (rare), Step 3
-falls back to detecting the table ROI itself.
+#### Step 3.1 — `detect_total_rallies`
 
-**What it does internally (a single conceptual step — four sub-phases):**
+Code path: `run_pipeline_stage_detect_sets()` orchestrates the stage, while the
+Step 3.1 rally/LET/server review logic lives in
+`backend/step3_rally_start_review.py`.
+Runtime state while running: `status="running"`, `current_step="detect_total_rallies"`.
 
-1. **Extract multi-stream signals** (`extract_multistream_signals`): decode the
-   video once on GPU (NVDEC) and produce three parallel energy signals:
-   - **Table energy** — frame-to-frame motion inside the table ROI
-   - **Ball energy** — ball candidate motion in an expanded ROI
-   - **Player energy** — YOLO pose wrist velocity per side (default:
-     `role_tracker` source; alternative: `nearest_two`)
-   - **Fused** — `max(table, player * gain_p, ball * gain_b)`
+Current sub-steps:
+1. Load `working_video.mp4` prepared by Step 1 + Step 2.
+2. Reuse `job.timeline_summary["table_roi"]` from Identify Players if present.
+3. If no cached ROI exists, call `detect_table_roi_and_player_zone()` to detect the table again.
+4. If table ROI is missing or invalid, store an error and pause at `confirm_total_rallies` instead of continuing blindly.
+5. Run the existing, already-debugged start-time detector on the full working video via `build_rally_timeline()`. Do not reimplement rally start-time, endpoint, or LET detection in Step 3.1.
+6. Save the raw detector timeline to `step3_1_total_rally_timeline.json`.
+7. Build one chronological review list from both sources:
+   `timeline.points` for scoring rallies, plus `analysis_metadata["excluded_let_starts"]` and `analysis_metadata["unattached_trailing_let_starts"]` for LET/non-scoring rallies.
+8. Map `starter_role` to the trusted Step 2 names only while side state is still known from the initial setup: role `A` = initial near-side player, role `B` = initial far-side player. This mapping is **not enough after a side swap** and must not be treated as current NEAR/FAR.
+9. Apply the existing serve-order engine (`_infer_player_serve_mode_from_starter_roles`) as a review guard. If double-serve order shows a singleton scoring run between two complete runs from the other player, add a `needs_review` marker in the gap instead of silently accepting the missing start.
+10. Count review rows as `scoring + LET/non-scoring + needs_review`. Confirmed detector starts remain available as `detected_total`.
+11. Export one annotated JPG per detected/review start-time into `step3_1_rally_start_frames/`.
+12. Export `rally_start_times.csv` in the same folder, including `starter_role`, current side when available (`current_side=NEAR/FAR/unknown`), mapped server player name, and review reason.
+13. Export the merged start-time event list to `step3_1_rally_start_events.json`.
+14. Save summary and events into `job.timeline_summary["detected_total_rallies"]`.
+15. Pause for operator review at `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"`.
 
-2. **Segment rallies** (`detect_multistream_rallies`): hysteresis state machine
-   on the chosen energy signal.
-   - Smoothing: 1D Gaussian (kernel=11, σ=3.0) on GPU
-   - Normalization: 10th–95th percentile clipping
-   - Player-mode thresholds: `high=0.22`, `low=0.09`, `max_gap=1.35s`
-   - Post-processing: split long segments on dips, merge artifact runs
+Rule-driven repair loop for Step 3.1:
+1. First pass: scan the full working video once to get the total chronological list of scoring rallies and LET/non-scoring starts.
+2. Rule audit: compare the output against basic table-tennis rules, especially the 2-serve order and the fact that LET does not advance service.
+3. Targeted rescan only: when the rule audit finds a suspicious gap or conflict, rescan only that `gap_start -> gap_end` window, with small padding if needed. Do not rescan the whole clip just to repair one suspected missing rally.
+4. Finalize Step 3.1: update the same Step 3.1 summary/CSV/JSON with recovered candidates or explicit `needs_review` markers, then pause again for operator review.
 
-3. **Build rally points** (`_build_points_with_active_windows`): convert segments
-   into `RallyTimelinePoint` objects, tag let-rallies, attach service-attempt
-   indices and `active_start` / `active_end` windows.
+Current command-line support for the targeted repair loop:
+- Full first pass: `scripts/step3_1_rally_start_review.py --video ... --start ... --end ...`
+- Targeted repair only after an existing first pass: add `--rescan-only --rescan-review-gaps`.
+- The rescan window source must come from rule-audit fields such as `gap_start`, `gap_end`, `source_gap_start`, and `source_gap_end`; never scan unrelated time ranges.
 
-4. **Refine endpoints** (`_refine_points_with_endpoint_signals`): tighten each
-   rally's `t_end` using 12 support series (action_a/b, exchange, terminal body
-   language, dead reset, ball-only false tail, etc.). Records `endpoint_mode`
-   and `endpoint_confidence` on each point.
+Operator feedback from `2_sets.mp4` full summary:
+- `rally_0013` in the first segment is accepted by the operator.
+- From `rally_0016` onward in the combined report, the displayed player names are suspected wrong because the players have already swapped sides.
+- Therefore any user-facing Step 3.1/Step 3.2 report must include a separate `current_side` column (`NEAR`, `FAR`, or `unknown`) for each rally start.
+- `A/B` is a detector/debug role only. It must not be used as a proxy for current side after a swap.
+- Whenever the pipeline rescans or re-identifies players around a rally/gap, it must also detect which side that player is currently standing on. Identity without side is insufficient for multi-set clips.
+- Until side state is applied, post-swap player-name mapping should be considered provisional and must be review-marked instead of silently trusted.
 
-5. **Sample player positions** (`populate_player_positions`): sample a few frames
-   per rally, run YOLO pose on the top-2 bodies, and store mean X positions on
-   each rally point. Used by **Signal 3** (side-swap detection) of the
-   set-boundary algorithm in Step 5.
+Single entrypoint rule:
+- GUI and command-line debug must use the same Step 3.1 engine in `backend/step3_rally_start_review.py`.
+- The command-line wrapper is `scripts/step3_1_rally_start_review.py`; it should differ from GUI only by arguments/input source, not by detector logic.
 
-> **Removed (Session 6):** An older signal-based winner inference layer
-> (`_annotate_points_with_winner_fusion_v2`) used to run here. It was removed
-> because Step 5's Qwen3-VL adapter overwrites every winner field it produced.
-> If a fallback is ever needed when the adapter fails on a specific clip,
-> implement a per-clip try/except in Step 5 rather than re-introducing this
-> layer.
+Explicit non-goals for Step 3.1:
+- Do not split Set 1 / Set 2.
+- Do not finalize side swap or set split inside the first-pass detector.
+- Do not claim current NEAR/FAR from initial `A/B`; current side must come from a dedicated side-state scan.
+- Do not predict winners.
+- Do not write `timeline_review.json` yet, because that would push the GUI into winner-review mode too early.
 
-### Step 4/5 — `export_clips`
+LET source-of-truth:
+- Use the existing player-path LET logic in `backend/ai_multistream_rally.py`, especially `_detect_player_sandwich_rallies_from_diagnostics()`, `_infer_forced_let_indices_from_starter_roles()`, and `_repair_double_serve_role_singletons()`.
+- `scripts/generate_rally_timeline.py` deliberately excludes LET segments from `timeline.points` and stores them in `analysis_metadata["excluded_let_starts"]` or `analysis_metadata["unattached_trailing_let_starts"]`.
+- Step 3.1 must only merge those existing detector outputs for operator review. It must not introduce a new LET classifier or relabel LET from scratch.
 
-Cut the working video into per-rally MP4 clips in parallel.
+Pause after Step 3.1:
+
+| Pause | Runtime state | GUI shows | Next click does |
+|-------|---------------|-----------|-----------------|
+| `confirm_total_rallies` | `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"` | Total scoring/LET count, exported start-time images, CSV/JSON paths | No automatic next step yet; wait for operator feedback |
+
+Current limitation: Step 3.2+ is intentionally paused until the operator reviews
+the total start-time frames and gives feedback.
+
+#### Step 3.2 — `detect_side_state`
+
+Step 3.2 is the next required sub-step after the Step 3.1 start-time review.
+It must resolve side state and set split before winner prediction consumes the
+timeline.
+
+Required Step 3.2 outputs:
+1. Detect the first side-swap interval using the trusted Step 2 identities plus rally-start anchors from Step 3.1.
+2. Add `current_side` for each rally start: `NEAR`, `FAR`, or `unknown`.
+3. Add `side_state`: `initial`, `swapped`, or `unknown`.
+4. Re-map server player names using `current_side` and identity-side evidence, not just initial `A/B`.
+5. Keep any post-swap identity/side ambiguity as `unknown` or `needs_review`; do not guess.
+6. Update the human summary table to show:
+   `id | kind | start | end | server | current_side | note | image`.
+7. Keep `starter_role` available in CSV/JSON for debugging, but hide or de-emphasize it in the human-facing summary.
+
+Temporary guardrail: do not proceed to winner prediction or final timeline
+generation until Step 3.1 start-times and Step 3.2 side state are accepted.
+
+### Step 4/6 — `predict_winners`
+
+Generate AI winner predictions for detected scoring rallies. Clip export is an
+internal sub-step here; it is not a separate top-level Web UI step.
 
 | Property | Value |
 |----------|-------|
-| Function | `export_review_clips()` in `backend/production_pipeline.py` |
-| Input | `working_video.mp4` + `RallyTimeline` |
-| Output artifact | `review_clips/{point_id}.mp4` (one per rally) |
-| Encoder | `libx264 -preset veryfast` (CPU, 8 parallel workers) |
-| Why CPU | NVENC is reserved for the trim step; parallel CPU is faster for many small clips |
-
-### Step 5/5 — `predict_winners`
-
-Run a Qwen3-VL base model with a LoRA adapter (PEFT) on each scoring rally clip,
-then apply set numbers and validate the score.
-
-| Property | Value |
-|----------|-------|
-| Class | `WinnerAdapterPredictor` in `backend/production_pipeline.py` |
+| Clip function | `export_review_clips()` in `backend/production_pipeline.py` |
+| Predictor class | `WinnerAdapterPredictor` in `backend/production_pipeline.py` |
 | Base model | `models/Qwen3-VL-4B-Instruct` |
 | Adapter | `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2/checkpoint-108` |
-| Input | One MP4 clip per scoring rally |
-| Output artifacts | Predictions JSONL + updated `timeline.json` |
-| GPU | Required; prefers `bfloat16` on CUDA |
+| Input | Confirmed `timeline.json` + one exported MP4 clip per scoring rally |
+| Output artifacts | `review_clips/{point_id}.mp4`, predictions JSONL, updated `timeline.json` |
+| GPU | Required. Review clips use CUDA/NVENC, and Qwen3-VL is pinned to `cuda:0` with `bfloat16`; no `device_map="auto"` CPU offload |
+| UI checkpoint | Show prediction summary: known/review/unknown counts and low-confidence examples |
 
-**What it does internally (three sub-phases — all small post-processing on the timeline):**
+**What it does internally:**
+1. Cut one review clip per scoring rally using FFmpeg CUDA/NVENC.
+2. Run adapter inference to predict `{winner, loser, taxonomy, last_hitter}`.
+3. Remap position-relative labels to actual player names using set-side state.
+4. Apply set numbers and score validation after predictions are attached.
 
-1. **Run adapter inference**: predict `{winner, loser, taxonomy, last_hitter}`
-   for each scoring rally clip.
-   - Adapter output is **NEAR/FAR-relative** (trained with `player_a = NEAR`
-     in Set 1)
-   - `near_player_for_rally()` remaps those labels to actual `player_a` /
-     `player_b`, accounting for set-swap and mid-deciding-set swap at score 5
+### Step 5/6 — `confirm_winners_in_gui`
 
-2. **Apply set numbers** (`apply_set_numbers` in `backend/set_boundary.py`):
-   assign `set_number` to each rally using three signals:
+The operator reviews AI predictions and resolves every scoring rally needed for
+the final scoreboard.
 
-   | Signal | Source | Strength |
-   |--------|--------|----------|
-   | 1. Score rule | 11+ points with 2-point lead | Strongest when winners are correct |
-   | 2. Inter-rally gap | Gap > 60s between rallies | Independent of winner correctness |
-   | 3. Side swap | Player X-position jump (from Step 3 position sampling) | Independent geometric signal |
+| Property | Value |
+|----------|-------|
+| Function | `review_job_point()` in `backend/production_pipeline.py` |
+| Input | Predicted `timeline.json`, review clips, player names |
+| Output artifact | Reviewed/resolved `timeline.json` |
+| UI checkpoint | Review loop until every scoring rally is accepted, corrected, marked let, or intentionally blocked |
 
-3. **Validate score** (`build_score_validation` in `backend/score_validation.py`):
-   check that the score progression is plausible, set job status to
-   `ready_for_final` or `needs_review`.
-
----
-
-## Phase C — Review (operator)
-
-Function: `review_job_point()` in `backend/production_pipeline.py`.
 For each rally the operator can:
 
 | Action | Effect |
@@ -203,31 +268,24 @@ For each rally the operator can:
 | `set_winner` | Override the winner manually (`player_a` or `player_b`) |
 | `mark_let` | Mark this rally as a let — does not count toward score |
 
-After every action the timeline is re-saved and `build_score_validation()` runs
-again. Status flips between `needs_review` and `ready_for_final`.
+After every action, the timeline is re-saved and score validation runs again.
+Final export remains blocked until all required scoring rallies are resolved.
 
----
+### Step 6/6 — `final_output_video`
 
-## Phase D — Export
-
-### D1 — `render_job_preview`
-Quick preview render. Allowed only when at least one rally has a known winner.
-
-| Property | Value |
-|----------|-------|
-| Function | `render_job_preview()` → `render_scoreboard_video()` |
-| Output | `preview.mp4` in job directory |
-
-### D2 — `export_job_final_video`
-Final delivery. Allowed only when `final_export_ready=True` (every rally has a
-known winner or has been resolved by the operator).
+Render the final scoreboard video from the reviewed timeline.
 
 | Property | Value |
 |----------|-------|
 | Function | `export_job_final_video()` → `render_scoreboard_video()` |
-| Output | `outputs/{job_id}__final_scoreboard.mp4` (repo root) |
+| Input | `working_video.mp4`, reviewed `timeline.json`, player names |
+| Output | `outputs/{job_id}__final_scoreboard.mp4` |
 | Renderer | `backend/rendering.py` |
 | Includes | Scoreboard overlay, set scores, rally counter, audio merge |
+| Gate | Allowed only when `final_export_ready=True` |
+
+Preview render may still exist as a convenience tool, but it is not a top-level
+pipeline step. The canonical end state is the final scoreboard video.
 
 ---
 
@@ -235,16 +293,20 @@ known winner or has been resolved by the operator).
 
 | Dependency | Used by |
 |------------|---------|
-| FFmpeg + `h264_nvenc` (NVDEC/NVENC) | Step 1 trim, Step 3 video decode, D1/D2 render |
+| FFmpeg + `h264_nvenc` (NVDEC/NVENC) | Step 1 trim, Step 3 video decode, Step 4 clip export, Step 6 render |
 | YOLOv8x table weights | Step 2 table ROI detection (shared with Step 3) |
 | YOLOv8x-pose weights | Step 2 face alignment, Step 3 player energy + position sampling |
 | ArcFace `w600k_r50.onnx` (onnxruntime-gpu CUDA) | Step 2 face embedding |
-| Qwen3-VL-4B-Instruct + LoRA adapter (PEFT) | Step 5 winner prediction |
+| Qwen3-VL-4B-Instruct + LoRA adapter (PEFT) | Step 4 winner prediction |
 | Face DB (`data/players/faces.json`) | Step 2 matching |
 
 ## GPU Enforcement
 
 CUDA is **required** at multiple points (Session 4 enforcement):
+
+Project hardware rule: this tool is optimized for the local NVIDIA RTX 5060 Ti.
+Heavy video and AI steps should use GPU acceleration by default. Do not silently
+fall back to CPU for GPU-required steps; fail clearly instead.
 
 | Component | Check |
 |-----------|-------|
@@ -252,7 +314,7 @@ CUDA is **required** at multiple points (Session 4 enforcement):
 | `quick_identify_players_standalone` | `torch.cuda.is_available()` check before loading YOLO |
 | `populate_player_positions` | Same `torch.cuda` check |
 | `build_rally_timeline` | `torch.cuda.is_available()` check at entry |
-| `WinnerAdapterPredictor` | Loads model with `device_map="auto"`, prefers `bfloat16` on CUDA |
+| `WinnerAdapterPredictor` | Requires `torch.cuda.is_available()`, sets CUDA device 0, loads `bfloat16` model on `cuda:0` |
 
 CUDA DLL resolution on Windows: `os.add_dll_directory(torch_lib_path)` is called
 before `import onnxruntime` to make PyTorch's bundled `cublasLt64_12.dll`
@@ -271,8 +333,8 @@ and provides ground truth for splitting the timeline.
 
 ### Inputs (relies on Step 1 + Step 2 having run)
 - Video file
-- Face DB with the two playing identities enrolled (Step 2 invariant: names
-  are always known by the time Step 3 runs)
+- Face DB / confirmed player identities when available. If identity evidence is
+  insufficient, Step 3 must stop for operator input instead of guessing.
 - YOLOv8x-table + YOLOv8x-pose + ArcFace weights
 
 ### Algorithm
@@ -349,72 +411,61 @@ python scripts/detect_side_swap.py --video <path> [--sample-step 2.0] [--smooth-
 ## Internal `current_step` Values
 
 The `MatchJob.current_step` field uses machine-readable values. UI progress
-tracking in `web_ui/progress.py` and the staged pipeline in
-`backend/production_pipeline.py` depend on these exact strings.
+tracking in `web_ui/progress.py` and the debug-mode pipeline in
+`backend/production_pipeline.py` should depend on these exact strings.
 
-### Staged pipeline (current — debug-first GUI with operator pauses)
+### Debug-mode pipeline target
 
-```
-run_pipeline_stage_trim_and_detect_sets()
-  ├─ trim_input          (running)       — trim video (ffmpeg nvenc)
-  ├─ detect_sets         (running)       — side-swap detection (reuse Table ROI)
-  └─ confirm_sets        (awaiting_confirmation)  ← PAUSE
+These are the canonical step names for the 6-step Web UI flow. Some existing
+code still uses legacy names; when implementation catches up, update code and
+progress rendering together.
 
-run_pipeline_stage_detect_rallies()
-  ├─ detect_rallies      (running)       — per-set clip cut + rally detection
-  └─ confirm_rallies     (awaiting_confirmation)  ← PAUSE
+Current implementation note: Step 1 + Step 2 run before `MatchJob` creation via
+the Identify Players scan (`scan_id`). Their progress is shown by the scan log
+panel, not by `MatchJob.current_step`. The MatchJob created by `Run AI Pipeline`
+reuses the trimmed working video and starts from Step 3.
 
-run_pipeline_stage_predict()
-  ├─ export_review_clips          (running)  — cut per-rally clips
-  ├─ predict_winners_with_adapter (running)  — Qwen3-VL inference
-  └─ ai_ready                     (needs_review / ready_for_final)
-```
-
-| `current_step` | `status` | Stage | Action |
-|----------------|----------|-------|--------|
+| `current_step` | `status` | Step | Action |
+|----------------|----------|------|--------|
 | `"trim_input"` | `running` | 1 | Trim video |
-| `"detect_sets"` | `running` | 1 | Side-swap detection |
-| `"confirm_sets"` | `awaiting_confirmation` | — | **PAUSE**: confirm set count + swap times |
-| `"detect_rallies"` | `running` | 2 | Per-set rally detection |
-| `"confirm_rallies"` | `awaiting_confirmation` | — | **PAUSE**: confirm per-set rally counts |
-| `"export_review_clips"` | `running` | 3 | Cut per-rally clips |
-| `"predict_winners_with_adapter"` | `running` | 3 | Qwen3-VL winner prediction |
-| `"ai_ready"` | `needs_review` | — | Pipeline done, enter review |
-| `"review_updated"` | `needs_review` / `ready_for_final` | — | After each review action |
+| `"identify_players"` | `running` | 2 | Detect table ROI and identify players |
+| `"confirm_players"` | `awaiting_confirmation` | 2 | **PAUSE**: confirm/enroll/manual-name players |
+| `"detect_rallies"` | `running` | 3 | Detect set/rally timeline |
+| `"confirm_rallies"` | `awaiting_confirmation` | 3 | **PAUSE**: confirm set split and per-set rally counts |
+| `"predict_winners"` | `running` | 4 | Export review clips internally and run winner model |
+| `"confirm_predictions"` | `awaiting_confirmation` | 4 | **PAUSE**: inspect AI prediction summary before review loop |
+| `"confirm_winners"` | `needs_review` | 5 | GUI review loop for winner confirmation/correction |
+| `"review_updated"` | `needs_review` / `ready_for_final` | 5 | After each review action |
+| `"final_export"` | `running` | 6 | Render final scoreboard video |
+| `"final_export_complete"` | `completed` | 6 | Final output video is ready |
 
-### Legacy pipeline (old — runs A-to-Z without pauses)
+### Legacy implementation values
 
-Still available via `run_initial_job_pipeline()` and `POST /jobs/<id>/run`.
+The old A-to-Z path may still appear in existing job files or code paths. Treat
+these as compatibility names, not the target Web UI design.
 
-| `current_step` | Step |
-|----------------|------|
-| `"trim_input"` | Step 1/5 |
-| `"player_identification"` | Step 2/5 |
-| `"generate_rally_timeline"` | Step 3/5 |
-| `"export_review_clips"` | Step 4/5 |
-| `"predict_winners_with_adapter"` | Step 5/5 |
-| `"ai_ready"` | Done |
+| Legacy `current_step` | New conceptual owner |
+|-----------------------|----------------------|
+| `"player_identification"` | Step 2: `identify_players` |
+| `"generate_rally_timeline"` | Step 3: `detect_rallies` |
+| `"export_review_clips"` | Internal sub-step of Step 4: `predict_winners` |
+| `"predict_winners_with_adapter"` | Internal sub-step of Step 4: `predict_winners` |
+| `"ai_ready"` | Step 5: `confirm_winners` |
+| `"preview_ready"` | Optional preview helper, not a top-level step |
+| `"preview_skipped_no_known_winner"` | Optional preview helper, not a top-level step |
+| `"failed"` | Shared terminal state |
 
-### Export + other (shared by both flows)
-
-| `current_step` | `status` |
-|----------------|----------|
-| `"final_export"` | `running` |
-| `"final_export_complete"` | `completed` |
-| `"preview_ready"` | varies |
-| `"preview_skipped_no_known_winner"` | `needs_review` |
-| `"failed"` | `failed` |
-
-Do not rename `current_step` values without also updating `web_ui/progress.py`
-and any saved job files that reference them.
+Do not rename `current_step` values in code without also updating
+`web_ui/progress.py` and any saved job files that reference them.
 
 ## Known Issues
 
 See `PROJECT_PROGRESS.md` for current known bugs:
-- **Multi-set continuous video** - rally detection (Step 3/5) fails when a
-  single input contains multiple sets concatenated. Each set in isolation works
-  correctly. Likely cause: energy normalization or hysteresis thresholds do not
-  cope with the 60–120s inter-set break.
+- **Multi-set continuous video** - rally detection (Step 3/6) fails when a
+  single input contains multiple sets concatenated. Latest debugging shows the
+  issue is not only the continuous-video boundary: per-set clips cut from
+  `2_sets.mp4` still produce wrong rally counts. Treat this as a Step 3 rally
+  detector accuracy problem.
 - **Current failure signature on `inputs/raw_matches/2_sets.mp4` (`2026-04-15`)**
   - Command run: `python scripts/debug_set_boundaries.py --video inputs/raw_matches/2_sets.mp4 --best-of 3 --trim 0`
   - Current code output:
@@ -429,3 +480,9 @@ See `PROJECT_PROGRESS.md` for current known bugs:
     - wrong swap timing
   - Practical meaning: do not treat `2_sets.mp4` set counts or swap timing as
     trustworthy until Step 3 rally detection is fixed.
+- **Latest split-and-detect result on `2_sets.mp4` (`2026-04-16`)**
+  - Side-swap split recovered more rallies than the continuous run.
+  - Detected Set 1 = `13` scoring rallies, Set 2 = `17` scoring rallies.
+  - Operator verdict: still wrong.
+  - Practical meaning: Step 3 must pause for rally-count confirmation before
+    Step 4 winner prediction.

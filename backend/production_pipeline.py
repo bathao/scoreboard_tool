@@ -27,6 +27,7 @@ from backend.rally_timeline_contract import RallyTimeline, counts_toward_score, 
 from backend.rendering import render_scoreboard_video
 from backend.score_validation import build_score_validation
 from backend.set_boundary import apply_set_numbers, populate_player_positions
+from backend.step3_rally_start_review import Step3PlayerContext, build_step3_1_rally_start_review
 
 
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -105,10 +106,32 @@ def _run_ffmpeg(cmd: list[str]) -> None:
         raise RuntimeError(message if message else f"ffmpeg failed with code {exc.returncode}") from exc
 
 
+def _require_nvenc_gpu() -> None:
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi",
+        "-i", "testsrc2=size=640x360:rate=1:duration=1",
+        "-frames:v", "1",
+        "-c:v", "h264_nvenc",
+        "-preset", "p1",
+        "-f", "null",
+        "-",
+    ]
+    try:
+        _run_ffmpeg(cmd)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "GPU required: FFmpeg h264_nvenc is unavailable. "
+            "Check the NVIDIA driver, RTX 5060 Ti visibility, and FFmpeg NVENC support. "
+            f"Original error: {exc}"
+        ) from exc
+
+
 def trim_input_video(raw_video_path: str, working_video_path: str, trim_start_sec: float) -> str:
     raw_path = Path(raw_video_path).resolve()
     working_path = Path(working_video_path).resolve()
     working_path.parent.mkdir(parents=True, exist_ok=True)
+    _require_nvenc_gpu()
 
     if float(trim_start_sec) <= 0.0001:
         if raw_path != working_path:
@@ -117,14 +140,15 @@ def trim_input_video(raw_video_path: str, working_video_path: str, trim_start_se
 
     cmd = [
         "ffmpeg", "-y",
+        "-hwaccel", "cuda",
+        "-hwaccel_output_format", "cuda",
         "-ss", f"{float(trim_start_sec):.3f}",
         "-i", str(raw_path),
         "-map", "0:v:0",
         "-map", "0:a?",
         "-c:v", "h264_nvenc",
-        "-preset", "p4",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
+        "-preset", "p1",
+        "-c:a", "copy",
         "-movflags", "+faststart",
         str(working_path),
     ]
@@ -136,19 +160,22 @@ def export_review_clips(timeline: RallyTimeline, *, working_video_path: str, rev
     review_dir = Path(review_clips_dir).resolve()
     review_dir.mkdir(parents=True, exist_ok=True)
     src = str(Path(working_video_path).resolve())
+    _require_nvenc_gpu()
 
     def _export_one(point) -> tuple[str, str]:
         clip_path = review_dir / f"{point.id}.mp4"
         cmd = [
             "ffmpeg", "-y",
+            "-hwaccel", "cuda",
+            "-hwaccel_output_format", "cuda",
             "-ss", f"{float(point.t_start):.3f}",
             "-to", f"{float(point.t_end):.3f}",
             "-i", src,
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-threads", "2",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "h264_nvenc",
+            "-preset", "p1",
+            "-c:a", "copy",
             "-movflags", "+faststart",
             str(clip_path),
         ]
@@ -176,14 +203,17 @@ class WinnerAdapterPredictor:
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
         taxonomy_order, build_training_prompt, parse_prediction_json = _load_winner_prompt_helpers()
+        if not torch.cuda.is_available():
+            raise RuntimeError("GPU required: torch.cuda.is_available() returned False for winner prediction.")
+        torch.cuda.set_device(0)
         self._torch = torch
         self._parse_prediction_json = parse_prediction_json
         self.prompt_text = build_training_prompt(list(taxonomy_order))
         self.processor = AutoProcessor.from_pretrained(config.base_model_dir)
         base_model = Qwen3VLForConditionalGeneration.from_pretrained(
             config.base_model_dir,
-            torch_dtype=(torch.bfloat16 if torch.cuda.is_available() else torch.float32),
-            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            device_map={"": 0},
         )
         self.model = PeftModel.from_pretrained(base_model, config.adapter_dir)
         self.model.eval()
@@ -595,6 +625,8 @@ def run_pipeline_stage_trim_and_detect_sets(
     _job_log(job_dir, "Step 1/5: trim_input — cutting working video with GPU encoder")
     trim_input_video(job.raw_video_path, job.artifacts.working_video_path, job.trim_start_sec)
     _job_log(job_dir, "Step 1/5: trim_input — done")
+    _job_log(job_dir, "Legacy trim+detect entrypoint — delegating Step 3.1 to trusted Step 2 side-swap detector")
+    return run_pipeline_stage_detect_sets(job, config=config)
 
     # Recover or detect table ROI.  If Step 2 (identification scan) already
     # detected it, the ROI is stored in job.timeline_summary["table_roi"] —
@@ -734,7 +766,7 @@ def run_pipeline_stage_trim_and_detect_sets(
     return job
 
 
-def run_pipeline_stage_detect_sets(
+def _run_pipeline_stage_detect_sets_side_swap_v2(
     job_or_path: MatchJob | str | Path,
     *,
     config: ProductionPipelineConfig | None = None,
@@ -753,17 +785,30 @@ def run_pipeline_stage_detect_sets(
     if str(SCRIPTS_DIR) not in _sys.path:
         _sys.path.append(str(SCRIPTS_DIR))
     from detect_side_swap import (
-        sample_positions, smoothed_side, baseline_state,
-        find_swap, refine_swap_to_transition_window,
-        classify_side, SIDE_L, SIDE_R,
+        detect_table_break_candidates,
+        detect_rally_anchor_side_swaps,
+        dominant_side_in_range,
+        infer_opposite_side,
+        sample_positions,
+        validate_known_player_swaps,
     )
-    from backend.player_identity import FaceDB, FaceEmbedder, face_similarity
-    from backend.player_identification import (
-        detect_table_roi_and_player_zone, _detect_bodies_and_faces,
-        _try_embed_face, DEFAULT_MATCH_THRESHOLD,
-    )
+    from backend.player_identity import FaceDB, FaceEmbedder
+    from backend.player_identification import detect_table_roi_and_player_zone, DEFAULT_MATCH_THRESHOLD
 
     video_path = job.artifacts.working_video_path
+    player_a_name = str(job.player_a_name).strip()
+    player_b_name = str(job.player_b_name).strip()
+    if not player_a_name or not player_b_name or player_a_name.lower() == "unknown" or player_b_name.lower() == "unknown":
+        _job_log(job_dir, "Step 3.1: detect_sets — Step 2 player names are incomplete; pausing instead of guessing")
+        job.timeline_summary["detected_sets"] = {
+            "n_sets": 1,
+            "swaps": [],
+            "note": "step2_player_names_incomplete",
+            "step2_ground_truth_required": True,
+        }
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+        save_match_job(job)
+        return job
 
     # Recover table ROI from job metadata (saved by stage 1+2)
     table_roi = None
@@ -790,30 +835,128 @@ def run_pipeline_stage_detect_sets(
     table_center_x = table_roi.x + table_roi.w / 2.0
     _job_log(job_dir, f"Step 3.1: detect_sets — table center x={table_center_x:.0f}")
 
-    # Derive player zone from table ROI
+    # Reuse the Step 2 player zone if available; it was tuned to exclude
+    # adjacent-table players.  Derive the same style of zone only as fallback.
     import cv2
     cap = cv2.VideoCapture(str(video_path))
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     cap.release()
-    bw, bh = float(table_roi.w), float(table_roi.h)
-    player_zone = (
-        max(0.0, table_roi.x - bw * 0.40),
-        max(0.0, table_roi.y - bh * 1.00),
-        min(float(frame_w), table_roi.x + table_roi.w + bw * 0.40),
-        min(float(frame_h), table_roi.y + table_roi.h + bh * 1.00),
-    )
+    duration = float(n_frames / fps) if fps > 0 else 0.0
+    zone_data = job.timeline_summary.get("player_zone")
+    if isinstance(zone_data, dict) and {"x1", "y1", "x2", "y2"}.issubset(zone_data.keys()):
+        player_zone = (
+            float(zone_data["x1"]),
+            float(zone_data["y1"]),
+            float(zone_data["x2"]),
+            float(zone_data["y2"]),
+        )
+        _job_log(job_dir, "Step 3.1: detect_sets — reusing Step 2 player zone")
+    else:
+        bw, bh = float(table_roi.w), float(table_roi.h)
+        player_zone = (
+            max(0.0, table_roi.x - bw * 0.30),
+            max(0.0, table_roi.y - bh * 1.10),
+            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.30),
+            min(float(frame_h), table_roi.y + table_roi.h + bh * 1.10),
+        )
+        _job_log(job_dir, "Step 3.1: detect_sets — derived fallback player zone from Step 2 table ROI")
+
+    existing_ground_truth = job.timeline_summary.get("step2_ground_truth", {})
+    if not isinstance(existing_ground_truth, dict):
+        existing_ground_truth = {}
+    job.timeline_summary["step2_ground_truth"] = {
+        "source": existing_ground_truth.get("source", "identify_players"),
+        "scan_id": job.timeline_summary.get("identify_scan_id", ""),
+        "player_a": {"name": player_a_name, "initial_role": "near", "starts_near": True},
+        "player_b": {"name": player_b_name, "initial_role": "far", "starts_near": False},
+        "trusted": True,
+    }
+
+    break_candidates: list[dict] = []
+
+    # Build rough full-video rally anchors using the same well-debugged detector
+    # that Step 3.2 uses per set.  These anchors are only for side-swap search.
+    try:
+        rough_timeline_path = Path(job_dir) / "side_swap_rally_proposals.json"
+        if rough_timeline_path.exists():
+            _job_log(job_dir, "Step 3.1: detect_sets — reusing cached rough full-video rally anchors")
+            rough_timeline = load_rally_timeline(rough_timeline_path)
+        else:
+            build_rally_timeline = _load_build_rally_timeline()
+            _job_log(job_dir, "Step 3.1: detect_sets — building rough full-video rally anchors")
+            rough_timeline = build_rally_timeline(
+                str(video_path),
+                config.table_weights_path,
+                pose_weights_path=config.pose_weights_path,
+                best_of=job.best_of,
+                stride=config.rally_stride,
+                mode=config.rally_mode,
+                player_margin_px=config.rally_player_margin_px,
+                player_fuse_gain=config.rally_player_fuse_gain,
+                player_signal_source=config.rally_player_signal_source,
+                ball_fuse_gain=config.rally_ball_fuse_gain,
+                ball_signal_source=config.rally_ball_signal_source,
+                table_roi=table_roi,
+                log_fn=lambda msg: _job_log(job_dir, msg),
+            )
+            save_rally_timeline(rough_timeline_path, rough_timeline)
+        rough_points = sorted(list(rough_timeline.points), key=lambda point: float(point.t_start))
+        rough_scoring = sum(1 for point in rough_points if counts_toward_score(point))
+        rough_lets = len(rough_points) - rough_scoring
+        if rough_points:
+            duration = max(duration, max(float(point.t_end) for point in rough_points))
+        rough_summary = {
+            "path": str(rough_timeline_path).replace("\\", "/"),
+            "total": len(rough_points),
+            "scoring": rough_scoring,
+            "lets": rough_lets,
+        }
+        _job_log(
+            job_dir,
+            f"Step 3.1: detect_sets — rough anchors: {rough_scoring} scoring + {rough_lets} LETs = {len(rough_points)} total",
+        )
+    except Exception as exc:
+        _job_log(job_dir, f"Step 3.1: detect_sets — rough rally anchor detection FAILED: {exc}")
+        job.timeline_summary["detected_sets"] = {
+            "n_sets": 1,
+            "swaps": [],
+            "note": "rough_rally_anchor_detection_failed",
+            "error": str(exc),
+            "duration": duration,
+            "algorithm": "rally_anchor_side_scan_v2",
+        }
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+        save_match_job(job)
+        return job
 
     # Load models
     _job_log(job_dir, "Step 3.1: detect_sets — loading models for swap detection")
     face_db = FaceDB(PROJECT_ROOT / "data" / "players" / "faces.json")
     face_model_path = PROJECT_ROOT / "data" / "models" / "face" / "w600k_r50.onnx"
     embedder = FaceEmbedder(face_model_path)
+    db_names = {rec.name for rec in face_db.records}
+    missing_db = [name for name in [player_a_name, player_b_name] if name not in db_names]
+    if missing_db:
+        _job_log(job_dir, f"Step 3.1: detect_sets — Step 2 player(s) missing from FaceDB: {missing_db}; pausing without guessing")
+        job.timeline_summary["detected_sets"] = {
+            "n_sets": 1,
+            "swaps": [],
+            "note": "step2_player_missing_from_face_db",
+            "missing_players": missing_db,
+            "break_candidates": break_candidates,
+            "duration": duration,
+        }
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
+        save_match_job(job)
+        return job
     from ultralytics import YOLO
     yolo = YOLO(str(config.pose_weights_path))
 
     # Sample positions
-    _job_log(job_dir, "Step 3.1: detect_sets — sampling player positions across video")
+    _job_log(job_dir, f"Step 3.1: detect_sets — sampling trusted Step 2 players: {player_a_name} vs {player_b_name}")
     records = sample_positions(
         str(video_path), yolo, embedder, face_db, player_zone, table_center_x,
         sample_step=2.0, match_threshold=DEFAULT_MATCH_THRESHOLD,
@@ -821,63 +964,349 @@ def run_pipeline_stage_detect_sets(
 
     from collections import Counter
     identity_counts = Counter(r["identity"] for r in records if r["identity"])
-    top2 = identity_counts.most_common(2)
+    _job_log(
+        job_dir,
+        "Step 3.1: detect_sets — trusted identity samples: "
+        f"{player_a_name}={identity_counts.get(player_a_name, 0)}, "
+        f"{player_b_name}={identity_counts.get(player_b_name, 0)}",
+    )
 
-    if len(top2) < 2:
-        _job_log(job_dir, f"Step 3.1: detect_sets — only {len(top2)} player(s) identified, cannot detect swaps")
-        job.timeline_summary["detected_sets"] = {"n_sets": 1, "swaps": [], "note": "insufficient face data"}
-        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
-        save_match_job(job)
-        return job
+    tl_a = [(r["t"], r["side"]) for r in records if r["identity"] == player_a_name]
+    tl_b = [(r["t"], r["side"]) for r in records if r["identity"] == player_b_name]
 
-    name_a, _ = top2[0]
-    name_b, _ = top2[1]
-    tl_a = [(r["t"], r["side"]) for r in records if r["identity"] == name_a]
-    tl_b = [(r["t"], r["side"]) for r in records if r["identity"] == name_b]
-    init_a = baseline_state(tl_a, 10, 60)
-    init_b = baseline_state(tl_b, 10, 60)
-    duration = max(r["t"] for r in records) if records else 0.0
+    init_source = "early_window_10_60"
+    init_anchor_window = None
+    if rough_points:
+        first_anchor = rough_points[0]
+        first_start = float(first_anchor.active_start if first_anchor.active_start is not None else first_anchor.t_start)
+        first_end = float(first_anchor.active_end if first_anchor.active_end is not None else first_anchor.t_end)
+        init_anchor_window = {
+            "point_id": str(first_anchor.id),
+            "lo": max(0.0, first_start - 3.0),
+            "hi": max(first_end, first_start + 6.0),
+        }
+        init_a_ev = dominant_side_in_range(
+            tl_a,
+            float(init_anchor_window["lo"]),
+            float(init_anchor_window["hi"]),
+            min_samples=1,
+            min_majority_frac=0.55,
+        )
+        init_b_ev = dominant_side_in_range(
+            tl_b,
+            float(init_anchor_window["lo"]),
+            float(init_anchor_window["hi"]),
+            min_samples=1,
+            min_majority_frac=0.55,
+        )
+        init_source = "rally1_anchor_window"
+    else:
+        init_a_ev = {"side": None, "samples": 0, "majority_frac": 0.0}
+        init_b_ev = {"side": None, "samples": 0, "majority_frac": 0.0}
+
+    fallback_a_ev = dominant_side_in_range(tl_a, 10.0, 60.0, min_samples=1)
+    fallback_b_ev = dominant_side_in_range(tl_b, 10.0, 60.0, min_samples=1)
+    if init_a_ev["side"] is None and init_b_ev["side"] is None:
+        init_a_ev = fallback_a_ev
+        init_b_ev = fallback_b_ev
+        init_source = "early_window_10_60"
+    elif init_a_ev["side"] is None and fallback_a_ev["side"] is not None:
+        init_a_ev = fallback_a_ev
+        init_source = f"{init_source}+player_a_early_window_10_60"
+    elif init_b_ev["side"] is None and fallback_b_ev["side"] is not None:
+        init_b_ev = fallback_b_ev
+        init_source = f"{init_source}+player_b_early_window_10_60"
+
+    init_a = init_a_ev["side"]
+    init_b = init_b_ev["side"]
+    if init_a is not None and init_b is None:
+        init_b = infer_opposite_side(init_a)
+    elif init_b is not None and init_a is None:
+        init_a = infer_opposite_side(init_b)
 
     if init_a is None or init_b is None or init_a == init_b:
-        _job_log(job_dir, "Step 3.1: detect_sets — baseline sides not opposite, assuming 1 set")
-        job.timeline_summary["detected_sets"] = {"n_sets": 1, "swaps": [], "note": "baseline ambiguous"}
+        _job_log(job_dir, "Step 3.1: detect_sets — cannot infer initial L/R sides for trusted Step 2 players; pausing")
+        job.timeline_summary["detected_sets"] = {
+            "n_sets": 1,
+            "swaps": [],
+            "note": "trusted_players_initial_side_ambiguous",
+            "break_candidates": break_candidates,
+            "rough_rallies": rough_summary,
+            "side_samples": {
+                "player_a": {"name": player_a_name, "count": len(tl_a), "initial": init_a_ev},
+                "player_b": {"name": player_b_name, "count": len(tl_b), "initial": init_b_ev},
+                "initial_source": init_source,
+                "rally1_window": init_anchor_window,
+                "fallback_10_60": {"player_a": fallback_a_ev, "player_b": fallback_b_ev},
+            },
+            "duration": duration,
+            "algorithm": "rally_anchor_side_scan_v2",
+        }
         update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
         save_match_job(job)
         return job
 
-    # Find all swaps
-    swaps_info: list[dict] = []
-    cur_a, cur_b = init_a, init_b
-    cursor = 60.0
-    while cursor <= duration:
-        result = find_swap(tl_a, tl_b, cursor, duration, 2.0, cur_a, cur_b, 60.0, 15.0)
-        if result is None:
-            break
-        t_swap, mode = result
-        fl_a = SIDE_R if cur_a == SIDE_L else SIDE_L
-        fl_b = SIDE_R if cur_b == SIDE_L else SIDE_L
-        t_bs, t_be = refine_swap_to_transition_window(
-            str(video_path), yolo, player_zone, table_center_x, t_swap,
-            table_roi=table_roi, search_before=90.0, search_after=10.0,
+    _job_log(
+        job_dir,
+        f"Step 3.1: detect_sets — initial trusted sides: "
+        f"{player_a_name}={init_a}, {player_b_name}={init_b}",
+    )
+
+    side_scan = detect_rally_anchor_side_swaps(
+        rough_points,
+        tl_a,
+        tl_b,
+        init_a=str(init_a),
+        init_b=str(init_b),
+        player_a_name=player_a_name,
+        player_b_name=player_b_name,
+        best_of=job.best_of,
+        log_fn=lambda msg: _job_log(job_dir, msg),
+    )
+    swaps_info = list(side_scan.get("swaps", []))
+    mid_set_swaps = list(side_scan.get("mid_set_swaps", []))
+
+    first_primary_cutoff = min((float(s.get("t_cutoff", 0.0)) for s in swaps_info), default=float("inf"))
+    long_rough_anchors: list[dict] = []
+    for point in rough_points:
+        point_start = float(point.t_start)
+        point_end = float(point.t_end)
+        point_duration = point_end - point_start
+        if point_start >= first_primary_cutoff:
+            continue
+        if point_duration >= 18.0:
+            long_rough_anchors.append(
+                {
+                    "id": str(point.id),
+                    "t_start": point_start,
+                    "t_end": point_end,
+                    "duration": point_duration,
+                    "flags": list(point.flags),
+                }
+            )
+
+    repair_swaps: list[dict] = []
+    repair_diagnostics: dict[str, Any] = {
+        "needed": bool(long_rough_anchors) or not swaps_info,
+        "used": False,
+        "reason": "long_rough_anchor_before_primary_swap" if long_rough_anchors else (
+            "no_primary_rally_anchor_swap" if not swaps_info else ""
+        ),
+        "long_rough_anchors": long_rough_anchors,
+    }
+
+    if repair_diagnostics["needed"]:
+        # Table-motion break windows are a repair signal only. They do not decide
+        # a set boundary unless trusted Step 2 identities also flip sides.
+        try:
+            _job_log(job_dir, "Step 3.1: detect_sets — collecting table-motion break repair diagnostics")
+            break_candidates = detect_table_break_candidates(
+                str(video_path),
+                table_roi,
+                dense_step=0.5,
+                min_break_sec=8.0,
+                min_start_sec=20.0,
+                resume_search_sec=45.0,
+                log_fn=lambda msg: _job_log(job_dir, msg),
+            )
+        except Exception as exc:
+            _job_log(job_dir, f"Step 3.1: detect_sets — table-motion diagnostics FAILED: {exc}")
+            repair_diagnostics["error"] = str(exc)
+
+        if break_candidates:
+            repair_swaps = validate_known_player_swaps(
+                break_candidates,
+                tl_a,
+                tl_b,
+                init_a=str(init_a),
+                init_b=str(init_b),
+                player_a_name=player_a_name,
+                player_b_name=player_b_name,
+                refine_start_with_last_old=False,
+                log_fn=lambda msg: _job_log(job_dir, msg),
+            )
+            for swap in repair_swaps:
+                rough_scoring_before = sum(
+                    1
+                    for point in rough_points
+                    if counts_toward_score(point) and float(point.t_end) <= float(swap.get("t_break_start", 0.0))
+                )
+                swap["mode"] = "break-repair-rally-anchor"
+                swap["source"] = "table_break_identity_repair"
+                swap["kind"] = "set_boundary"
+                swap["repair"] = {
+                    "reason": repair_diagnostics["reason"],
+                    "rough_scoring_before_break": rough_scoring_before,
+                    "long_rough_anchors_before_primary": long_rough_anchors,
+                }
+
+    first_repair_cutoff = min((float(s.get("t_cutoff", 0.0)) for s in repair_swaps), default=float("inf"))
+    if repair_swaps and (not swaps_info or first_repair_cutoff + 10.0 < first_primary_cutoff):
+        _job_log(
+            job_dir,
+            "Step 3.1: detect_sets — using identity-confirmed break repair "
+            f"({len(repair_swaps)} swap(s)) instead of primary rally-anchor result",
         )
-        cutoff = t_be if t_be else t_swap
-        swaps_info.append({"t_swap": float(t_swap), "t_break_start": float(t_bs) if t_bs else None,
-                           "t_break_end": float(t_be) if t_be else None, "t_cutoff": float(cutoff), "mode": mode})
-        _job_log(job_dir, f"Step 3.1: detect_sets — swap detected: break ends at {cutoff:.1f}s (mode={mode})")
-        cur_a, cur_b = fl_a, fl_b
-        cursor = t_swap + 62.0
+        swaps_info = repair_swaps
+        repair_diagnostics["used"] = True
+        repair_diagnostics["repair_swap_count"] = len(repair_swaps)
+    elif repair_swaps:
+        repair_diagnostics["repair_swap_count"] = len(repair_swaps)
 
     n_sets = len(swaps_info) + 1
     _job_log(job_dir, f"Step 3.1: detect_sets — {n_sets} set(s) detected, {len(swaps_info)} swap(s)")
 
     # Save results for GUI display + next stage
-    job.timeline_summary["detected_sets"] = {
+    detected_sets = {
         "n_sets": n_sets,
         "swaps": swaps_info,
+        "mid_set_swaps": mid_set_swaps,
         "duration": float(duration),
+        "break_candidates": break_candidates,
+        "rough_rallies": rough_summary,
+        "algorithm": "rally_anchor_side_scan_v2",
+        "side_scan": {
+            "checked_anchor_count": side_scan.get("checked_anchor_count", 0),
+            "checked_anchors": side_scan.get("checked_anchors", []),
+            "total_anchor_count": side_scan.get("total_anchor_count", len(rough_points)),
+            "scoring_anchor_count": side_scan.get("scoring_anchor_count", rough_summary.get("scoring", 0)),
+            "repair": repair_diagnostics,
+        },
+        "side_samples": {
+            "player_a": {"name": player_a_name, "count": len(tl_a), "initial_side": init_a, "initial": init_a_ev},
+            "player_b": {"name": player_b_name, "count": len(tl_b), "initial_side": init_b, "initial": init_b_ev},
+            "initial_source": init_source,
+            "rally1_window": init_anchor_window,
+            "fallback_10_60": {"player_a": fallback_a_ev, "player_b": fallback_b_ev},
+        },
     }
+    if not swaps_info:
+        detected_sets["note"] = "no_rally_anchor_side_swap_detected"
+    job.timeline_summary["detected_sets"] = detected_sets
     update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_sets")
     _job_log(job_dir, "Paused — waiting for operator to confirm set count and swap times")
+    save_match_job(job)
+    return job
+
+
+def run_pipeline_stage_detect_sets(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+) -> MatchJob:
+    """Step 3.1: detect total rally/LET starts for full-input review.
+
+    This stage deliberately does not split sets or detect side swaps. The goal
+    is to let the operator verify total start-times first.
+    """
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = Path(job.artifacts.job_dir)
+
+    update_job_runtime_state(job, status="running", current_step="detect_total_rallies")
+    _job_log(job_dir, "Step 3.1: total rally start detection — detecting all rally/LET starts")
+
+    video_path = Path(job.artifacts.working_video_path)
+
+    table_roi = None
+    roi_data = job.timeline_summary.get("table_roi")
+    if roi_data:
+        from backend.ai_table_roi import TableROI
+        table_roi = TableROI(
+            x=int(roi_data["x"]),
+            y=int(roi_data["y"]),
+            w=int(roi_data["w"]),
+            h=int(roi_data["h"]),
+            confidence=float(roi_data.get("confidence", 1.0)),
+        )
+
+    if table_roi is None:
+        from backend.player_identification import detect_table_roi_and_player_zone
+        _job_log(job_dir, "Step 3.1: total rally start detection — detecting table ROI (not cached)")
+        table_roi, _zone = detect_table_roi_and_player_zone(video_path, config.table_weights_path)
+
+    if table_roi is None or table_roi.w <= 0:
+        _job_log(job_dir, "Step 3.1: total rally start detection — FAILED: table ROI not detected")
+        update_job_runtime_state(
+            job,
+            status="awaiting_confirmation",
+            current_step="confirm_total_rallies",
+            error_message="Table ROI detection failed",
+        )
+        save_match_job(job)
+        return job
+
+    timeline_path = job_dir / "step3_1_total_rally_timeline.json"
+    legacy_cache_path = job_dir / "side_swap_rally_proposals.json"
+    events_json_path = job_dir / "step3_1_rally_start_events.json"
+    frame_dir = job_dir / "step3_1_rally_start_frames"
+    player_context = Step3PlayerContext(
+        player_a_name=job.player_a_name,
+        player_b_name=job.player_b_name,
+        player_a_starts_near=job.player_a_starts_near,
+    )
+    try:
+        result = build_step3_1_rally_start_review(
+            video_path=video_path,
+            timeline_path=timeline_path,
+            events_json_path=events_json_path,
+            frame_dir=frame_dir,
+            table_roi=table_roi,
+            table_weights_path=config.table_weights_path,
+            pose_weights_path=config.pose_weights_path,
+            best_of=job.best_of,
+            stride=config.rally_stride,
+            mode=config.rally_mode,
+            player_margin_px=config.rally_player_margin_px,
+            player_fuse_gain=config.rally_player_fuse_gain,
+            player_signal_source=config.rally_player_signal_source,
+            ball_fuse_gain=config.rally_ball_fuse_gain,
+            ball_signal_source=config.rally_ball_signal_source,
+            player_context=player_context,
+            legacy_cache_path=legacy_cache_path,
+            log_fn=lambda msg: _job_log(job_dir, msg),
+        )
+    except Exception as exc:
+        _job_log(job_dir, f"Step 3.1: total rally start detection — FAILED: {exc}")
+        job.timeline_summary["detected_total_rallies"] = {
+            "algorithm": "total_rally_start_time_review_v2",
+            "error": str(exc),
+        }
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_total_rallies")
+        save_match_job(job)
+        return job
+
+    events = result.events
+    summary = result.summary
+    scoring_count = int(summary.get("scoring", 0))
+    let_count = int(summary.get("lets", 0))
+    needs_review_count = int(summary.get("needs_review", 0))
+    _job_log(
+        job_dir,
+        f"Step 3.1: total rally start detection — detected {len(events)} total "
+        f"({scoring_count} scoring + {let_count} LET/non-scoring + "
+        f"{needs_review_count} needs-review)",
+    )
+    first_server = summary.get("first_server") or {}
+    if first_server:
+        _job_log(
+            job_dir,
+            "Step 3.1: total rally start detection — first server: "
+            f"{first_server.get('server_player_name', 'unknown')} "
+            f"(role={first_server.get('starter_role', '-')}, t={float(first_server.get('t_start', 0.0)):.3f}s)",
+        )
+    _job_log(job_dir, f"Step 3.1: total rally start detection — exported start frames: {summary['start_frames_dir']}")
+
+    job.timeline_summary["detected_total_rallies"] = summary
+    job.timeline_summary["detected_sets"] = {
+        "n_sets": 1,
+        "swaps": [],
+        "duration": float(max((float(event["t_end"]) for event in events), default=0.0)),
+        "note": "step3_1_total_rally_review_only",
+        "algorithm": "total_rally_start_time_review_v2",
+    }
+    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_total_rallies")
+    _job_log(job_dir, "Paused — waiting for operator to review total rally start-time frames")
     save_match_job(job)
     return job
 
