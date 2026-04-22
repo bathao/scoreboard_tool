@@ -278,6 +278,242 @@ TEMPLATES = {
       gap: 18px;
       align-items: start;
     }
+    .step31-review-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .step31-workspace-panel {
+      padding: 0;
+      overflow: hidden;
+      background: #14110e;
+      border-color: #2f2922;
+      color: #f7efe4;
+    }
+    .step31-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      padding: 20px 22px;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(11, 110, 79, 0.28), transparent 38%),
+        linear-gradient(135deg, #18120d 0%, #0f1512 100%);
+      border-bottom: 1px solid #302820;
+    }
+    .step31-hero h2 {
+      margin: 4px 0 8px 0;
+      font-size: 24px;
+      letter-spacing: -0.02em;
+    }
+    .step31-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      min-width: 260px;
+    }
+    .step31-pill {
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      padding: 7px 11px;
+      font-size: 12px;
+      color: #e8dccb;
+      white-space: nowrap;
+    }
+    .step31-pill strong {
+      color: #fff;
+      font-size: 14px;
+      margin-right: 4px;
+    }
+    .step31-layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px;
+      align-items: start;
+    }
+    .step31-sidebar {
+      display: grid;
+      gap: 12px;
+      position: sticky;
+      top: 12px;
+    }
+    .step31-side-card,
+    .step31-table-card,
+    .step31-frame-card {
+      background: #0f0f0f;
+      border: 1px solid #2e2e2e;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .step31-side-card {
+      padding: 14px;
+    }
+    .step31-side-title {
+      color: #8fc;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .step31-mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .step31-mini-stat {
+      border: 1px solid #2b2b2b;
+      background: #171717;
+      border-radius: 12px;
+      padding: 10px;
+    }
+    .step31-mini-stat strong {
+      display: block;
+      font-size: 22px;
+      color: #fff;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .step31-mini-stat span {
+      color: #aaa;
+      font-size: 11px;
+    }
+    .step31-video {
+      width: 100%;
+      max-width: none;
+      border-radius: 12px;
+      background: #000;
+    }
+    .step31-path {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 11px;
+      color: #b8b0a6;
+      word-break: break-all;
+      line-height: 1.45;
+    }
+    .step31-table-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 15px;
+      border-bottom: 1px solid #303030;
+      background: #151515;
+    }
+    .step31-table-wrap {
+      max-height: 66vh;
+      overflow: auto;
+    }
+    .step31-audit-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+      min-width: 860px;
+    }
+    .step31-audit-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #1b1b1b;
+      color: #b9b9b9;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid #383838;
+    }
+    .step31-audit-table th,
+    .step31-audit-table td {
+      padding: 10px 11px;
+      border-bottom: 1px solid #262626;
+      vertical-align: middle;
+    }
+    .step31-audit-table tbody tr:hover {
+      background: #1c261f !important;
+    }
+    .step31-id {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      color: #f0e8dc;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .step31-time {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      white-space: nowrap;
+    }
+    .step31-kind {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .step31-kind.scoring {
+      background: rgba(76, 175, 80, 0.16);
+      color: #8fc;
+      border: 1px solid rgba(143, 255, 204, 0.22);
+    }
+    .step31-kind.let {
+      background: rgba(0, 188, 212, 0.14);
+      color: #8fd;
+      border: 1px solid rgba(136, 255, 221, 0.20);
+    }
+    .step31-kind.needs_review {
+      background: rgba(217, 119, 6, 0.18);
+      color: #fb8;
+      border: 1px solid rgba(255, 187, 136, 0.28);
+    }
+    .step31-note {
+      color: #fb8;
+      max-width: 300px;
+    }
+    .step31-muted {
+      color: #8d8882;
+      font-size: 12px;
+    }
+    .step31-frame-card {
+      margin: 0 18px 18px 18px;
+    }
+    .step31-frame-card summary {
+      cursor: pointer;
+      padding: 13px 15px;
+      color: #ddd;
+      font-weight: 700;
+      background: #151515;
+      border-bottom: 1px solid #303030;
+    }
+    .step31-thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+    .step31-thumb {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .step31-thumb img {
+      width: 100%;
+      height: 108px;
+      object-fit: cover;
+      display: block;
+    }
+    .step31-actions,
+    .step31-log {
+      grid-column: 1 / -1;
+    }
     .reviewer-shell {
       display: grid;
       grid-template-columns: minmax(420px, 1.15fr) minmax(340px, 0.85fr);
@@ -489,8 +725,22 @@ TEMPLATES = {
         grid-template-columns: 1fr;
       }
       .setup-shell,
+      .step31-review-shell,
       .reviewer-shell {
         grid-template-columns: 1fr;
+      }
+      .step31-layout {
+        grid-template-columns: 1fr;
+      }
+      .step31-sidebar {
+        position: static;
+      }
+      .step31-hero {
+        flex-direction: column;
+      }
+      .step31-badges {
+        justify-content: flex-start;
+        min-width: 0;
       }
     }
   </style>
@@ -859,10 +1109,10 @@ TEMPLATES = {
   </div>
 </div>
 {% else %}
-<div class="setup-shell">
+<div class="{% if current_job and current_job.status == 'awaiting_confirmation' and current_job.current_step == 'confirm_total_rallies' %}step31-review-shell{% else %}setup-shell{% endif %}">
   {% if current_job and current_job.status in ('running', 'created') %}
   {# ── PIPELINE RUNNING VIEW ── #}
-  <div class="panel" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}">
+  <div class="panel{% if current_job.current_step == 'confirm_total_rallies' %} step31-workspace-panel{% endif %}" data-job-id="{{ current_job.job_id }}" data-job-status="{{ current_job.status }}">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span class="badge running" style="font-size:13px;padding:4px 10px;">● RUNNING</span>
@@ -928,49 +1178,154 @@ TEMPLATES = {
     </div>
 
     {% if current_job.current_step == 'confirm_total_rallies' %}
-    <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
-      <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.1 - Total Rally Start Detection Complete</h3>
       {% set rally_data = current_job.timeline_summary.get('detected_total_rallies', {}) %}
       {% set events = rally_data.get('events', []) %}
-      <p style="font-size:16px;font-weight:700;color:#fff;margin:0 0 12px;">
-        {{ rally_data.get('total', 0) }} total start(s)
-        <span style="color:#aaa;font-size:13px;font-weight:500;">
-          = {{ rally_data.get('scoring', 0) }} scoring + {{ rally_data.get('lets', 0) }} LET/non-scoring
-          {% if rally_data.get('needs_review', 0) %}+ {{ rally_data.get('needs_review', 0) }} needs-review row(s){% endif %}
-          {% if rally_data.get('rule_gap_review_count', 0) %} / {{ rally_data.get('rule_gap_review_count', 0) }} gap marker(s){% endif %}
-          {% if rally_data.get('rule_conflict_review_count', 0) %} / {{ rally_data.get('rule_conflict_review_count', 0) }} rule conflict(s){% endif %}
-        </span>
-      </p>
-      {% if rally_data.get('algorithm') or rally_data.get('error') %}
-      <p style="color:#aaa;font-size:12px;margin:0 0 10px;">
-        {% if rally_data.get('algorithm') %}Algorithm: <code>{{ rally_data.get('algorithm') }}</code>{% endif %}
-        {% if rally_data.get('error') %} &nbsp; Error: <code>{{ rally_data.get('error') }}</code>{% endif %}
-      </p>
-      {% endif %}
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin:12px 0;">
-        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
-          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">Start frame folder</div>
-          <code style="font-size:12px;word-break:break-all;">{{ rally_data.get('start_frames_dir', '-') }}</code>
+      <div class="step31-hero">
+        <div>
+          <div class="step31-muted" style="text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#8fc;">Debug Pause</div>
+          <h2>Step 3.1 - Rally Start Review</h2>
+          <div class="step31-muted">
+            Review every detected start-time before Step 3.2. If one rally or LET is missing here, all downstream side/winner logic will be wrong.
+          </div>
         </div>
-        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
-          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">CSV</div>
-          <code style="font-size:12px;word-break:break-all;">{{ rally_data.get('csv_path', '-') }}</code>
+        <div class="step31-badges">
+          <span class="step31-pill"><strong>{{ rally_data.get('total', 0) }}</strong> total starts</span>
+          <span class="step31-pill"><strong>{{ rally_data.get('scoring', 0) }}</strong> scoring</span>
+          <span class="step31-pill"><strong>{{ rally_data.get('lets', 0) }}</strong> LET/non-scoring</span>
+          {% if rally_data.get('needs_review', 0) %}
+          <span class="step31-pill"><strong>{{ rally_data.get('needs_review', 0) }}</strong> needs review</span>
+          {% endif %}
         </div>
       </div>
+
+      <div class="step31-layout">
+        <aside class="step31-sidebar">
+          <div class="step31-side-card">
+            <div class="step31-side-title">Video Reference</div>
+            {% if full_match_src %}
+            <video class="step31-video" controls preload="metadata" src="{{ full_match_src }}"></video>
+            <div class="step31-muted" style="margin-top:8px;">Use the player to jump to a table start-time, then compare against the audit table.</div>
+            {% else %}
+            <div class="step31-muted">No working video source is available for this job.</div>
+            {% endif %}
+          </div>
+
+          <div class="step31-side-card">
+            <div class="step31-side-title">Quick Counts</div>
+            <div class="step31-mini-grid">
+              <div class="step31-mini-stat"><strong>{{ rally_data.get('total', 0) }}</strong><span>Total starts</span></div>
+              <div class="step31-mini-stat"><strong>{{ rally_data.get('scoring', 0) }}</strong><span>Scoring rallies</span></div>
+              <div class="step31-mini-stat"><strong>{{ rally_data.get('lets', 0) }}</strong><span>LET/non-scoring</span></div>
+              <div class="step31-mini-stat"><strong>{{ rally_data.get('needs_review', 0) }}</strong><span>Needs review</span></div>
+            </div>
+            {% if rally_data.get('rule_gap_review_count', 0) or rally_data.get('rule_conflict_review_count', 0) %}
+            <div class="step31-muted" style="margin-top:10px;">
+              Gap markers: {{ rally_data.get('rule_gap_review_count', 0) }} · Rule conflicts: {{ rally_data.get('rule_conflict_review_count', 0) }}
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="step31-side-card">
+            <div class="step31-side-title">Artifacts</div>
+            {% if rally_data.get('algorithm') %}
+            <div class="step31-muted">Algorithm</div>
+            <div class="step31-path" style="margin-bottom:10px;">{{ rally_data.get('algorithm') }}</div>
+            {% endif %}
+            {% if rally_data.get('error') %}
+            <div style="color:#ffb4a8;margin-bottom:10px;">Error: {{ rally_data.get('error') }}</div>
+            {% endif %}
+            <div class="step31-muted">Start frame folder</div>
+            <div class="step31-path" style="margin-bottom:10px;">{{ rally_data.get('start_frames_dir', '-') }}</div>
+            <div class="step31-muted">CSV</div>
+            <div class="step31-path">{{ rally_data.get('csv_path', '-') }}</div>
+          </div>
+
+          <div class="step31-side-card">
+            <div class="step31-side-title">Review Checklist</div>
+            <div class="step31-muted" style="line-height:1.6;">
+              1. Check total count first.<br>
+              2. Scan the Start column in order.<br>
+              3. Verify LET rows are labeled correctly.<br>
+              4. Note exact missing/false timestamps for the next debug pass.
+            </div>
+          </div>
+        </aside>
+
+        <main class="step31-table-card">
+          <div class="step31-table-head">
+            <div>
+              <strong style="color:#8fc;">Start-Time Audit Table</strong>
+              <div class="step31-muted">Primary review surface. Times are in final input video time.</div>
+            </div>
+            <div class="step31-muted">{{ events|length }} row(s)</div>
+          </div>
+          {% if events %}
+          <div class="step31-table-wrap">
+            <table class="step31-audit-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Type</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Server</th>
+                <th>Source</th>
+                <th>Note</th>
+                <th>Image</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in events %}
+              {% set st = e.get('source_t_start', e.get('t_start', 0.0)) %}
+              {% set et = e.get('source_t_end', e.get('t_end', st)) %}
+              <tr style="background:{% if e.get('kind') == 'let' %}#122228{% elif e.get('kind') == 'needs_review' or e.get('review_reason') %}#281f15{% else %}transparent{% endif %};">
+                <td><span class="step31-id">{{ e.get('id', '') }}</span></td>
+                <td>
+                  <span class="step31-kind {{ e.get('kind', '') }}">{{ e.get('kind', '') }}</span>
+                </td>
+                <td><span class="step31-time">{{ fmt_time(st) }}</span></td>
+                <td><span class="step31-muted">{{ fmt_time(et) }}</span></td>
+                <td>{{ e.get('server_player_name', 'unknown') }}</td>
+                <td><span class="step31-muted">{{ e.get('source', '') }} {{ e.get('point_id', '') }}</span></td>
+                <td class="step31-note">{{ e.get('review_reason', '') }}</td>
+                <td>
+                  {% if e.get('image_file') %}
+                  <a href="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" target="_blank" style="color:#8fc;">open</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+          {% else %}
+          <div style="padding:18px;color:#fb8;">No Step 3.1 events were exported.</div>
+          {% endif %}
+        </main>
+      </div>
+
       {% if events %}
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:12px 0 14px;">
+      <details class="step31-frame-card">
+        <summary>Annotated start frames ({{ events|length }})</summary>
+        <div class="step31-thumb-grid">
         {% for e in events %}
-        <div style="background:#111;border:1px solid #333;border-radius:8px;overflow:hidden;">
+        <div class="step31-thumb">
           {% if e.get('image_file') %}
           <a href="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" target="_blank">
-            <img src="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" style="width:100%;height:110px;object-fit:cover;display:block;">
+            <img src="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}">
           </a>
           {% endif %}
           <div style="padding:8px;">
             <div style="font-weight:700;font-size:13px;">{{ e.get('id') }} - {{ e.get('kind') }}</div>
             <div style="color:#ccc;font-size:12px;">start {{ "%.3f"|format(e.get('t_start', 0.0)) }}s</div>
             {% if e.get('server_player_name') %}
-            <div style="color:#bbb;font-size:11px;">server {{ e.get('server_player_name') }} ({{ e.get('starter_role') }})</div>
+            <div style="color:#bbb;font-size:11px;">server {{ e.get('server_player_name') }} · side {{ e.get('current_side', 'unknown') }}</div>
+            {% endif %}
+            {% if e.get('side_evidence_status') %}
+            <div style="color:#888;font-size:11px;">
+              side evidence {{ e.get('side_evidence_status') }}
+              {% if e.get('side_identified_player_name') %}: {{ e.get('side_identified_player_name') }}={{ e.get('side_identified_current_side') }}{% endif %}
+            </div>
             {% endif %}
             {% if e.get('review_reason') %}
             <div style="color:#fb8;font-size:11px;">{{ e.get('review_reason') }}</div>
@@ -979,9 +1334,74 @@ TEMPLATES = {
           </div>
         </div>
         {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+    {% elif current_job.current_step == 'confirm_side_state' %}
+    <div style="background:#1a2a1a;border:1px solid #3a5a3a;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <h3 style="margin:0 0 10px 0;color:#8fc;">Step 3.2 - Side State Detection Complete</h3>
+      {% set side_data = current_job.timeline_summary.get('detected_side_state', {}) %}
+      {% set side_id = side_data.get('side_identification', {}) %}
+      {% set events = side_data.get('events', []) %}
+      <p style="font-size:16px;font-weight:700;color:#fff;margin:0 0 12px;">
+        {{ side_id.get('identified', 0) }} identified / {{ side_id.get('inferred', 0) }} inferred / {{ side_id.get('unknown', 0) }} unknown
+        <span style="color:#aaa;font-size:13px;font-weight:500;">
+          {% if side_id.get('retry_attempted', 0) %} / retry {{ side_id.get('retry_identified', 0) }} of {{ side_id.get('retry_attempted', 0) }} unknown row(s){% endif %}
+          {% if side_id.get('continuity_filled', 0) %} / continuity filled {{ side_id.get('continuity_filled', 0) }}{% endif %}
+        </span>
+      </p>
+      {% if side_data.get('algorithm') or side_data.get('error') %}
+      <p style="color:#aaa;font-size:12px;margin:0 0 10px;">
+        {% if side_data.get('algorithm') %}Algorithm: <code>{{ side_data.get('algorithm') }}</code>{% endif %}
+        {% if side_data.get('error') %} &nbsp; Error: <code>{{ side_data.get('error') }}</code>{% endif %}
+      </p>
+      {% endif %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin:12px 0;">
+        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
+          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">Side-state frame folder</div>
+          <code style="font-size:12px;word-break:break-all;">{{ side_data.get('start_frames_dir', '-') }}</code>
+        </div>
+        <div style="background:#111;border:1px solid #333;border-radius:6px;padding:10px;">
+          <div style="color:#aaa;font-size:12px;margin-bottom:4px;">Events JSON</div>
+          <code style="font-size:12px;word-break:break-all;">{{ side_data.get('events_json_path', '-') }}</code>
+        </div>
+      </div>
+      {% if events %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin:12px 0 14px;">
+        {% for e in events %}
+        <div style="background:#111;border:1px solid {% if e.get('current_side') == 'unknown' %}#7a4{% else %}#333{% endif %};border-radius:8px;overflow:hidden;">
+          {% if e.get('image_file') %}
+          <a href="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" target="_blank">
+            <img src="/jobs/{{ current_job.job_id }}/rally-start-frames/{{ e.get('image_file') }}" style="width:100%;height:110px;object-fit:cover;display:block;">
+          </a>
+          {% endif %}
+          <div style="padding:8px;">
+            <div style="font-weight:700;font-size:13px;">{{ e.get('id') }} - {{ e.get('kind') }}</div>
+            <div style="color:#ccc;font-size:12px;">source {{ "%.3f"|format(e.get('source_t_start', e.get('t_start', 0.0))) }}s</div>
+            <div style="color:#bbb;font-size:11px;">server {{ e.get('server_player_name', 'unknown') }} Â· side {{ e.get('current_side', 'unknown') }}</div>
+            <div style="color:#888;font-size:11px;">
+              {{ e.get('side_evidence_window_mode', '') }}
+              {% if e.get('side_identified_player_name') %}: {{ e.get('side_identified_player_name') }}={{ e.get('side_identified_current_side') }}{% endif %}
+            </div>
+            {% if e.get('side_evidence_reason') %}
+            <div style="color:#fb8;font-size:11px;">{{ e.get('side_evidence_reason') }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
       </div>
       {% endif %}
-      <p style="color:#aaa;font-size:13px;margin:10px 0 0;">Step 3.2 is intentionally paused for now. Review the exported start-time frames and give feedback before we continue.</p>
+      {% if step3_summary_md %}
+      <div style="margin-top:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+          <strong style="color:#8fc;font-size:13px;">summary.md</strong>
+          <code style="color:#aaa;font-size:11px;word-break:break-all;">{{ step3_summary_path }}</code>
+        </div>
+        <pre style="background:#0f0f0f;color:#d8d8d8;border:1px solid #333;border-radius:8px;padding:14px;max-height:520px;overflow:auto;white-space:pre-wrap;word-break:normal;font-family:'Cascadia Code','Consolas','Fira Mono',monospace;font-size:12px;line-height:1.55;">{{ step3_summary_md }}</pre>
+      </div>
+      {% endif %}
+      <p style="color:#aaa;font-size:13px;margin:10px 0 0;">Debug pause: Step 3.2 is complete. Review summary.md here and stop before Step 3.3/Step 4.</p>
     </div>
 
     {% elif current_job.current_step == 'confirm_sets' %}
@@ -1074,13 +1494,13 @@ TEMPLATES = {
     </div>
     {% endif %}
 
-    <div style="display:flex;gap:10px;margin-bottom:16px;">
-      {% if current_job.current_step != 'confirm_total_rallies' %}
+    <div class="{% if current_job.current_step == 'confirm_total_rallies' %}step31-actions{% endif %}" style="display:flex;gap:10px;margin-bottom:16px;">
+      {% if current_job.current_step in ['confirm_total_rallies', 'confirm_sets', 'confirm_rallies'] %}
       <form method="post" action="/jobs/{{ current_job.job_id }}/next-step" style="margin:0;">
         <button type="submit" style="padding:10px 32px;font-size:15px;font-weight:700;background:#4a9;color:#000;border:none;border-radius:6px;cursor:pointer;">▶ Next</button>
       </form>
       {% else %}
-      <span class="meta" style="align-self:center;">Waiting for operator feedback before Step 3.2.</span>
+      <span class="meta" style="align-self:center;">Waiting for operator feedback before the next Step 3 stage.</span>
       {% endif %}
       <form method="post" action="/jobs/{{ current_job.job_id }}/stop" style="margin:0;">
         <button type="submit" class="secondary" style="padding:10px 20px;font-size:13px;" onclick="return confirm('Stop pipeline?')">Stop</button>
@@ -1088,7 +1508,7 @@ TEMPLATES = {
     </div>
   </div>
   {# Log panel (same as running view) #}
-  <div class="panel" style="padding:0;overflow:hidden;">
+  <div class="panel{% if current_job.current_step == 'confirm_total_rallies' %} step31-log{% endif %}" style="padding:0;overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:#111;">
       <span style="color:#8fc;font-size:12px;font-family:monospace;font-weight:600;">pipeline.log — {{ current_job.job_id }}</span>
     </div>
@@ -1156,6 +1576,8 @@ TEMPLATES = {
     {% endif %}
     <form method="post" action="/jobs">
       <input type="hidden" name="scan_id" id="input_scan_id" value="">
+      <input type="hidden" name="debug_step3_only" id="debug_step3_only" value="0">
+      <input type="hidden" name="debug_step3_phase" id="debug_step3_phase" value="">
 
       <!-- ── Phase 1: video browse + identify ────────────────────────── -->
       <div id="ph_browse">
@@ -1173,6 +1595,16 @@ TEMPLATES = {
                 style="width:100%;padding:10px 0;font-size:1em;">
           Identify Players
         </button>
+        <div style="margin-top:12px;background:#151515;border:1px dashed #555;border-radius:8px;padding:12px;">
+          <div style="font-weight:700;color:#ddd;margin-bottom:6px;">Debug Step 3 only</div>
+          <div class="meta" style="margin-bottom:10px;">
+            Skip Step 1 trim and Step 2 identify. You will manually enter Player A/B names already present in FaceDB, then GUI runs Step 3.1 + Step 3.2 and pauses at summary review.
+          </div>
+          <button class="secondary" type="button" id="btn_debug_step3" onclick="startStep3DebugSetup()"
+                  style="width:100%;padding:9px 0;font-size:0.95em;">
+            Skip Step 1/2 - Debug Step 3
+          </button>
+        </div>
       </div>
 
       <!-- ── Phase scanning: live log terminal ───────────────────────── -->
@@ -1235,8 +1667,15 @@ TEMPLATES = {
             <option value="output_and_dataset" {% if job_purpose_value == 'output_and_dataset' %}selected{% endif %}>Output + Dataset — finish video and grow reviewed dataset</option>
           </select>
         </div>
-        <div class="point-actions" style="margin-top:16px;">
-          <button type="submit">Run AI Pipeline (Start Step 3)</button>
+        <div id="normal_run_actions" class="point-actions" style="margin-top:16px;">
+          <button id="run_pipeline_button" type="submit" onclick="setNormalPipelineMode()">Run AI Pipeline (Start Step 3)</button>
+        </div>
+        <div id="debug_run_actions" class="point-actions" style="margin-top:16px;display:none;gap:10px;flex-wrap:wrap;">
+          <button type="submit" onclick="setStep3DebugPhase('3_1')">Run Step 3.1 Only</button>
+          <button class="secondary" type="submit" onclick="setStep3DebugPhase('3_1_2')">Run Step 3.1 + 3.2</button>
+        </div>
+        <div id="run_pipeline_hint" class="meta" style="margin-top:8px;">
+          Normal mode: Step 3.1 runs first, then waits for review before Step 3.2.
         </div>
       </div>
 
@@ -1280,6 +1719,8 @@ TEMPLATES = {
       var videoPath = document.getElementById("raw_video_path").value.trim();
       var trimStart = document.getElementById("trim_start").value.trim();
       if (!videoPath) { alert("Select a video first."); return; }
+      document.getElementById("debug_step3_only").value = "0";
+      document.getElementById("debug_step3_phase").value = "";
       _scanId = null;
       _logLineCount = 0;
       document.getElementById("input_scan_id").value = "";
@@ -1301,6 +1742,35 @@ TEMPLATES = {
         _pollScan();
       })
       .catch(function(e) { _appendLog("Connection error: " + e); document.getElementById("btn_skip").style.display = ""; });
+    }
+
+    function setNormalPipelineMode() {
+      document.getElementById("debug_step3_only").value = "0";
+      document.getElementById("debug_step3_phase").value = "";
+    }
+
+    function setStep3DebugPhase(phase) {
+      document.getElementById("debug_step3_only").value = "1";
+      document.getElementById("debug_step3_phase").value = phase;
+    }
+
+    function startStep3DebugSetup() {
+      var videoPath = document.getElementById("raw_video_path").value.trim();
+      if (!videoPath) { alert("Select a video first."); return; }
+      _stopElapsed();
+      _scanId = null;
+      _logLineCount = 0;
+      document.getElementById("input_scan_id").value = "";
+      document.getElementById("debug_step3_only").value = "1";
+      document.getElementById("debug_step3_phase").value = "3_1_2";
+      document.getElementById("video_path_summary").textContent = videoPath + "  |  DEBUG: skip Step 1/2";
+      var normalActions = document.getElementById("normal_run_actions");
+      var debugActions = document.getElementById("debug_run_actions");
+      if (normalActions) normalActions.style.display = "none";
+      if (debugActions) debugActions.style.display = "flex";
+      var hint = document.getElementById("run_pipeline_hint");
+      if (hint) hint.textContent = "Debug mode: choose Run Step 3.1 Only to pause at start-time review, or Run Step 3.1 + 3.2 to continue into side-state detection. Player names must already exist in FaceDB for Step 3.2 side-id.";
+      _setPhase("setup");
     }
 
     function _appendLog(line) {
@@ -1436,6 +1906,14 @@ TEMPLATES = {
     function transitionToSetup() {
       var vp = document.getElementById("raw_video_path").value.trim();
       document.getElementById("video_path_summary").textContent = vp;
+      document.getElementById("debug_step3_only").value = "0";
+      document.getElementById("debug_step3_phase").value = "";
+      var normalActions = document.getElementById("normal_run_actions");
+      var debugActions = document.getElementById("debug_run_actions");
+      if (normalActions) normalActions.style.display = "";
+      if (debugActions) debugActions.style.display = "none";
+      var hint = document.getElementById("run_pipeline_hint");
+      if (hint) hint.textContent = "Normal mode: Step 3.1 runs first, then waits for review before Step 3.2.";
       _setPhase("setup");
     }
 
@@ -1443,6 +1921,8 @@ TEMPLATES = {
       _stopElapsed();
       _scanId = null; _logLineCount = 0;
       document.getElementById("input_scan_id").value = "";
+      document.getElementById("debug_step3_only").value = "0";
+      document.getElementById("debug_step3_phase").value = "";
       document.getElementById("log_terminal").textContent = "";
       document.getElementById("enroll_area").innerHTML = "";
       _setPhase("browse");

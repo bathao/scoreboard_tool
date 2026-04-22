@@ -595,9 +595,9 @@ def _clip_window_video(
         source_video,
         "-an",
         "-c:v",
-        "libx264",
+        "h264_nvenc",
         "-preset",
-        "veryfast",
+        "p1",
         str(clip_path),
     ]
     subprocess.run(cmd, check=True)
@@ -658,9 +658,9 @@ def _build_composite_clip(
         "[v]",
         "-an",
         "-c:v",
-        "libx264",
+        "h264_nvenc",
         "-preset",
-        "veryfast",
+        "p1",
         str(composite_clip),
     ]
     subprocess.run(cmd, check=True)
@@ -716,9 +716,9 @@ def _build_roi_clip(
         f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}",
         "-an",
         "-c:v",
-        "libx264",
+        "h264_nvenc",
         "-preset",
-        "veryfast",
+        "p1",
         str(roi_clip),
     ]
     subprocess.run(cmd, check=True)
@@ -780,9 +780,9 @@ def _build_table_only_clip(
         f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}",
         "-an",
         "-c:v",
-        "libx264",
+        "h264_nvenc",
         "-preset",
-        "veryfast",
+        "p1",
         str(table_only_clip),
     ]
     subprocess.run(cmd, check=True)
@@ -1187,9 +1187,9 @@ def _build_flipped_clip(
         "hflip",
         "-an",
         "-c:v",
-        "libx264",
+        "h264_nvenc",
         "-preset",
-        "veryfast",
+        "p1",
         str(flipped_clip),
     ]
     subprocess.run(cmd, check=True)
@@ -1455,11 +1455,14 @@ def main() -> int:
     model_slug = _slugify_model_name(model_name)
 
     print(f"--- Native-video Winner Refinement ({args.model_dir}) ---")
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for native-video winner refinement.")
+    torch.cuda.set_device(0)
     processor = AutoProcessor.from_pretrained(args.model_dir)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         args.model_dir,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": 0},
     )
     print(f"Model loaded on {model.device}")
 

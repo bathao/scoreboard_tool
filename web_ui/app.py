@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 import uuid as _uuid
 from html import escape
@@ -19,11 +20,12 @@ _SCAN_LOCK = threading.Lock()
 def _run_identification_scan(
     scan_id: str,
     video_path: str,
+    trim_start_sec: float,
     pose_weights_path: str,
     face_db_path: Path,
     table_weights_path: str = "",
 ) -> None:
-    """Background thread: run quick_identify_players_standalone and store result."""
+    """Background thread: run Step 1 trim, then Step 2 player identification."""
     import base64
 
     import cv2  # lazy import — not loaded at server startup
@@ -34,12 +36,23 @@ def _run_identification_scan(
                 _SCAN_STORE[scan_id].setdefault("logs", []).append(msg)
 
     try:
+        from backend.config import PROJECT_ROOT
         from backend.player_identification import quick_identify_players_standalone
         from backend.player_identity import FaceDB
+        from backend.production_pipeline import trim_input_video
+
+        scan_dir = PROJECT_ROOT / "runtime_jobs" / "_identify_scans" / scan_id
+        scan_dir.mkdir(parents=True, exist_ok=True)
+        working_video_path = scan_dir / "working_input.mp4"
+
+        _log(f"Step 1/6: trim_input - trim_start={float(trim_start_sec):.3f}s")
+        trim_input_video(video_path, str(working_video_path), float(trim_start_sec))
+        _log(f"Step 1/6: trim_input - done: {working_video_path}")
+        _log("Step 2/6: identify_players - scanning trimmed video")
 
         face_db = FaceDB(face_db_path)
         result = quick_identify_players_standalone(
-            video_path,
+            str(working_video_path),
             pose_weights_path,
             face_db,
             table_weights_path=table_weights_path or None,
@@ -70,20 +83,46 @@ def _run_identification_scan(
                 "w": result.table_roi.w, "h": result.table_roi.h,
                 "confidence": result.table_roi.confidence,
             }
+        player_zone_dict = None
+        if result.player_zone_xyxy is not None:
+            x1, y1, x2, y2 = result.player_zone_xyxy
+            player_zone_dict = {"x1": float(x1), "y1": float(y1), "x2": float(x2), "y2": float(y2)}
 
         with _SCAN_LOCK:
+            existing_logs = list(_SCAN_STORE.get(scan_id, {}).get("logs", []))
             _SCAN_STORE[scan_id] = {
                 "status": "done",
+                "logs": existing_logs,
                 "near_name": result.near_name,
                 "far_name": result.far_name,
                 "id_status": result.status,
                 "unknowns_client": unknowns_client,    # safe to return to browser
                 "unknowns_internal": unknowns_internal,  # server-side only (has embedding)
                 "table_roi": table_roi_dict,             # reused by pipeline stage 3.1
+                "player_zone": player_zone_dict,
+                "raw_video_path": str(Path(video_path).resolve()),
+                "working_video_path": str(working_video_path.resolve()),
+                "trim_start_sec": float(trim_start_sec),
             }
     except Exception as exc:
         with _SCAN_LOCK:
-            _SCAN_STORE[scan_id] = {"status": "failed", "error": str(exc)}
+            existing_logs = list(_SCAN_STORE.get(scan_id, {}).get("logs", []))
+            _SCAN_STORE[scan_id] = {"status": "failed", "error": str(exc), "logs": existing_logs}
+
+
+def _run_debug_step3_until_side_state(job_json_path: str | Path, *, config: ProductionPipelineConfig):
+    """Debug GUI path: run Step 3.1 then Step 3.2 without Step 1/2 pauses."""
+
+    from backend.production_pipeline import (
+        run_pipeline_stage_detect_sets,
+        run_pipeline_stage_detect_side_state,
+    )
+
+    job = run_pipeline_stage_detect_sets(job_json_path, config=config, pause_after=False)
+    if not job.error_message:
+        job = run_pipeline_stage_detect_side_state(job_json_path, config=config)
+    return job
+
 
 from backend.production_jobs import (
     abbrev_player_name,
@@ -92,6 +131,7 @@ from backend.production_jobs import (
     load_match_job,
     near_player_for_rally,
     parse_timecode_to_seconds,
+    save_match_job,
 )
 from backend.production_pipeline import (
     ProductionPipelineConfig,
@@ -129,6 +169,13 @@ from web_ui.templates import _render_template
 from backend.production_jobs import build_review_status, format_seconds_mmss
 
 
+def _format_seconds_mmss_ms(seconds: float) -> str:
+    value = max(0.0, float(seconds or 0.0))
+    minutes = int(value // 60)
+    secs = value - minutes * 60
+    return f"{minutes:02d}:{secs:06.3f}"
+
+
 def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_matches_root: Path) -> dict[str, object]:
     current_job = _load_selected_job(query, jobs_root)
     raw_video_value = str(query.get("raw_video_path", "")).strip()
@@ -158,6 +205,8 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
     screen_mode = "setup"
     current_point_id = ""
     current_point_index = 0
+    step3_summary_md = ""
+    step3_summary_path = ""
 
     if current_job is not None:
         has_timeline = Path(current_job.artifacts.timeline_json_path).exists()
@@ -226,6 +275,16 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         full_match_src = _job_source_video_href(current_job)
         full_match_label = "Playing trimmed match video"
         final_video_src = _job_final_video_href(current_job)
+        side_summary = current_job.timeline_summary.get("detected_side_state", {})
+        if isinstance(side_summary, dict):
+            step3_summary_path = str(side_summary.get("summary_md_path", "") or "")
+            if step3_summary_path:
+                try:
+                    path = Path(step3_summary_path)
+                    if path.exists() and path.is_file():
+                        step3_summary_md = path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    step3_summary_md = ""
         if current_point is not None:
             main_video_src = str(current_point["clip_src"])
             main_now_playing = str(current_point["play_label"])
@@ -284,6 +343,9 @@ def _index_page_context(query: dict[str, str], jobs_root: Path | None, raw_match
         "final_video_label": final_video_label,
         "current_near_abbrev": current_near_abbrev,
         "current_far_abbrev": current_far_abbrev,
+        "step3_summary_md": step3_summary_md,
+        "step3_summary_path": step3_summary_path,
+        "fmt_time": _format_seconds_mmss_ms,
     }
 
 
@@ -329,13 +391,17 @@ def create_local_web_app(
             video_path = str(form.get("video_path", "")).strip()
             if not video_path or not Path(video_path).exists():
                 return _respond_json(start_response, {"error": "Video not found"}, status="400 Bad Request")
+            try:
+                trim_start_sec = parse_timecode_to_seconds(form.get("trim_start", "0"))
+            except Exception as exc:
+                return _respond_json(start_response, {"error": f"Invalid trim start: {exc}"}, status="400 Bad Request")
             scan_id = str(_uuid.uuid4())
             face_db_path = Path(__file__).resolve().parent.parent / "data" / "players" / "faces.json"
             with _SCAN_LOCK:
                 _SCAN_STORE[scan_id] = {"status": "scanning", "logs": []}
             threading.Thread(
                 target=_run_identification_scan,
-                args=(scan_id, video_path, str(config.pose_weights_path), face_db_path,
+                args=(scan_id, video_path, trim_start_sec, str(config.pose_weights_path), face_db_path,
                       str(config.table_weights_path)),
                 daemon=True,
             ).start()
@@ -469,11 +535,30 @@ def create_local_web_app(
                 trim_start_sec = parse_timecode_to_seconds(form.get("trim_start", "0"))
                 best_of = int(form.get("best_of", "5"))
                 job_purpose = str(form.get("job_purpose", "output_only")).strip()
+                debug_step3_only = str(form.get("debug_step3_only", "")).strip().lower() in {"1", "true", "yes", "on"}
+                debug_step3_phase = str(form.get("debug_step3_phase", "3_1_2")).strip()
+                if debug_step3_only and debug_step3_phase not in {"3_1", "3_1_2"}:
+                    raise ValueError("Invalid Step 3 debug phase")
+
+                _form_scan_id = str(form.get("scan_id", "")).strip()
+                _scan_data: dict = {}
+                _prepared_video: Path | None = None
+                if not debug_step3_only:
+                    # Run AI Pipeline starts at Step 3.  Step 1 + Step 2 must have
+                    # completed through the Identify Players button first.
+                    if not _form_scan_id:
+                        raise ValueError("Run Identify Players first so Step 1 trim and Step 2 identification are complete")
+                    with _SCAN_LOCK:
+                        _scan_data = dict(_SCAN_STORE.get(_form_scan_id, {}))
+                    _prepared_video = Path(str(_scan_data.get("working_video_path", "")))
+                    if _scan_data.get("status") != "done" or not _prepared_video.exists():
+                        raise ValueError("Identify Players did not finish with a prepared trimmed video")
+
                 job = create_match_job(
                     raw_video_path=raw_video_path,
                     player_a_name=form.get("player_a_name", "Player A"),
                     player_b_name=form.get("player_b_name", "Player B"),
-                    trim_start_sec=trim_start_sec,
+                    trim_start_sec=0.0 if debug_step3_only else trim_start_sec,
                     best_of=best_of,
                     job_purpose=job_purpose,
                     tournament_name=str(form.get("tournament_name", "")).strip(),
@@ -482,23 +567,81 @@ def create_local_web_app(
                 )
             except Exception as exc:
                 return _redirect(start_response, f"/?kind=error&message={quote_plus(str(exc))}")
-            # Carry table_roi from identification scan into the job so Stage 3.1
-            # does not re-run YOLOv8x-table detection.
-            _form_scan_id = str(form.get("scan_id", "")).strip()
-            if _form_scan_id:
-                with _SCAN_LOCK:
-                    _scan_data = _SCAN_STORE.get(_form_scan_id, {})
+            Path(job.artifacts.working_video_path).parent.mkdir(parents=True, exist_ok=True)
+            if debug_step3_only:
+                # Debug mode intentionally skips Step 1 trim and Step 2 player ID.
+                # It trusts the operator-entered names and lets Step 3 detect
+                # table ROI/player zone from the raw input.
+                shutil.copy2(Path(raw_video_path), job.artifacts.working_video_path)
+                job.timeline_summary["debug_step3_only"] = True
+                job.timeline_summary["debug_step3_phase"] = debug_step3_phase
+                job.timeline_summary["trim_completed_by_identify"] = False
+                job.timeline_summary["trim_start_sec"] = 0.0
+                job.timeline_summary["step2_ground_truth"] = {
+                    "source": "manual_gui_debug_skip_step1_step2",
+                    "player_a": {
+                        "name": job.player_a_name,
+                        "initial_role": "near",
+                        "starts_near": True,
+                    },
+                    "player_b": {
+                        "name": job.player_b_name,
+                        "initial_role": "far",
+                        "starts_near": False,
+                    },
+                    "trusted": True,
+                }
+            else:
+                # Carry Step 1 + Step 2 artifacts from the Identify Players scan
+                # into the job.  From this point on, Run AI Pipeline starts at
+                # Step 3 (set/rally detection), not at trim/identify.
+                assert _prepared_video is not None
+                shutil.copy2(_prepared_video, job.artifacts.working_video_path)
+                job.timeline_summary["identify_scan_id"] = _form_scan_id
+                job.timeline_summary["trim_completed_by_identify"] = True
+                job.timeline_summary["trim_start_sec"] = float(_scan_data.get("trim_start_sec", trim_start_sec))
                 _cached_roi = _scan_data.get("table_roi")
                 if _cached_roi:
                     job.timeline_summary["table_roi"] = _cached_roi
-                    save_match_job(job)
-            from backend.production_pipeline import run_pipeline_stage_trim_and_detect_sets
-            ok, msg = runner.start(
-                job.job_id,
-                lambda current_job_id: run_pipeline_stage_trim_and_detect_sets(
+                _cached_zone = _scan_data.get("player_zone")
+                if _cached_zone:
+                    job.timeline_summary["player_zone"] = _cached_zone
+                job.timeline_summary["step2_ground_truth"] = {
+                    "source": "identify_players",
+                    "scan_id": _form_scan_id,
+                    "player_a": {
+                        "name": job.player_a_name,
+                        "initial_role": "near",
+                        "starts_near": True,
+                    },
+                    "player_b": {
+                        "name": job.player_b_name,
+                        "initial_role": "far",
+                        "starts_near": False,
+                    },
+                    "trusted": True,
+                }
+            save_match_job(job)
+
+            from backend.production_pipeline import run_pipeline_stage_detect_sets
+            if debug_step3_only and debug_step3_phase == "3_1":
+                stage_fn = lambda current_job_id: run_pipeline_stage_detect_sets(
                     job_json_path_from_id(current_job_id, jobs_root),
                     config=config,
-                ),
+                )
+            elif debug_step3_only:
+                stage_fn = lambda current_job_id: _run_debug_step3_until_side_state(
+                    job_json_path_from_id(current_job_id, jobs_root),
+                    config=config,
+                )
+            else:
+                stage_fn = lambda current_job_id: run_pipeline_stage_detect_sets(
+                    job_json_path_from_id(current_job_id, jobs_root),
+                    config=config,
+                )
+            ok, msg = runner.start(
+                job.job_id,
+                stage_fn,
             )
             kind = "info" if ok else "error"
             return _redirect(start_response, f"/?job_id={job.job_id}&kind={kind}&message={quote_plus(msg)}")
@@ -518,8 +661,8 @@ def create_local_web_app(
 
         # "Next step" — advance the staged pipeline from the current confirmation
         # pause to the next stage.  Dispatches based on current_step:
-        #   confirm_players → detect_sets
-        #   confirm_sets    → detect_rallies
+        #   confirm_total_rallies -> detect_side_state
+        #   confirm_sets    → detect_rallies (legacy path)
         #   confirm_rallies → predict (steps 4+5, runs to completion)
         next_step_match = re.match(r"^/jobs/([^/]+)/next-step$", path)
         if next_step_match and method == "POST":
@@ -530,11 +673,13 @@ def create_local_web_app(
                 return _redirect(start_response, f"/?job_id={job_id}&kind=error&message={quote_plus(str(exc))}")
             step = _job.current_step
             from backend.production_pipeline import (
-                run_pipeline_stage_detect_sets,
+                run_pipeline_stage_detect_side_state,
                 run_pipeline_stage_detect_rallies,
                 run_pipeline_stage_predict,
             )
             stage_map = {
+                "confirm_total_rallies": lambda cid: run_pipeline_stage_detect_side_state(
+                    job_json_path_from_id(cid, jobs_root), config=config),
                 "confirm_sets": lambda cid: run_pipeline_stage_detect_rallies(
                     job_json_path_from_id(cid, jobs_root), config=config),
                 "confirm_rallies": lambda cid: run_pipeline_stage_predict(
@@ -646,6 +791,23 @@ def create_local_web_app(
         if timeline_file_match and method == "GET":
             job = load_match_job(job_json_path_from_id(timeline_file_match.group(1), jobs_root))
             return _serve_file(start_response, Path(job.artifacts.timeline_json_path))
+
+        rally_start_frame_match = re.match(r"^/jobs/([^/]+)/rally-start-frames/([^/]+\.jpg)$", path)
+        if rally_start_frame_match and method == "GET":
+            job = load_match_job(job_json_path_from_id(rally_start_frame_match.group(1), jobs_root))
+            image_name = Path(rally_start_frame_match.group(2)).name
+            candidates = []
+            if job.current_step == "confirm_side_state":
+                candidates.append(job.timeline_summary.get("detected_side_state", {}))
+            candidates.append(job.timeline_summary.get("detected_total_rallies", {}))
+            candidates.append(job.timeline_summary.get("detected_side_state", {}))
+            for detected in candidates:
+                frames_dir = Path(str(detected.get("start_frames_dir", "")))
+                image_path = frames_dir / image_name
+                if image_path.exists():
+                    return _serve_file(start_response, image_path)
+            frames_dir = Path(str((candidates[0] if candidates else {}).get("start_frames_dir", "")))
+            return _serve_file(start_response, frames_dir / image_name)
 
         clip_match = re.match(r"^/jobs/([^/]+)/clips/([^/]+)\.mp4$", path)
         if clip_match and method == "GET":

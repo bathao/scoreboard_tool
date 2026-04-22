@@ -105,6 +105,9 @@ class IdentificationResult:
     # Table ROI detected at the start of identification; reused downstream by
     # rally detection to avoid running YOLOv8x-table twice on the same video.
     table_roi: Optional[object] = None  # TableROI (avoid top-level import cycle)
+    # Player-zone crop used by Step 2. Step 3.1 trusts this zone instead of
+    # deriving a wider side-swap zone that may include adjacent tables.
+    player_zone_xyxy: Optional[tuple[float, float, float, float]] = None
 
     @property
     def is_complete(self) -> bool:
@@ -181,10 +184,10 @@ def _accumulate_jersey(hists: list[np.ndarray]) -> Optional[np.ndarray]:
 
 # Player zone = Table ROI bbox expanded on each side by these fractions of the
 # table bbox width/height.  The zone filters out players at adjacent tables.
-# X: 30% on each side (total +60% width) — trims adjacent-table spill
+# X: 25% on each side (total +50% width) — trims adjacent-table spill
 # Y: 110% on each side (total +220% height) — extra headroom for tall players
 #    above the table surface to capture full body + faces
-PLAYER_ZONE_EXPAND_X: float = 0.30
+PLAYER_ZONE_EXPAND_X: float = 0.25
 PLAYER_ZONE_EXPAND_Y: float = 1.10
 
 
@@ -1376,4 +1379,5 @@ def quick_identify_players_standalone(
         status=status,
         unknown_faces=unknown_faces,
         table_roi=table_roi,
+        player_zone_xyxy=roi_xyxy,
     )

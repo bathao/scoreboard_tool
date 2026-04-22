@@ -36,7 +36,9 @@ def run_unified_debug():
     if not video_path.exists():
         sys.exit(f"CRITICAL: File not found: {VIDEO_INPUT}")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for unified segmentation debug.")
+    device = "cuda"
     start_time = datetime.now()
 
     # --- STEP 1: ROI & UPZ DETECTION ---

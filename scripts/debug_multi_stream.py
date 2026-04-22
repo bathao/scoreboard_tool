@@ -35,10 +35,12 @@ def run_multi_stream_debug(
     imgsz: int = 1600,
 ):
     video_path = Path(video_path_str)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for multi-stream debug.")
+    device = "cuda"
 
     print("--- STARTING PRODUCTION-GRADE MULTI-STREAM DEBUG ---")
-    print(f"Hardware: {torch.cuda.get_device_name(0) if device == 'cuda' else 'CPU'}")
+    print(f"Hardware: {torch.cuda.get_device_name(0)}")
     print("Loading YOLO person detector...")
     person_model = YOLO(str(Path(person_weights).resolve()))
 

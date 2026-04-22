@@ -146,6 +146,35 @@ def test_serve_order_review_markers_flag_double_serve_singleton_gap() -> None:
     assert markers[0]["review_reason"] == "double_serve_singleton_gap"
 
 
+def test_timeline_total_rally_start_events_auto_promotes_singleton_gap() -> None:
+    context = Step3PlayerContext(
+        player_a_name="Near Player",
+        player_b_name="Far Player",
+        player_a_starts_near=True,
+    )
+    timeline = RallyTimeline(
+        points=[
+            RallyTimelinePoint(id="pt_0001", t_start=1.0, t_end=2.0, starter_role="B"),
+            RallyTimelinePoint(id="pt_0002", t_start=8.0, t_end=9.0, starter_role="B"),
+            RallyTimelinePoint(id="pt_0003", t_start=20.0, t_end=24.0, starter_role="A"),
+            RallyTimelinePoint(id="pt_0004", t_start=40.0, t_end=42.0, starter_role="B"),
+            RallyTimelinePoint(id="pt_0005", t_start=50.0, t_end=52.0, starter_role="B"),
+        ],
+        analysis_metadata={"excluded_let_starts": [], "unattached_trailing_let_starts": []},
+    )
+
+    events = timeline_total_rally_start_events(timeline, player_context=context)
+
+    assert [event["kind"] for event in events] == ["scoring"] * 6
+    assert events[3]["source"] == "serve_order_gap_auto_repair"
+    assert events[3]["starter_role"] == "A"
+    assert events[3]["server_player_name"] == "Near Player"
+    assert events[3]["t_start"] == 32.0
+    assert events[3]["repair_reason"] == "double_serve_singleton_gap_auto_promoted"
+    assert "serve_order_gap_auto_repair" in events[3]["flags"]
+    assert not events[3].get("review_reason")
+
+
 def test_serve_order_audit_flags_let_from_wrong_server() -> None:
     context = Step3PlayerContext(
         player_a_name="Near Player",

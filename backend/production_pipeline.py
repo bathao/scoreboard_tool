@@ -27,7 +27,13 @@ from backend.rally_timeline_contract import RallyTimeline, counts_toward_score, 
 from backend.rendering import render_scoreboard_video
 from backend.score_validation import build_score_validation
 from backend.set_boundary import apply_set_numbers, populate_player_positions
-from backend.step3_rally_start_review import Step3PlayerContext, build_step3_1_rally_start_review
+from backend.step3_rally_start_review import (
+    STEP3_1_ALGORITHM,
+    Step3PlayerContext,
+    Step3SideIdentificationConfig,
+    build_step3_1_rally_start_review,
+    build_step3_2_side_state_review,
+)
 
 
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -154,6 +160,111 @@ def trim_input_video(raw_video_path: str, working_video_path: str, trim_start_se
     ]
     _run_ffmpeg(cmd)
     return str(working_path)
+
+
+def _fmt_step3_mmss(value: float) -> str:
+    value = max(0.0, float(value))
+    minutes = int(value // 60)
+    seconds = value - minutes * 60
+    return f"{minutes:02d}:{seconds:06.3f}"
+
+
+def _step3_side_pair_text(event: dict[str, Any], *, player_a_name: str, player_b_name: str) -> tuple[str, str]:
+    a_side = str(event.get("player_a_current_side", "") or "").upper()
+    b_side = str(event.get("player_b_current_side", "") or "").upper()
+    near_name = "unknown"
+    far_name = "unknown"
+    if a_side == "NEAR":
+        near_name = player_a_name
+    elif a_side == "FAR":
+        far_name = player_a_name
+    if b_side == "NEAR":
+        near_name = player_b_name
+    elif b_side == "FAR":
+        far_name = player_b_name
+    return near_name, far_name
+
+
+def _step3_md_cell(value: Any) -> str:
+    return str(value if value is not None else "").replace("\n", " ").replace("|", "/").strip()
+
+
+def _write_step3_2_summary_md(
+    path: Path,
+    summary: dict[str, Any],
+    events: list[dict[str, Any]],
+    *,
+    player_a_name: str,
+    player_b_name: str,
+) -> None:
+    """Write the operator-facing Step 3 debug summary used by CLI-like GUI runs."""
+
+    side_id = summary.get("side_identification") or {}
+    first_server = summary.get("first_server") or {}
+    lines = [
+        "# Step 3.2 Side State Debug",
+        "",
+        f"- Total starts: {summary.get('total', 0)}",
+        f"- Detected starts: {summary.get('detected_total', summary.get('total', 0))}",
+        f"- Scoring rallies: {summary.get('scoring', 0)}",
+        f"- LET/non-scoring: {summary.get('lets', 0)}",
+        f"- Needs-review rows: {summary.get('needs_review', 0)}",
+        f"- Side evidence: identified {side_id.get('identified', 0)} / "
+        f"inferred {side_id.get('inferred', 0)} / unknown {side_id.get('unknown', 0)} "
+        f"({side_id.get('algorithm', side_id.get('reason', ''))})",
+        f"- Retry unknown: attempted {side_id.get('retry_attempted', 0)}, "
+        f"identified {side_id.get('retry_identified', 0)}",
+        f"- Strong-candidate promotions: {side_id.get('promoted_strong_candidate', 0)}",
+        f"- Continuity fills: {side_id.get('continuity_filled', 0)}",
+        f"- First server: {first_server.get('server_player_name', 'unknown')} "
+        f"(side={first_server.get('current_side', '-')}, role={first_server.get('starter_role', '-')}, "
+        f"start_time={_fmt_step3_mmss(float(first_server.get('source_t_start', first_server.get('t_start', 0.0))))})",
+        f"- Source Step 3.1 events: {summary.get('source_step3_1_events_json_path', '')}",
+        f"- Events JSON: {summary.get('events_json_path', '')}",
+        f"- CSV: {summary.get('csv_path', '')}",
+        f"- Start frames: {summary.get('start_frames_dir', '')}",
+        "",
+        "| id | kind | start_time | server_side | NEAR | FAR | side_evidence | mode | note | image |",
+        "|---|---|---:|---|---|---|---|---|---|---|",
+    ]
+    for event in events:
+        note = event.get("review_reason", "") or ""
+        expected_role = event.get("serve_order_expected_role", "") or ""
+        expected_server = event.get("serve_order_expected_server_name", "") or ""
+        if note and expected_role:
+            note = f"{note}; expected {expected_server} ({expected_role})"
+
+        side_evidence = event.get("side_evidence_status", "") or ""
+        identified = event.get("side_identified_player_name", "") or ""
+        identified_side = event.get("side_identified_current_side", "") or ""
+        if side_evidence == "identified" and identified:
+            side_evidence = f"{identified}={identified_side}"
+        elif side_evidence == "inferred":
+            side_evidence = f"inferred({event.get('side_evidence_reason', '')})"
+        elif side_evidence == "unknown" and event.get("side_evidence_reason"):
+            side_evidence = f"unknown({event.get('side_evidence_reason')})"
+
+        near_name, far_name = _step3_side_pair_text(
+            event,
+            player_a_name=player_a_name,
+            player_b_name=player_b_name,
+        )
+        lines.append(
+            "| {id} | {kind} | {start_time} | {server_side} | {near} | {far} | {evidence} | {mode} | {note} | {image} |".format(
+                id=_step3_md_cell(event.get("id", "")),
+                kind=_step3_md_cell(event.get("kind", "")),
+                start_time=_fmt_step3_mmss(float(event.get("source_t_start", event.get("t_start", 0.0)))),
+                server_side=_step3_md_cell(event.get("current_side", "unknown")),
+                near=_step3_md_cell(near_name),
+                far=_step3_md_cell(far_name),
+                evidence=_step3_md_cell(side_evidence),
+                mode=_step3_md_cell(event.get("side_evidence_window_mode", "")),
+                note=_step3_md_cell(note),
+                image=_step3_md_cell(event.get("image_file", "")),
+            )
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def export_review_clips(timeline: RallyTimeline, *, working_video_path: str, review_clips_dir: str) -> dict[str, str]:
@@ -690,10 +801,10 @@ def run_pipeline_stage_trim_and_detect_sets(
         bw, bh = float(table_roi.w), float(table_roi.h)
         table_center_x = table_roi.x + table_roi.w / 2.0
         player_zone = (
-            max(0.0, table_roi.x - bw * 0.40),
-            max(0.0, table_roi.y - bh * 1.00),
-            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.40),
-            min(float(frame_h), table_roi.y + table_roi.h + bh * 1.00),
+            max(0.0, table_roi.x - bw * 0.25),
+            max(0.0, table_roi.y - bh * 1.10),
+            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.25),
+            min(float(frame_h), table_roi.y + table_roi.h + bh * 1.10),
         )
 
         face_db = FaceDB(PROJECT_ROOT / "data" / "players" / "faces.json")
@@ -857,9 +968,9 @@ def _run_pipeline_stage_detect_sets_side_swap_v2(
     else:
         bw, bh = float(table_roi.w), float(table_roi.h)
         player_zone = (
-            max(0.0, table_roi.x - bw * 0.30),
+            max(0.0, table_roi.x - bw * 0.25),
             max(0.0, table_roi.y - bh * 1.10),
-            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.30),
+            min(float(frame_w), table_roi.x + table_roi.w + bw * 0.25),
             min(float(frame_h), table_roi.y + table_roi.h + bh * 1.10),
         )
         _job_log(job_dir, "Step 3.1: detect_sets — derived fallback player zone from Step 2 table ROI")
@@ -1193,6 +1304,7 @@ def run_pipeline_stage_detect_sets(
     job_or_path: MatchJob | str | Path,
     *,
     config: ProductionPipelineConfig | None = None,
+    pause_after: bool = True,
 ) -> MatchJob:
     """Step 3.1: detect total rally/LET starts for full-input review.
 
@@ -1207,6 +1319,7 @@ def run_pipeline_stage_detect_sets(
     _job_log(job_dir, "Step 3.1: total rally start detection — detecting all rally/LET starts")
 
     video_path = Path(job.artifacts.working_video_path)
+    _job_log(job_dir, f"Step 3.1: input video — {video_path}")
 
     table_roi = None
     roi_data = job.timeline_summary.get("table_roi")
@@ -1219,11 +1332,38 @@ def run_pipeline_stage_detect_sets(
             h=int(roi_data["h"]),
             confidence=float(roi_data.get("confidence", 1.0)),
         )
+        _job_log(
+            job_dir,
+            f"Step 3.1: total rally start detection — reusing table ROI "
+            f"x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}",
+        )
 
+    detected_player_zone_xyxy = None
     if table_roi is None:
         from backend.player_identification import detect_table_roi_and_player_zone
         _job_log(job_dir, "Step 3.1: total rally start detection — detecting table ROI (not cached)")
-        table_roi, _zone = detect_table_roi_and_player_zone(video_path, config.table_weights_path)
+        table_roi, detected_player_zone_xyxy = detect_table_roi_and_player_zone(video_path, config.table_weights_path)
+        if table_roi is not None:
+            job.timeline_summary["table_roi"] = {
+                "x": int(table_roi.x),
+                "y": int(table_roi.y),
+                "w": int(table_roi.w),
+                "h": int(table_roi.h),
+                "confidence": float(getattr(table_roi, "confidence", 1.0)),
+            }
+            _job_log(
+                job_dir,
+                f"Step 3.1: total rally start detection — table ROI detected "
+                f"x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}",
+            )
+        if detected_player_zone_xyxy is not None:
+            x1, y1, x2, y2 = detected_player_zone_xyxy
+            job.timeline_summary["player_zone"] = {
+                "x1": float(x1),
+                "y1": float(y1),
+                "x2": float(x2),
+                "y2": float(y2),
+            }
 
     if table_roi is None or table_roi.w <= 0:
         _job_log(job_dir, "Step 3.1: total rally start detection — FAILED: table ROI not detected")
@@ -1245,6 +1385,29 @@ def run_pipeline_stage_detect_sets(
         player_b_name=job.player_b_name,
         player_a_starts_near=job.player_a_starts_near,
     )
+    player_zone_xyxy = None
+    zone_data = job.timeline_summary.get("player_zone")
+    if isinstance(zone_data, dict):
+        try:
+            player_zone_xyxy = (
+                float(zone_data["x1"]),
+                float(zone_data["y1"]),
+                float(zone_data["x2"]),
+                float(zone_data["y2"]),
+            )
+        except Exception:
+            player_zone_xyxy = None
+    if player_zone_xyxy is not None:
+        _job_log(
+            job_dir,
+            "Step 3.1: total rally start detection — player zone "
+            f"x1={player_zone_xyxy[0]:.0f} y1={player_zone_xyxy[1]:.0f} "
+            f"x2={player_zone_xyxy[2]:.0f} y2={player_zone_xyxy[3]:.0f}",
+        )
+    _job_log(
+        job_dir,
+        "Step 3.1: total rally start detection — calling build_step3_1_rally_start_review()",
+    )
     try:
         result = build_step3_1_rally_start_review(
             video_path=video_path,
@@ -1264,12 +1427,14 @@ def run_pipeline_stage_detect_sets(
             ball_signal_source=config.rally_ball_signal_source,
             player_context=player_context,
             legacy_cache_path=legacy_cache_path,
+            player_zone_xyxy=player_zone_xyxy,
+            enable_side_identification=False,
             log_fn=lambda msg: _job_log(job_dir, msg),
         )
     except Exception as exc:
         _job_log(job_dir, f"Step 3.1: total rally start detection — FAILED: {exc}")
         job.timeline_summary["detected_total_rallies"] = {
-            "algorithm": "total_rally_start_time_review_v2",
+            "algorithm": STEP3_1_ALGORITHM,
             "error": str(exc),
         }
         update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_total_rallies")
@@ -1303,10 +1468,189 @@ def run_pipeline_stage_detect_sets(
         "swaps": [],
         "duration": float(max((float(event["t_end"]) for event in events), default=0.0)),
         "note": "step3_1_total_rally_review_only",
-        "algorithm": "total_rally_start_time_review_v2",
+        "algorithm": STEP3_1_ALGORITHM,
     }
-    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_total_rallies")
-    _job_log(job_dir, "Paused — waiting for operator to review total rally start-time frames")
+    if pause_after:
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_total_rallies")
+        _job_log(job_dir, "Paused — waiting for operator to review total rally start-time frames")
+    else:
+        update_job_runtime_state(job, status="running", current_step="detect_total_rallies")
+        _job_log(job_dir, "Step 3.1: total rally start detection — complete; debug mode continues to Step 3.2")
+    save_match_job(job)
+    return job
+
+
+def run_pipeline_stage_detect_side_state(
+    job_or_path: MatchJob | str | Path,
+    *,
+    config: ProductionPipelineConfig | None = None,
+) -> MatchJob:
+    """Step 3.2: detect per-rally NEAR/FAR side state from Step 3.1 starts."""
+
+    config = config or ProductionPipelineConfig()
+    job = _load_or_raise_job(job_or_path)
+    job_dir = Path(job.artifacts.job_dir)
+
+    update_job_runtime_state(job, status="running", current_step="detect_side_state")
+    _job_log(job_dir, "Step 3.2: side-state detection — identifying NEAR/FAR at each rally start")
+
+    video_path = Path(job.artifacts.working_video_path)
+    source_events_json_path = job_dir / "step3_1_rally_start_events.json"
+    if not source_events_json_path.exists():
+        _job_log(job_dir, "Step 3.2: side-state detection — FAILED: missing Step 3.1 events JSON")
+        update_job_runtime_state(
+            job,
+            status="awaiting_confirmation",
+            current_step="confirm_side_state",
+            error_message="Step 3.1 events JSON not found; run total rally detection first",
+        )
+        save_match_job(job)
+        return job
+    try:
+        source_payload = json.loads(source_events_json_path.read_text(encoding="utf-8"))
+        source_event_count = len(list(source_payload.get("events") or []))
+    except Exception:
+        source_event_count = -1
+    if source_event_count >= 0:
+        _job_log(
+            job_dir,
+            f"Step 3.2: side-state detection — loaded {source_event_count} Step 3.1 event(s)",
+        )
+
+    table_roi = None
+    roi_data = job.timeline_summary.get("table_roi")
+    if roi_data:
+        from backend.ai_table_roi import TableROI
+
+        table_roi = TableROI(
+            x=int(roi_data["x"]),
+            y=int(roi_data["y"]),
+            w=int(roi_data["w"]),
+            h=int(roi_data["h"]),
+            confidence=float(roi_data.get("confidence", 1.0)),
+        )
+        _job_log(
+            job_dir,
+            f"Step 3.2: side-state detection — reusing table ROI "
+            f"x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}",
+        )
+    detected_player_zone_xyxy = None
+    if table_roi is None:
+        from backend.player_identification import detect_table_roi_and_player_zone
+
+        _job_log(job_dir, "Step 3.2: side-state detection — detecting table ROI (not cached)")
+        table_roi, detected_player_zone_xyxy = detect_table_roi_and_player_zone(video_path, config.table_weights_path)
+        if table_roi is not None:
+            job.timeline_summary["table_roi"] = {
+                "x": int(table_roi.x),
+                "y": int(table_roi.y),
+                "w": int(table_roi.w),
+                "h": int(table_roi.h),
+                "confidence": float(getattr(table_roi, "confidence", 1.0)),
+            }
+            _job_log(
+                job_dir,
+                f"Step 3.2: side-state detection — table ROI detected "
+                f"x={table_roi.x} y={table_roi.y} w={table_roi.w} h={table_roi.h}",
+            )
+        if detected_player_zone_xyxy is not None:
+            x1, y1, x2, y2 = detected_player_zone_xyxy
+            job.timeline_summary["player_zone"] = {
+                "x1": float(x1),
+                "y1": float(y1),
+                "x2": float(x2),
+                "y2": float(y2),
+            }
+    if table_roi is None or table_roi.w <= 0:
+        _job_log(job_dir, "Step 3.2: side-state detection — FAILED: table ROI not detected")
+        update_job_runtime_state(
+            job,
+            status="awaiting_confirmation",
+            current_step="confirm_side_state",
+            error_message="Table ROI detection failed",
+        )
+        save_match_job(job)
+        return job
+
+    player_zone_xyxy = None
+    zone_data = job.timeline_summary.get("player_zone")
+    if isinstance(zone_data, dict):
+        try:
+            player_zone_xyxy = (
+                float(zone_data["x1"]),
+                float(zone_data["y1"]),
+                float(zone_data["x2"]),
+                float(zone_data["y2"]),
+            )
+        except Exception:
+            player_zone_xyxy = None
+    if player_zone_xyxy is not None:
+        _job_log(
+            job_dir,
+            "Step 3.2: side-state detection — player zone "
+            f"x1={player_zone_xyxy[0]:.0f} y1={player_zone_xyxy[1]:.0f} "
+            f"x2={player_zone_xyxy[2]:.0f} y2={player_zone_xyxy[3]:.0f}",
+        )
+
+    player_context = Step3PlayerContext(
+        player_a_name=job.player_a_name,
+        player_b_name=job.player_b_name,
+        player_a_starts_near=job.player_a_starts_near,
+    )
+    side_config = Step3SideIdentificationConfig()
+    _job_log(
+        job_dir,
+        "Step 3.2: side-state detection — calling build_step3_2_side_state_review()",
+    )
+    try:
+        result = build_step3_2_side_state_review(
+            video_path=video_path,
+            source_events_json_path=source_events_json_path,
+            events_json_path=job_dir / "step3_2_side_state_events.json",
+            frame_dir=job_dir / "step3_2_side_state_frames",
+            table_roi=table_roi,
+            pose_weights_path=config.pose_weights_path,
+            player_context=player_context,
+            player_zone_xyxy=player_zone_xyxy,
+            side_identification_config=side_config,
+            time_field="source_t_start",
+            end_time_field="source_t_end",
+            log_fn=lambda msg: _job_log(job_dir, msg),
+        )
+    except Exception as exc:
+        _job_log(job_dir, f"Step 3.2: side-state detection — FAILED: {exc}")
+        job.timeline_summary["detected_side_state"] = {
+            "algorithm": "step3_2_side_state_review_v1",
+            "error": str(exc),
+        }
+        update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_side_state")
+        save_match_job(job)
+        return job
+
+    summary = result.summary
+    side_id = summary.get("side_identification", {})
+    summary_md_path = job_dir / "step3_2_side_state_review" / "summary.md"
+    _write_step3_2_summary_md(
+        summary_md_path,
+        summary,
+        result.events,
+        player_a_name=job.player_a_name,
+        player_b_name=job.player_b_name,
+    )
+    summary["summary_md_path"] = str(summary_md_path.resolve()).replace("\\", "/")
+    _job_log(
+        job_dir,
+        "Step 3.2: side-state detection — "
+        f"identified={side_id.get('identified', 0)} inferred={side_id.get('inferred', 0)} "
+        f"unknown={side_id.get('unknown', 0)} "
+        f"retry_identified={side_id.get('retry_identified', 0)}",
+    )
+    _job_log(job_dir, f"Step 3.2: side-state detection — exported frames: {summary['start_frames_dir']}")
+    _job_log(job_dir, f"Step 3.2: side-state detection — summary.md: {summary['summary_md_path']}")
+
+    job.timeline_summary["detected_side_state"] = summary
+    update_job_runtime_state(job, status="awaiting_confirmation", current_step="confirm_side_state")
+    _job_log(job_dir, "Paused — waiting for operator to review side-state results")
     save_match_job(job)
     return job
 

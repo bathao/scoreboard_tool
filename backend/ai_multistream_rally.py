@@ -1036,7 +1036,15 @@ def _collect_role_tracker_energies(
 
     _flush_batch()
 
+    if log_fn:
+        log_fn(
+            "  pose detection: complete — finalizing player tracker and building role feature series"
+        )
     tracking_result = tracker.finish()
+    if log_fn:
+        log_fn(
+            "  pose detection: tracker finalized — computing motion/serve/reach/footwork features"
+        )
     role_hold_samples = max(2, int(round(6 / max(1, stride))))
     player_a_energies = _build_role_energy_series(
         frame_indices,
@@ -1196,6 +1204,10 @@ def _collect_role_tracker_energies(
         occluded_hold_samples=max(1, role_hold_samples - 1),
         occluded_decay=0.58,
     )
+    if log_fn:
+        log_fn(
+            "  pose detection: role feature series ready — returning player/table signals"
+        )
     return RoleTrackerSeries(
         timestamps=timestamps,
         table_energies=table_energies,
@@ -2664,6 +2676,11 @@ def _detect_player_sandwich_rallies_from_diagnostics(
     point_likelihoods = [float(record["point_likelihood"]) for record in provisional_records]
     serve_mode = _infer_player_serve_mode_from_starter_roles(starter_roles)
     legal_limit = 2 if serve_mode == "double" else 1
+    # Use serve-order only after the local start detector has produced a dense
+    # candidate list. In a same-server overflow run, the earliest replay starts
+    # are LET attempts and should not count toward score. This must run on the
+    # chunked detector output, otherwise a missing start can cascade into false
+    # LET labels.
     forced_let_indices = _infer_forced_let_indices_from_starter_roles(
         starter_roles,
         point_likelihoods,
@@ -2691,13 +2708,20 @@ def _detect_player_sandwich_rallies_from_diagnostics(
             label = "let"
             extra_flags.extend(
                 [
-                    "let_inferred_forced_serve_order",
+                    "let_inferred_serve_order_replay",
                     f"let_inferred_serve_mode_{serve_mode}",
                 ]
             )
-        elif idx not in overflow_run_indices and bool(record["local_let"]):
+        elif bool(record["local_let"]):
             label = "let"
             extra_flags.append("let_inferred_local_abort")
+        if idx in overflow_run_indices:
+            extra_flags.extend(
+                [
+                    "serve_order_overflow_suspect",
+                    f"serve_order_mode_{serve_mode}",
+                ]
+            )
         append_segment(
             segments,
             start_idx=int(record["start_idx"]),
@@ -3061,7 +3085,9 @@ def extract_multistream_signals(
     table_roi: Optional[TableROI] = None,
     log_fn=None,
 ) -> MultiStreamSignals:
-    if not torch.cuda.is_available() and device == "cuda":
+    if device != "cuda":
+        raise RuntimeError("GPU required: multi-stream extraction does not support CPU execution.")
+    if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required for multi-stream extraction.")
 
     v_path = Path(video_path).resolve()
@@ -3195,6 +3221,8 @@ def extract_multistream_signals(
 
     if player_signal_source != "none":
         cap.release()
+        if log_fn:
+            log_fn("aligning production table-motion signal with pose samples...")
         prod_timestamps, prod_table_energies = _extract_production_table_energies(
             str(v_path),
             roi=roi,
@@ -3248,8 +3276,14 @@ def extract_multistream_signals(
             player_b_face_hidden_scores = player_b_face_hidden_scores[1:]
             player_a_face_touch_scores = player_a_face_touch_scores[1:]
             player_b_face_touch_scores = player_b_face_touch_scores[1:]
+        if log_fn:
+            log_fn(
+                f"signal alignment complete: {len(timestamps)} samples ready for rally segmentation"
+            )
 
     if ball_signal_source == "classical":
+        if log_fn:
+            log_fn("extracting classical ball-motion signal...")
         ball_signals = extract_ball_motion_energies(
             str(v_path),
             roi=roi,
@@ -3281,9 +3315,13 @@ def extract_multistream_signals(
         player_a_face_touch_scores = player_a_face_touch_scores[:aligned_len]
         player_b_face_touch_scores = player_b_face_touch_scores[:aligned_len]
         ball_energies = ball_signals.energies[:aligned_len]
+        if log_fn:
+            log_fn(f"ball-motion signal aligned: {aligned_len} samples")
     else:
         ball_energies = [0.0 for _ in timestamps]
 
+    if log_fn:
+        log_fn("normalizing table/player/ball signals and building fused energy stream...")
     player_energies = [
         max(float(a), float(b))
         for a, b in zip(player_a_energies, player_b_energies)
@@ -3298,6 +3336,11 @@ def extract_multistream_signals(
         np.maximum(table_norm, player_norm * float(player_fuse_gain)),
         ball_norm * float(ball_fuse_gain),
     )
+    if log_fn:
+        log_fn(
+            f"multistream signal extraction complete: {len(timestamps)} samples, "
+            f"player_signal={player_signal_source}, ball_signal={ball_signal_source}"
+        )
 
     return MultiStreamSignals(
         roi=roi,

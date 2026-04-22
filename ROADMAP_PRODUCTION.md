@@ -11,6 +11,21 @@ Use this file for:
 
 Do not use this file as a daily work log.
 
+## Document Ownership
+
+- `ROADMAP_PRODUCTION.md` = long-term production target and non-negotiable
+  design rules.
+- `PIPELINE.md` = active pipeline contract and implementation snapshot.
+- `PROJECT_ACTION_PLAN.md` = short current operational board.
+- `PROJECT_PROGRESS.md` = historical work log and resume notes.
+- `STEP3_DEBUG.md` = active Step 3 blocker/debug board.
+
+If these files disagree, use this priority:
+1. `PIPELINE.md` for current implementation contract.
+2. `PROJECT_ACTION_PLAN.md` for what to do next.
+3. `STEP3_DEBUG.md` for active Step 3 debugging details.
+4. `ROADMAP_PRODUCTION.md` for long-term target.
+
 ## Final Goal
 - Input:
   - one raw full-match table-tennis clip, usually `30-40` minutes
@@ -104,6 +119,8 @@ The production system should:
 - When the operator asks to export review rallies, the export must be a clean end-to-end rerun from the original input video.
 - Always verify important claims against the code before treating them as true.
 - The agent must retain the right to challenge or correct a request when it conflicts with the code, the current architecture, or the final goal.
+- Optimize heavy video / AI work for the local NVIDIA RTX 5060 Ti GPU. GPU acceleration is the default requirement for this project, not an optional speedup.
+- Do not silently fall back to slow CPU execution for GPU-required pipeline steps. If CUDA / NVENC / GPU inference is unavailable, fail clearly so the operator can fix the environment.
 - Reject workaround directions that only mask symptoms:
   - display hold, frozen boxes, render-only trackers, fake continuity bridges, narrow hacks that overfit one clip
 - When evidence is weak, prefer `missing`, `unknown`, or `review` over a forced wrong answer.

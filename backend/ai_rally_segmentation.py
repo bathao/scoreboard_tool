@@ -178,9 +178,9 @@ def detect_rally_segments_advanced_gpu(
         return []
 
     # 1. STRICT HARDWARE CHECK
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cpu":
+    if not torch.cuda.is_available():
         raise RuntimeError("CRITICAL: CUDA GPU required for Advanced Segmentation.")
+    device = "cuda"
 
     # 2. SIGNAL SMOOTHING (GPU Convolution)
     # FIX: Added dtype=torch.float32 to prevent Double vs Float mismatch

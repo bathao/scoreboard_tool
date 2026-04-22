@@ -56,7 +56,11 @@ def _elapsed_minutes_label(job: MatchJob | None) -> str:
 def _stage_message(job: MatchJob | None, has_timeline: bool) -> str:
     if job is None:
         return ""
-    if job.current_step in {"trim_input", "generate_rally_timeline", "export_review_clips", "predict_winners_with_adapter"}:
+    if job.current_step == "detect_total_rallies":
+        return "Detecting total rally and LET start-times from the selected match. This page refreshes automatically."
+    if job.current_step == "detect_side_state":
+        return "Detecting NEAR/FAR side state for each rally start. This page refreshes automatically."
+    if job.current_step in {"detect_total_rallies", "detect_sets", "detect_rallies", "generate_rally_timeline", "export_review_clips", "predict_winners_with_adapter", "predict_winners"}:
         return "Preparing rally clips and AI winner suggestions from the selected match. This page refreshes automatically."
     if job.current_step == "final_export":
         return "Export is running. The final scoreboard video will appear here when ready."
@@ -81,7 +85,11 @@ def _job_progress(job: MatchJob | None, review_status: dict[str, object], has_ti
         "created": (4, "Setup ready"),
         "trim_input": (12, "Trimming input video"),
         "player_identification": (18, "Identifying players"),
+        "detect_total_rallies": (28, "Detecting total rally starts"),
+        "detect_side_state": (34, "Detecting rally side state"),
         "detect_sets": (28, "Detecting sets (side-swap analysis)"),
+        "confirm_total_rallies": (30, "Confirm total rally starts"),
+        "confirm_side_state": (36, "Confirm rally side state"),
         "confirm_sets": (30, "Confirm set count"),
         "detect_rallies": (40, "Detecting rallies per set"),
         "confirm_rallies": (50, "Confirm rally counts"),

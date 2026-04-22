@@ -13,6 +13,39 @@ Use this file for:
 
 Do not use this file as the long-term architecture spec.
 
+## Work Log - `2026-04-22` Step 3 Documentation Reset
+
+### What Changed
+
+- Clarified document ownership:
+  - `ROADMAP_PRODUCTION.md` = long-term product target.
+  - `PIPELINE.md` = active pipeline contract.
+  - `PROJECT_ACTION_PLAN.md` = short current operational board.
+  - `PROJECT_PROGRESS.md` = historical work log.
+  - `STEP3_DEBUG.md` = active Step 3 blocker/debug board.
+- Replaced the stale `PROJECT_ACTION_PLAN.md` content with a short current board.
+- Added `STEP3_DEBUG.md` for `2_sets.mp4` Step 3 debugging.
+
+### Current Technical Status
+
+- Active blocker: Step 3.1 start-time detection is unreliable on
+  `inputs/raw_matches/2_sets.mp4`.
+- Step 3.3 is intentionally paused.
+- Latest clean Step 3.1 + Step 3.2 rerun after deleting cache:
+  - Step 3.1: `33 total = 28 scoring + 5 LET/non-scoring + 4 needs-review`
+  - Step 3.2: `identified=23`, `inferred=5`, `unknown=5`
+- Operator verdict: current output is worse than an earlier working point;
+  rally count, LET detection, and summary quality all need more debugging.
+
+### Resume Point
+
+1. Start from `STEP3_DEBUG.md`.
+2. Debug Step 3.1 start-time detection first.
+3. Do not work on Step 3.2 / Step 3.3 / Step 3.4 until Step 3.1 improves.
+4. Look for older better behavior in commit history or previous artifacts.
+
+---
+
 ## Work Log - `2026-04-16` Session 6 (Side-swap detection + multi-set split)
 
 ### What Was Done
@@ -6216,3 +6249,119 @@ All inference paths now fail fast if CUDA not available:
 - Verify GPU is available and test full pipeline on `2_sets.mp4` through Web UI
 - Confirm / delete `thao_fullbody_orange_jersey_a_score0.98.png` (likely Vinh)
 - Run `match_vinh_001__full.mp4` end-to-end (Output Only) to validate full flow
+
+---
+
+## Session 5 — 2026-04-17: Step 3.1 side-swap redesign with rally anchors
+
+### Goal
+Redesign Step 3.1 set-boundary detection for multi-set input `2_sets.mp4`.
+The important constraint from operator feedback: reuse the existing rally detector output (`t_start`, `t_end`, LET/non-scoring flags) because that code path has already been debugged carefully. Do not reimplement rally/LET detection inside side-swap logic.
+
+### Pipeline Contract Updated
+`PIPELINE.md` now documents Step 3.1 as:
+- Use Step 2 player identity and initial near/far positions as trusted ground truth.
+- Run/reuse `build_rally_timeline()` once on the full working video to create rough rally anchors and save them to `side_swap_rally_proposals.json`.
+- Use `counts_toward_score()` so LET/non-scoring rallies remain timeline anchors but do not advance the safe-jump score count.
+- Apply table-tennis rules:
+  - normal set boundary cannot happen before 11 scoring rallies are completed
+  - deciding set mid-side-swap may happen after 5 scoring rallies, but it is not a set boundary
+- Starting after the safe-jump point, scan rally anchors continuously and validate side state using only the two trusted Step 2 players.
+- If the rough full-video detector swallows a set break into a long rally anchor, use low-table-motion break windows only as a repair signal, and accept a repair boundary only when trusted identity-side evidence confirms the players flipped sides.
+- If side swap cannot be proven, pause at `confirm_sets`; do not guess.
+
+### Code Changes
+Files touched for this session:
+- `PIPELINE.md`
+- `backend/production_pipeline.py`
+- `scripts/detect_side_swap.py`
+
+Key implementation details:
+- Added `detect_rally_anchor_side_swaps()` in `scripts/detect_side_swap.py`.
+- Added rally-anchor side evidence helper around each anchor window.
+- Added a guard so the minimum-score anchor itself is only a verification anchor; a set-boundary swap is accepted only after the minimum score has already been completed.
+- Added optional `refine_start_with_last_old` flag to `validate_known_player_swaps()` so the repair path can preserve the table-motion break start instead of shifting it forward to the last old-side sample.
+- Updated `run_pipeline_stage_detect_sets()` to:
+  - reuse cached `side_swap_rally_proposals.json` if present
+  - build rough full-video anchors if cache is absent
+  - infer initial L/R sides from Rally 1 window first, then fallback to `10s..60s`
+  - run primary rally-anchor scan
+  - detect suspicious long rough anchors before the primary swap
+  - run identity-confirmed table-break repair only when needed
+  - store repair diagnostics in `timeline_summary["detected_sets"]["side_scan"]["repair"]`
+
+### Test Run
+Command executed:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from backend.production_pipeline import run_pipeline_stage_detect_sets; run_pipeline_stage_detect_sets('runtime_jobs/20260416T164102Z__2_sets/job.json')"
+```
+
+Compilation/import checks passed:
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile scripts\detect_side_swap.py backend\production_pipeline.py
+.\.venv\Scripts\python.exe -c "from backend.production_pipeline import run_pipeline_stage_detect_sets; from scripts.detect_side_swap import validate_known_player_swaps; print('imports ok')"
+```
+
+Synthetic scanner sanity check passed:
+- If rallies 1..11 are current side and rally 12 is flipped, scanner cuts between `pt_0011` and `pt_0012`.
+
+### Result on `2_sets.mp4`
+Job used:
+- `runtime_jobs/20260416T164102Z__2_sets/job.json`
+
+Step 2 trusted players:
+- Player A / initial near: `Trần Quang Vinh`
+- Player B / initial far: `Nguyễn Bá Thảo`
+
+Rough full-video anchors:
+- `24` scoring rallies
+- `0` LETs
+- saved at `runtime_jobs/20260416T164102Z__2_sets/side_swap_rally_proposals.json`
+
+Important finding:
+- Primary rally-anchor scan alone still found a late boundary at `237.9s..240.1s`.
+- Root cause: the rough full-video timeline swallowed the real set break into one long anchor:
+  - `pt_0008`: `143.1s..174.3s`, duration `31.1s`
+  - this overlaps the operator-known side-swap window around `148s..161s`
+
+Repair path:
+- Table-motion diagnostics found candidates:
+  - `38.5s..62.0s`
+  - `69.0s..83.5s`
+  - `141.5s..161.0s`
+  - `271.5s..289.0s`
+  - `329.0s..354.5s`
+- Identity validation rejected the false candidates and accepted:
+  - `141.5s..161.0s`
+  - mode: `break-repair-rally-anchor`
+  - source: `table_break_identity_repair`
+  - `t_cutoff = 161.0s`
+
+Current detected set result:
+- `n_sets = 2`
+- one set-boundary swap
+- accepted swap window: `141.5s..161.0s`
+- operator expected approximately `148s..161s`
+- the end/cutoff matches; start is intentionally wider because it includes the idle break before visible side swap
+
+### Current Runtime State
+After the test run, the job is paused for operator confirmation:
+- `status = awaiting_confirmation`
+- `current_step = confirm_sets`
+
+The job JSON now contains the new Step 3.1 result and diagnostics.
+
+### Resume Point
+Continue from Step 3.1 review:
+1. Open/check Web UI `confirm_sets` for job `20260416T164102Z__2_sets`.
+2. Confirm whether `t_cutoff = 161.0s` is acceptable for splitting Set 1 / Set 2.
+3. If accepted, run Step 3.2 `detect_rallies` from the GUI.
+4. Verify per-set rally counts after Step 3.2.
+5. If Step 3.2 count is wrong, debug set clipping around cutoff `161.0s` before moving to winner prediction.
+
+### Notes / Risks
+- This session has not been committed yet.
+- There are unrelated modified files in the worktree from earlier sessions; do not blindly stage everything.
+- The current Step 3.1 design is stricter than the old break-candidate method: low-table-motion alone is never enough. It must be paired with trusted Step 2 identity-side flip evidence.

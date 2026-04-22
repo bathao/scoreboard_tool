@@ -48,8 +48,15 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _require_cuda() -> None:
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for winner adapter evaluation.")
+    torch.cuda.set_device(0)
+
+
 def main() -> None:
     args = _parse_args()
+    _require_cuda()
     manifest_path = Path(args.manifest)
     dataset_root = Path(args.dataset_root)
     cache_clips_dir = Path(args.cache_clips_dir) if str(args.cache_clips_dir).strip() else None
@@ -67,8 +74,8 @@ def main() -> None:
     processor = AutoProcessor.from_pretrained(args.base_model_dir)
     base_model = Qwen3VLForConditionalGeneration.from_pretrained(
         args.base_model_dir,
-        torch_dtype=(torch.bfloat16 if torch.cuda.is_available() else torch.float32),
-        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        device_map={"": 0},
     )
     model = base_model
     if (not bool(args.skip_adapter)) and str(args.adapter_dir).strip():

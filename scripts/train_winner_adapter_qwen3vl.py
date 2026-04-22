@@ -182,8 +182,15 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _require_cuda() -> None:
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for winner adapter training.")
+    torch.cuda.set_device(0)
+
+
 def main() -> None:
     args = _parse_args()
+    _require_cuda()
     train_manifest = Path(args.train_manifest)
     val_manifest = Path(args.val_manifest)
     dataset_root = Path(args.dataset_root)
@@ -216,8 +223,7 @@ def main() -> None:
     )
 
     processor = AutoProcessor.from_pretrained(args.model_dir)
-    torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    model = Qwen3VLForConditionalGeneration.from_pretrained(args.model_dir, torch_dtype=torch_dtype)
+    model = Qwen3VLForConditionalGeneration.from_pretrained(args.model_dir, torch_dtype=torch.bfloat16)
     model.config.use_cache = False
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     if hasattr(model, "enable_input_require_grads"):
@@ -233,6 +239,7 @@ def main() -> None:
         target_modules=target_modules,
     )
     model = get_peft_model(model, lora_config)
+    model.to("cuda")
     model.print_trainable_parameters()
 
     collator = WinnerVideoDataCollator(
@@ -258,7 +265,7 @@ def main() -> None:
         learning_rate=float(args.learning_rate),
         num_train_epochs=float(args.num_train_epochs),
         max_steps=int(args.max_steps),
-        bf16=torch.cuda.is_available(),
+        bf16=True,
         gradient_checkpointing=True,
         logging_steps=int(args.logging_steps),
         logging_first_step=True,
@@ -279,7 +286,7 @@ def main() -> None:
         load_best_model_at_end=enable_best_model,
         metric_for_best_model=("eval_loss" if enable_best_model else None),
         greater_is_better=(False if enable_best_model else None),
-        bf16_full_eval=torch.cuda.is_available(),
+        bf16_full_eval=True,
         skip_memory_metrics=True,
     )
 

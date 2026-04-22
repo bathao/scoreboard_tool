@@ -247,12 +247,15 @@ def main() -> int:
     selected_ids = _selected_point_ids(args.point_ids)
     if not selected_ids:
         raise SystemExit("No point ids provided.")
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for native-video multislice probing.")
+    torch.cuda.set_device(0)
 
     processor = AutoProcessor.from_pretrained(args.model_dir)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         args.model_dir,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": 0},
     )
 
     def ask_text_for_video(video_path: Path, prompt_text: str) -> str:

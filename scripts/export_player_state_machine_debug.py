@@ -436,7 +436,9 @@ def export_debug_video(
     imgsz: int = 1280,
 ) -> None:
     video_path = Path(video_path_str)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for player state-machine debug export.")
+    device = "cuda"
 
     role_frames, role_state_frames, aligned_frame_indices, diagnostics, roi, fps, width, height = _build_role_tracker_debug_payload(
         video_path,

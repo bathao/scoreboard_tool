@@ -8,6 +8,8 @@ signal source swapped, model replaced, etc.).
 This file describes the agreed active pipeline direction. If code has not caught
 up yet, mark that gap explicitly instead of hiding it:
 - `ROADMAP_PRODUCTION.md` = long-term target (what we want to be)
+- `STEP3_DEBUG.md` = active Step 3 blocker board, ground truth notes, commands,
+  and latest debug artifacts
 - `PIPELINE.md` = active pipeline contract + implementation snapshot ← **this file**
 - `PROJECT_PROGRESS.md` = daily work log (how we got here)
 - `PROJECT_ACTION_PLAN.md` = operational board (what's next)
@@ -63,6 +65,13 @@ runs Step 1 and Step 2 before a match job starts the heavier AI pipeline.
 
 This is the agreed Web UI pipeline contract. It is intentionally more
 interactive than the old production-style `run everything` flow.
+
+Production input assumption:
+- Production runs on long / full-match videos.
+- Short clips are allowed only for development and debug speed.
+- Pipeline design must not depend on receiving short clips.
+- Any detector fix validated only on a short clip is incomplete until it also
+  passes on the long working video.
 
 ### Step 1/6 — `trim_input`
 
@@ -144,6 +153,20 @@ Current debug warning:
 - Step 3.3 correctly blocks invalid output, but the upstream rally/side-state
   data still has many failures. Treat all current Step 3 results as debugging
   artifacts, not production-ready output.
+- Highest-priority blocker: Step 3.1 start-time detection is currently not
+  reliable enough. This must be debugged first. If rally/LET `start_time`
+  detection misses or invents starts, the whole project fails because Step 3.2,
+  Step 3.3, Step 3.4, Step 4 winner prediction, and the final scoreboard all
+  depend on those timestamps.
+- Latest warning: the chunked Step 3.1 experiment recovered several missed
+  starts but produced `38 detected starts`, which the operator confirmed is too
+  high. Treat that output as rejected, not as the new baseline.
+- Root cause note for short-vs-long input: the current rally detector is not
+  invariant to input duration. Short bounded clips use local signal
+  normalization and usually contain one stable side/state, while long multi-set
+  clips include side swaps, walking, long gaps, off-rally motion, adjacent-table
+  activity, and possible `A/B` role drift. Those change global thresholds and
+  make serve-order / LET inference more fragile.
 
 #### Step 3.1 — `detect_total_rallies`
 
@@ -157,25 +180,37 @@ Current sub-steps:
 2. Reuse `job.timeline_summary["table_roi"]` from Identify Players if present.
 3. If no cached ROI exists, call `detect_table_roi_and_player_zone()` to detect the table again.
 4. If table ROI is missing or invalid, store an error and pause at `confirm_total_rallies` instead of continuing blindly.
-5. Run the existing, already-debugged start-time detector on the full working video via `build_rally_timeline()`. Do not reimplement rally start-time, endpoint, or LET detection in Step 3.1.
-6. Save the raw detector timeline to `step3_1_total_rally_timeline.json`.
-7. Build one chronological review list from both sources:
+5. Run the existing start-time detector in chunked-overlap mode, not as one full-clip global scan. Current detector id: `chunked_overlap_local_visual_let_v2_151s`.
+6. Split the full working video into `151s` source windows with `10s` overlap, run the same `build_rally_timeline()` detector on each bounded chunk, map chunk-local timestamps back to full-input time, then de-duplicate overlap candidates.
+7. Save the merged detector timeline to `step3_1_total_rally_timeline.json`.
+8. Build one chronological review list from both sources:
    `timeline.points` for scoring rallies, plus `analysis_metadata["excluded_let_starts"]` and `analysis_metadata["unattached_trailing_let_starts"]` for LET/non-scoring rallies.
-8. Keep the initial Step 2 name map as provisional debug context only: role `A` = initial near-side player, role `B` = initial far-side player. This mapping is **not enough after a side swap** and must not be treated as current NEAR/FAR.
-9. Apply the existing serve-order engine (`_infer_player_serve_mode_from_starter_roles`) as a review guard. If double-serve order shows a singleton scoring run between two complete runs from the other player, add a `needs_review` marker in the gap instead of silently accepting the missing start.
-10. Count review rows as `scoring + LET/non-scoring + needs_review`. Confirmed detector starts remain available as `detected_total`.
-11. Export one annotated JPG per detected/review start-time into `step3_1_rally_start_frames/`.
-12. Do **not** run player side-state identification here. Step 3.1 is detector-only: total rally/LET start-times plus serve-order review markers.
-13. Export `rally_start_times.csv` in the same folder, including `starter_role` for debugging and initial Step 2 server mapping only.
-14. Export the merged start-time event list to `step3_1_rally_start_events.json`.
-15. Save summary and events into `job.timeline_summary["detected_total_rallies"]`.
-16. Pause for operator review at `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"`.
+9. Keep the initial Step 2 name map as provisional debug context only: role `A` = initial near-side player, role `B` = initial far-side player. This mapping is **not enough after a side swap** and must not be treated as current NEAR/FAR.
+10. Apply the existing serve-order engine (`_infer_player_serve_mode_from_starter_roles`) after chunk-local start detection. LET replay inference is allowed only after the chunked candidate list is dense enough; this avoids the old full-video failure where missing starts caused real scoring rallies to be mislabeled as LET.
+11. If double-serve order still shows a singleton scoring run between two complete runs from the other player, create a suspect gap marker and run targeted visual rescan for that window. Do **not** count a rule-only gap as a confirmed scoring rally unless visual evidence confirms a start.
+12. Count review rows as `scoring + LET/non-scoring + needs_review`. Confirmed detector starts remain available as `detected_total`.
+13. Export one annotated JPG per detected/review start-time into `step3_1_rally_start_frames/`.
+14. Do **not** run player side-state identification here. Step 3.1 is detector-only: total rally/LET start-times plus serve-order review markers.
+15. Export `rally_start_times.csv` in the same folder, including `starter_role` for debugging and initial Step 2 server mapping only.
+16. Export the merged start-time event list to `step3_1_rally_start_events.json`.
+17. Save summary and events into `job.timeline_summary["detected_total_rallies"]`.
+18. Pause for operator review at `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"`.
 
 Rule-driven repair loop for Step 3.1:
-1. First pass: scan the full working video once to get the total chronological list of scoring rallies and LET/non-scoring starts.
+1. First pass: scan the full working video as bounded overlapping chunks to get the total chronological list of scoring rallies and LET/non-scoring starts.
 2. Rule audit: compare the output against basic table-tennis rules, especially the 2-serve order and the fact that LET does not advance service.
-3. Targeted rescan only: when the rule audit finds a suspicious gap or conflict, rescan only that `gap_start -> gap_end` window, with small padding if needed. Do not rescan the whole clip just to repair one suspected missing rally.
-4. Finalize Step 3.1: update the same Step 3.1 summary/CSV/JSON with recovered candidates or explicit `needs_review` markers, then pause again for operator review.
+3. Use strong singleton-gap evidence only to create targeted repair candidates. Rule evidence alone is not enough to increase the rally count.
+4. Targeted rescan only: when the rule audit finds a suspicious gap or conflict, rescan only that `gap_start -> gap_end` window, with small padding if needed. Do not rescan the whole clip just to repair one suspected missing rally.
+5. Finalize Step 3.1: update the same Step 3.1 summary/CSV/JSON with recovered candidates or explicit `needs_review` markers, then pause again for operator review.
+
+Short-vs-long debug lesson:
+- Do not assume a detector tuned on a short set clip will behave identically on
+  a long multi-set clip.
+- Any full-video algorithm must either operate on stable bounded windows or
+  explicitly compensate for set breaks, side swaps, and global normalization
+  drift.
+- If a bounded window succeeds but the full clip fails, compare raw candidate
+  lists and signal statistics before changing thresholds globally.
 
 Current command-line support for the targeted repair loop:
 - Full first pass: `scripts/step3_1_rally_start_review.py --video ... --start ... --end ...`
@@ -212,6 +247,9 @@ Explicit non-goals for Step 3.1:
 
 LET source-of-truth:
 - Use the existing player-path LET logic in `backend/ai_multistream_rally.py`, especially `_detect_player_sandwich_rallies_from_diagnostics()`, `_infer_forced_let_indices_from_starter_roles()`, and `_repair_double_serve_role_singletons()`.
+- LET must be detected automatically by code. The operator should not have to label LET manually for production flow.
+- Serve-order LET inference must run after bounded/chunk-local start detection, not on a weak full-video global start list. A missing start list can otherwise create false LET rows.
+- Serve-order / double-serve repair must not invent confirmed scoring rows by itself. It may locate a suspicious window for targeted visual confirmation.
 - `scripts/generate_rally_timeline.py` deliberately excludes LET segments from `timeline.points` and stores them in `analysis_metadata["excluded_let_starts"]` or `analysis_metadata["unattached_trailing_let_starts"]`.
 - Step 3.1 must only merge those existing detector outputs for operator review. It must not introduce a new LET classifier or relabel LET from scratch.
 

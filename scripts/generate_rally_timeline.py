@@ -1592,7 +1592,11 @@ def build_rally_timeline(
         table_roi=table_roi,
         log_fn=log_fn,
     )
+    if log_fn:
+        log_fn("Step 3.1: total rally start detection - multistream signals ready; detecting active rally segments")
     segments = detect_multistream_rallies(signals, mode=mode)
+    if log_fn:
+        log_fn(f"Step 3.1: total rally start detection - detected {len(segments)} raw active segment(s)")
 
     v_path = Path(video_path).resolve()
     video_end_sec = 0.0
@@ -1608,11 +1612,20 @@ def build_rally_timeline(
         signals=signals,
         video_end_sec=video_end_sec,
     )
+    if log_fn:
+        log_fn(
+            "Step 3.1: total rally start detection - built scoring/LET windows: "
+            f"{len(points)} scoring point(s), {len(excluded_let_starts)} LET/non-scoring start(s), "
+            f"{len(unattached_trailing_let_starts)} trailing LET start(s)"
+        )
+        log_fn("Step 3.1: total rally start detection - refining rally endpoints")
     _refine_points_with_endpoint_signals(
         points,
         signals=signals,
         video_end_sec=video_end_sec,
     )
+    if log_fn:
+        log_fn("Step 3.1: total rally start detection - endpoint refinement complete")
 
     return RallyTimeline(
         video_path=str(v_path),

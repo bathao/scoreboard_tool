@@ -264,6 +264,514 @@ def _compute_table_energy_window(
     return samples
 
 
+def dominant_side_in_range(
+    timeline_for_player: list[tuple[float, str]],
+    t_start: float,
+    t_end: float,
+    *,
+    min_samples: int = 1,
+    min_majority_frac: float = 0.60,
+) -> dict:
+    """Return dominant side evidence for one trusted player in a time range."""
+    samples = [s for (ts, s) in timeline_for_player if t_start <= ts <= t_end]
+    if len(samples) < min_samples:
+        return {"side": None, "samples": len(samples), "majority_frac": 0.0}
+    counts = Counter(samples)
+    side, count = counts.most_common(1)[0]
+    frac = float(count / max(1, len(samples)))
+    if frac < min_majority_frac:
+        return {"side": None, "samples": len(samples), "majority_frac": frac}
+    return {"side": side, "samples": len(samples), "majority_frac": frac}
+
+
+def infer_opposite_side(side: str | None) -> str | None:
+    if side == SIDE_L:
+        return SIDE_R
+    if side == SIDE_R:
+        return SIDE_L
+    return None
+
+
+def _video_duration_sec(video_path: str) -> float:
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.release()
+    return float(n_frames / fps) if fps > 0 else 0.0
+
+
+def detect_table_break_candidates(
+    video_path: str,
+    table_roi,
+    *,
+    dense_step: float = 0.5,
+    min_break_sec: float = 8.0,
+    min_start_sec: float = 20.0,
+    merge_gap_sec: float = 2.0,
+    resume_search_sec: float = 45.0,
+    log_fn=None,
+) -> list[dict]:
+    """Find long low-table-motion windows that may be set breaks.
+
+    This intentionally does NOT decide whether a candidate is a real side swap.
+    Step 3.1 validates candidates against trusted Step 2 identities.
+    """
+    if table_roi is None:
+        return []
+
+    duration = _video_duration_sec(video_path)
+    samples = _compute_table_energy_window(
+        video_path,
+        table_roi,
+        0.0,
+        duration,
+        dense_step=dense_step,
+    )
+    if len(samples) < 10:
+        return []
+
+    times = [s[0] for s in samples]
+    energies = [s[1] for s in samples]
+
+    smooth_half = 3.0
+    smoothed: list[float] = []
+    for t, _energy in samples:
+        vals = [energies[j] for j in range(len(times)) if abs(times[j] - t) <= smooth_half]
+        smoothed.append(float(sum(vals) / len(vals)) if vals else 0.0)
+
+    arr = np.asarray(smoothed, dtype=np.float32)
+    p10 = float(np.percentile(arr, 10))
+    p30 = float(np.percentile(arr, 30))
+    median = float(np.percentile(arr, 50))
+    p75 = float(np.percentile(arr, 75))
+    # Conservative low-energy threshold: enough to collect real idle windows,
+    # but not so high that ordinary slow rallies become break candidates.
+    low_threshold = min(p30, median * 0.45)
+    low_threshold = max(low_threshold, p10 + ((p30 - p10) * 0.35))
+
+    if log_fn:
+        log_fn(
+            f"Step 3.1: break candidates — table energy samples={len(samples)} "
+            f"low_threshold={low_threshold:.2f} median={median:.2f} p75={p75:.2f}"
+        )
+
+    candidates: list[dict] = []
+    break_window_sec = 15.0
+    n_win = max(1, int(break_window_sec / dense_step))
+    if len(smoothed) < n_win:
+        return []
+
+    window_means: list[tuple[int, float]] = []
+    for idx in range(0, len(smoothed) - n_win + 1):
+        if times[idx] < min_start_sec:
+            continue
+        window_means.append((idx, float(np.mean(arr[idx:idx + n_win]))))
+    if not window_means:
+        return []
+
+    mean_values = np.asarray([mean for _idx, mean in window_means], dtype=np.float32)
+    window_threshold = min(float(np.percentile(mean_values, 25)), median * 0.75)
+    # Keep local minima so a real set break with modest table motion still
+    # becomes a candidate. Identity-side validation rejects false positives.
+    local_minima: list[tuple[int, float]] = []
+    for pos, (idx, mean) in enumerate(window_means):
+        prev_mean = window_means[pos - 1][1] if pos > 0 else float("inf")
+        next_mean = window_means[pos + 1][1] if pos + 1 < len(window_means) else float("inf")
+        if mean <= window_threshold and mean <= prev_mean and mean <= next_mean:
+            local_minima.append((idx, mean))
+
+    selected_minima: list[tuple[int, float]] = []
+    min_sep_samples = max(1, int(30.0 / dense_step))
+    for idx, mean in sorted(local_minima, key=lambda item: item[1]):
+        if any(abs(idx - kept_idx) < min_sep_samples for kept_idx, _kept_mean in selected_minima):
+            continue
+        selected_minima.append((idx, mean))
+    selected_minima.sort(key=lambda item: item[0])
+
+    required_high = max(1, int(3.0 / dense_step))
+    for best_idx, best_mean in selected_minima:
+        expand_threshold = min(median * 0.75, max(low_threshold, best_mean * 1.60))
+        lo_idx = best_idx
+        hi_idx = min(len(smoothed) - 1, best_idx + n_win - 1)
+        while lo_idx > 0 and times[lo_idx - 1] >= min_start_sec and smoothed[lo_idx - 1] <= expand_threshold:
+            lo_idx -= 1
+        while hi_idx < len(smoothed) - 1 and smoothed[hi_idx + 1] <= expand_threshold:
+            hi_idx += 1
+
+        search_hi = min(len(smoothed) - 1, hi_idx + max(1, int(resume_search_sec / dense_step)))
+        resume_idx = None
+        run = 0
+        for idx in range(hi_idx, search_hi + 1):
+            if smoothed[idx] >= p75:
+                run += 1
+                if run >= required_high:
+                    resume_idx = idx - required_high + 1
+                    break
+            else:
+                run = 0
+        t_start = float(times[lo_idx])
+        core_end = float(times[hi_idx])
+        t_end = float(times[resume_idx]) if resume_idx is not None else core_end
+        duration_sec = t_end - t_start
+        if duration_sec < min_break_sec:
+            continue
+
+        candidates.append(
+            {
+                "t_break_start": t_start,
+                "t_break_core_end": core_end,
+                "t_break_end": t_end,
+                "duration": float(duration_sec),
+                "avg_energy": float(np.mean(arr[lo_idx:hi_idx + 1])),
+                "threshold": float(low_threshold),
+                "window_mean": float(best_mean),
+                "window_threshold": float(window_threshold),
+            }
+        )
+
+    # De-duplicate overlapping/nearby candidates; keep the longer lower-energy one.
+    merged: list[dict] = []
+    for cand in sorted(candidates, key=lambda c: (c["t_break_start"], c["avg_energy"])):
+        if not merged:
+            merged.append(cand)
+            continue
+        prev = merged[-1]
+        if cand["t_break_start"] <= prev["t_break_end"] + merge_gap_sec:
+            prev_score = (prev["duration"], -prev["avg_energy"])
+            cand_score = (cand["duration"], -cand["avg_energy"])
+            if cand_score > prev_score:
+                merged[-1] = cand
+            continue
+        merged.append(cand)
+
+    if log_fn:
+        log_fn(f"Step 3.1: break candidates — {len(merged)} candidate(s)")
+        for idx, cand in enumerate(merged, start=1):
+            log_fn(
+                f"  candidate {idx}: [{cand['t_break_start']:.1f}s .. "
+                f"{cand['t_break_end']:.1f}s] dur={cand['duration']:.1f}s "
+                f"avg_energy={cand['avg_energy']:.2f}"
+            )
+    return merged
+
+
+def validate_known_player_swaps(
+    candidates: list[dict],
+    tl_a: list[tuple[float, str]],
+    tl_b: list[tuple[float, str]],
+    *,
+    init_a: str,
+    init_b: str,
+    player_a_name: str,
+    player_b_name: str,
+    pre_window_sec: float = 45.0,
+    post_window_sec: float = 45.0,
+    guard_sec: float = 3.0,
+    refine_start_with_last_old: bool = True,
+    log_fn=None,
+) -> list[dict]:
+    """Accept only break candidates validated by trusted Step 2 player names."""
+    swaps: list[dict] = []
+    cur_a, cur_b = init_a, init_b
+    cursor = 0.0
+
+    for cand in candidates:
+        t_start = float(cand["t_break_start"])
+        t_end = float(cand["t_break_end"])
+        if t_start < cursor:
+            continue
+
+        expected_a = infer_opposite_side(cur_a)
+        expected_b = infer_opposite_side(cur_b)
+        pre_a = dominant_side_in_range(tl_a, max(0.0, t_start - pre_window_sec), max(0.0, t_start - guard_sec))
+        pre_b = dominant_side_in_range(tl_b, max(0.0, t_start - pre_window_sec), max(0.0, t_start - guard_sec))
+        post_a = dominant_side_in_range(tl_a, t_end + guard_sec, t_end + post_window_sec)
+        post_b = dominant_side_in_range(tl_b, t_end + guard_sec, t_end + post_window_sec)
+
+        pre_a_side, pre_b_side = pre_a["side"], pre_b["side"]
+        post_a_side, post_b_side = post_a["side"], post_b["side"]
+
+        contradictions: list[str] = []
+        if pre_a_side is not None and pre_a_side != cur_a:
+            contradictions.append(f"{player_a_name} pre={pre_a_side} expected={cur_a}")
+        if pre_b_side is not None and pre_b_side != cur_b:
+            contradictions.append(f"{player_b_name} pre={pre_b_side} expected={cur_b}")
+        if post_a_side is not None and post_a_side != expected_a:
+            contradictions.append(f"{player_a_name} post={post_a_side} expected={expected_a}")
+        if post_b_side is not None and post_b_side != expected_b:
+            contradictions.append(f"{player_b_name} post={post_b_side} expected={expected_b}")
+
+        a_flipped = pre_a_side == cur_a and post_a_side == expected_a
+        b_flipped = pre_b_side == cur_b and post_b_side == expected_b
+        one_sided_a = post_a_side == expected_a and pre_b_side in {None, cur_b} and post_b_side in {None, expected_b}
+        one_sided_b = post_b_side == expected_b and pre_a_side in {None, cur_a} and post_a_side in {None, expected_a}
+
+        if a_flipped and b_flipped:
+            mode = "both"
+        elif one_sided_a:
+            mode = "a-only"
+        elif one_sided_b:
+            mode = "b-only"
+        else:
+            mode = ""
+
+        validation = {
+            "player_a_name": player_a_name,
+            "player_b_name": player_b_name,
+            "current_a": cur_a,
+            "current_b": cur_b,
+            "expected_a_after": expected_a,
+            "expected_b_after": expected_b,
+            "pre_a": pre_a,
+            "pre_b": pre_b,
+            "post_a": post_a,
+            "post_b": post_b,
+            "contradictions": contradictions,
+        }
+
+        if mode and not contradictions:
+            last_old: list[float] = []
+            for ts, side in tl_a:
+                if t_start - guard_sec <= ts <= t_end and side == cur_a:
+                    last_old.append(float(ts))
+            for ts, side in tl_b:
+                if t_start - guard_sec <= ts <= t_end and side == cur_b:
+                    last_old.append(float(ts))
+            refined_start = max(t_start, max(last_old)) if (refine_start_with_last_old and last_old) else t_start
+
+            swap = {
+                "t_swap": float((refined_start + t_end) / 2.0),
+                "t_break_start": float(refined_start),
+                "t_break_end": float(t_end),
+                "t_cutoff": float(t_end),
+                "mode": mode,
+                "source": "break_candidate_plus_step2_identity",
+                "validation": validation,
+                "break_candidate": cand,
+            }
+            swaps.append(swap)
+            if log_fn:
+                log_fn(
+                    f"Step 3.1: accepted swap [{refined_start:.1f}s .. {t_end:.1f}s] "
+                    f"mode={mode} ({player_a_name}: {cur_a}->{expected_a}, "
+                    f"{player_b_name}: {cur_b}->{expected_b})"
+                )
+            cur_a, cur_b = expected_a, expected_b
+            cursor = t_end + 20.0
+        elif log_fn:
+            reason = "; ".join(contradictions) if contradictions else "insufficient side evidence"
+            log_fn(f"Step 3.1: rejected break candidate [{t_start:.1f}s .. {t_end:.1f}s] — {reason}")
+
+    return swaps
+
+
+def _point_value(point, name: str, default=None):
+    if isinstance(point, dict):
+        return point.get(name, default)
+    return getattr(point, name, default)
+
+
+def _point_counts_toward_score(point) -> bool:
+    flags = list(_point_value(point, "flags", []) or [])
+    return not any(flag in {"rally_label_let", "let_no_score"} for flag in flags)
+
+
+def _point_id(point, idx: int) -> str:
+    return str(_point_value(point, "id", f"pt_{idx + 1:04d}"))
+
+
+def rally_anchor_side_state(
+    point,
+    tl_a: list[tuple[float, str]],
+    tl_b: list[tuple[float, str]],
+    *,
+    current_a: str,
+    current_b: str,
+    window_before_sec: float = 3.0,
+    window_after_sec: float = 6.0,
+) -> dict:
+    """Classify trusted-player side state around one rally anchor."""
+    t_start = float(_point_value(point, "active_start", None) or _point_value(point, "t_start", 0.0))
+    t_end = float(_point_value(point, "active_end", None) or _point_value(point, "t_end", t_start))
+    lo = max(0.0, t_start - float(window_before_sec))
+    hi = max(t_end, t_start + float(window_after_sec))
+    ev_a = dominant_side_in_range(tl_a, lo, hi, min_samples=1, min_majority_frac=0.55)
+    ev_b = dominant_side_in_range(tl_b, lo, hi, min_samples=1, min_majority_frac=0.55)
+
+    side_a = ev_a["side"]
+    side_b = ev_b["side"]
+    expected_a = infer_opposite_side(current_a)
+    expected_b = infer_opposite_side(current_b)
+
+    contradictions: list[str] = []
+    if side_a is not None and side_b is not None and side_a == side_b:
+        contradictions.append(f"both_players_same_side={side_a}")
+
+    observed = int(side_a is not None) + int(side_b is not None)
+    matches_current = observed > 0
+    matches_flipped = observed > 0
+    if side_a is not None:
+        matches_current = matches_current and side_a == current_a
+        matches_flipped = matches_flipped and side_a == expected_a
+    if side_b is not None:
+        matches_current = matches_current and side_b == current_b
+        matches_flipped = matches_flipped and side_b == expected_b
+
+    if contradictions:
+        state = "contradictory"
+    elif matches_flipped:
+        state = "flipped"
+    elif matches_current:
+        state = "current"
+    else:
+        state = "unknown"
+
+    return {
+        "state": state,
+        "t_start": t_start,
+        "t_end": t_end,
+        "window": {"lo": lo, "hi": hi},
+        "player_a": ev_a,
+        "player_b": ev_b,
+        "current_a": current_a,
+        "current_b": current_b,
+        "expected_a_after": expected_a,
+        "expected_b_after": expected_b,
+        "contradictions": contradictions,
+    }
+
+
+def detect_rally_anchor_side_swaps(
+    points: list,
+    tl_a: list[tuple[float, str]],
+    tl_b: list[tuple[float, str]],
+    *,
+    init_a: str,
+    init_b: str,
+    player_a_name: str,
+    player_b_name: str,
+    best_of: int,
+    log_fn=None,
+) -> dict:
+    """Detect side swaps by scanning existing rally anchors after safe jumps.
+
+    This consumes already-debugged RallyTimelinePoint outputs: t_start/t_end and
+    LET flags. It does not reimplement rally segmentation.
+    """
+    ordered = sorted(list(points), key=lambda p: float(_point_value(p, "t_start", 0.0)))
+    swaps: list[dict] = []
+    mid_set_swaps: list[dict] = []
+    checked: list[dict] = []
+
+    current_a, current_b = init_a, init_b
+    current_set = 1
+    scoring_in_set = 0
+    deciding_mid_swap_seen = False
+    prev_point = None
+
+    def _log(msg: str) -> None:
+        if log_fn:
+            log_fn(msg)
+
+    for idx, point in enumerate(ordered):
+        is_scoring = _point_counts_toward_score(point)
+        prospective_score = scoring_in_set + (1 if is_scoring else 0)
+        is_deciding = int(best_of) > 0 and current_set == int(best_of)
+        safe_threshold = 5 if (is_deciding and not deciding_mid_swap_seen) else 11
+        should_check = prospective_score >= safe_threshold
+        can_accept_swap = scoring_in_set >= safe_threshold
+
+        if should_check:
+            evidence = rally_anchor_side_state(
+                point,
+                tl_a,
+                tl_b,
+                current_a=current_a,
+                current_b=current_b,
+            )
+            evidence_record = {
+                "point_index": idx,
+                "point_id": _point_id(point, idx),
+                "set_number": current_set,
+                "scoring_in_set_before": scoring_in_set,
+                "prospective_score": prospective_score,
+                "is_scoring": is_scoring,
+                "safe_threshold": safe_threshold,
+                "can_accept_swap": can_accept_swap,
+                "evidence": evidence,
+            }
+            checked.append(evidence_record)
+
+            if evidence["state"] == "flipped":
+                if not can_accept_swap:
+                    evidence_record["ignored_reason"] = "flipped_before_minimum_completed_score"
+                    if is_scoring:
+                        scoring_in_set += 1
+                    prev_point = point
+                    continue
+
+                prev_t_end = float(_point_value(prev_point, "t_end", evidence["t_start"])) if prev_point is not None else evidence["t_start"]
+                break_start = prev_t_end
+                break_end = float(_point_value(point, "t_start", evidence["t_start"]))
+                event = {
+                    "t_swap": float((break_start + break_end) / 2.0),
+                    "t_break_start": float(break_start),
+                    "t_break_end": float(break_end),
+                    "t_cutoff": float(break_end),
+                    "mode": "rally-anchor",
+                    "source": "rally_anchor_side_scan",
+                    "point_before_id": (_point_id(prev_point, idx - 1) if prev_point is not None else ""),
+                    "point_after_id": _point_id(point, idx),
+                    "point_after_index": idx,
+                    "scoring_in_set_before": scoring_in_set,
+                    "prospective_score": prospective_score,
+                    "validation": {
+                        "player_a_name": player_a_name,
+                        "player_b_name": player_b_name,
+                        "evidence": evidence,
+                    },
+                }
+
+                if is_deciding and not deciding_mid_swap_seen:
+                    event["kind"] = "mid_deciding_set_swap"
+                    mid_set_swaps.append(event)
+                    _log(
+                        f"Step 3.1: mid-set side swap at Set {current_set}, "
+                        f"{break_start:.1f}s..{break_end:.1f}s"
+                    )
+                    current_a = str(evidence["expected_a_after"])
+                    current_b = str(evidence["expected_b_after"])
+                    deciding_mid_swap_seen = True
+                else:
+                    event["kind"] = "set_boundary"
+                    swaps.append(event)
+                    _log(
+                        f"Step 3.1: rally-anchor set boundary between "
+                        f"{event['point_before_id']} and {event['point_after_id']} "
+                        f"[{break_start:.1f}s .. {break_end:.1f}s]"
+                    )
+                    current_a = str(evidence["expected_a_after"])
+                    current_b = str(evidence["expected_b_after"])
+                    current_set += 1
+                    scoring_in_set = 1 if is_scoring else 0
+                    deciding_mid_swap_seen = False
+                    prev_point = point
+                    continue
+
+        if is_scoring:
+            scoring_in_set += 1
+        prev_point = point
+
+    return {
+        "swaps": swaps,
+        "mid_set_swaps": mid_set_swaps,
+        "checked_anchor_count": len(checked),
+        "checked_anchors": checked[:80],
+        "total_anchor_count": len(ordered),
+        "scoring_anchor_count": sum(1 for point in ordered if _point_counts_toward_score(point)),
+    }
+
+
 def refine_swap_to_transition_window(
     video_path: str,
     yolo,

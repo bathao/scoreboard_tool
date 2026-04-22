@@ -15,7 +15,9 @@ from backend.ai_rally_segmentation import detect_rally_segments_gpu
 
 def run_segmentation_debug(video_path_str: str, weights_path_str: str):
     video_path = Path(video_path_str)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for segmentation debug.")
+    device = "cuda"
     
     print(f"--- STARTING SEGMENTATION DEBUG: {video_path.name} ---")
     

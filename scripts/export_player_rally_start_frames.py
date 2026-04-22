@@ -80,6 +80,9 @@ def export_rally_start_frames(
     imgsz: int = 1280,
 ) -> None:
     video_path = Path(video_path_str)
+    if not torch.cuda.is_available():
+        raise RuntimeError("GPU required: torch.cuda.is_available() returned False for rally-start frame export.")
+    device = "cuda"
     out_dir = Path(out_dir_str)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +92,7 @@ def export_rally_start_frames(
         pose_weights=pose_weights,
         stride=max(1, int(stride)),
         player_margin_px=int(player_margin_px),
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device=device,
         start_seconds=float(start_seconds),
         max_seconds=float(max_seconds),
         imgsz=int(imgsz),

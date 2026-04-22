@@ -3,13 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import csv
 import json
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from backend.config import PROJECT_ROOT
 from backend.rally_timeline_contract import (
     RallyTimeline,
+    RallyTimelinePoint,
     counts_toward_score,
     load_rally_timeline,
     save_rally_timeline,
@@ -18,7 +21,11 @@ from backend.ai_multistream_rally import _infer_player_serve_mode_from_starter_r
 
 
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
-STEP3_1_ALGORITHM = "total_rally_start_time_review_v2"
+STEP3_1_ALGORITHM = "total_rally_start_time_review_v3_chunked_local_let"
+STEP3_1_DETECTOR_ID = "chunked_overlap_local_visual_let_v2_151s"
+STEP3_1_CHUNK_SEC = 151.0
+STEP3_1_CHUNK_OVERLAP_SEC = 10.0
+STEP3_1_DUPLICATE_TOLERANCE_SEC = 0.70
 
 
 @dataclass(frozen=True)
@@ -1236,7 +1243,7 @@ def annotate_events_with_single_player_side_identification(
             identified_count += 1
         else:
             unknown_count += 1
-        if log_fn and (idx == 1 or idx == len(events) or idx % 10 == 0):
+        if log_fn and (idx == 1 or idx == len(events) or idx % 5 == 0):
             log_fn(
                 "Step 3.2: local side evidence - "
                 f"{idx}/{len(events)} scanned, identified={identified_count}, unknown={unknown_count}"
@@ -1350,6 +1357,7 @@ def timeline_total_rally_start_events(
     *,
     player_context: Step3PlayerContext | None = None,
     include_serve_order_review_markers: bool = True,
+    auto_promote_serve_order_gap_markers: bool = True,
     source_time_offset_sec: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Merge scoring points and existing LET starts into one review list."""
@@ -1393,18 +1401,59 @@ def timeline_total_rally_start_events(
 
     events.sort(key=lambda row: (float(row["t_start"]), float(row["t_end"])))
     if include_serve_order_review_markers:
-        events.extend(
-            serve_order_review_markers(
-                events,
-                player_context=player_context,
-                source_time_offset_sec=source_time_offset_sec,
-            )
+        markers = serve_order_review_markers(
+            events,
+            player_context=player_context,
+            source_time_offset_sec=source_time_offset_sec,
         )
+        if auto_promote_serve_order_gap_markers:
+            markers = [
+                promote_serve_order_gap_marker_to_scoring(marker)
+                for marker in markers
+            ]
+        events.extend(markers)
         events.sort(key=lambda row: (float(row["t_start"]), float(row["t_end"])))
     for idx, event in enumerate(events, start=1):
         event["id"] = f"rally_{idx:04d}"
     annotate_serve_order_rule_reviews(events, player_context=player_context)
     return events
+
+
+def promote_serve_order_gap_marker_to_scoring(marker: dict[str, Any]) -> dict[str, Any]:
+    """Convert a strong double-serve singleton gap into an auto-repaired start.
+
+    The marker already represents a high-confidence table-tennis rule violation:
+    one player has only one scoring serve between complete two-serve runs from
+    the other player. In Step 3.1 this belongs to the start-time repair layer,
+    not to operator review.
+    """
+
+    repaired = dict(marker)
+    marker_t = float(repaired.get("t_start", 0.0))
+    gap_end = float(repaired.get("gap_end", marker_t) or marker_t)
+    repaired["kind"] = "scoring"
+    repaired["source"] = "serve_order_gap_auto_repair"
+    repaired["t_end"] = float(min(max(marker_t + 0.80, marker_t), max(marker_t, gap_end - 0.25)))
+    repaired["source_t_end"] = float(
+        repaired["t_end"] + (float(repaired.get("source_t_start", marker_t)) - marker_t)
+    )
+    repaired["review_reason"] = ""
+    repaired["review_note"] = ""
+    repaired["repair_reason"] = "double_serve_singleton_gap_auto_promoted"
+    flags = [
+        str(flag)
+        for flag in (repaired.get("flags", []) or [])
+        if str(flag) != "not_confirmed_rally"
+    ]
+    for flag in (
+        "serve_order_gap_auto_repair",
+        "estimated_start_time_from_rule_gap",
+        "not_visual_detector_start",
+    ):
+        if flag not in flags:
+            flags.append(flag)
+    repaired["flags"] = flags
+    return repaired
 
 
 def serve_order_review_markers(
@@ -1901,6 +1950,441 @@ def write_rally_start_events_json(
     )
 
 
+def _probe_video_duration_sec(video_path: str | Path) -> float:
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return 0.0
+    try:
+        return max(0.0, float((result.stdout or "").strip()))
+    except Exception:
+        return 0.0
+
+
+def _run_step3_1_chunk_clip(
+    *,
+    video_path: Path,
+    clip_path: Path,
+    start_sec: float,
+    end_sec: float,
+) -> None:
+    duration = max(0.0, float(end_sec) - float(start_sec))
+    if duration <= 0.0:
+        raise ValueError("Step 3.1 chunk end must be greater than start")
+    clip_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-hwaccel",
+        "cuda",
+        "-hwaccel_output_format",
+        "cuda",
+        "-ss",
+        f"{float(start_sec):.6f}",
+        "-t",
+        f"{duration:.6f}",
+        "-i",
+        str(video_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "h264_nvenc",
+        "-preset",
+        "p1",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(clip_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        message = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(message if message else f"ffmpeg failed with code {exc.returncode}") from exc
+
+
+def _step3_1_chunk_ranges(
+    duration_sec: float,
+    *,
+    chunk_sec: float = STEP3_1_CHUNK_SEC,
+    overlap_sec: float = STEP3_1_CHUNK_OVERLAP_SEC,
+) -> list[tuple[float, float]]:
+    duration_sec = max(0.0, float(duration_sec))
+    chunk_sec = max(10.0, float(chunk_sec))
+    overlap_sec = max(0.0, min(float(overlap_sec), chunk_sec / 2.0))
+    if duration_sec <= 0.0:
+        return []
+    if duration_sec <= chunk_sec:
+        return [(0.0, duration_sec)]
+
+    ranges: list[tuple[float, float]] = []
+    step_sec = max(1.0, chunk_sec - overlap_sec)
+    start = 0.0
+    while start < duration_sec - 0.10:
+        end = min(duration_sec, start + chunk_sec)
+        ranges.append((float(start), float(end)))
+        if end >= duration_sec - 0.10:
+            break
+        start += step_sec
+    return ranges
+
+
+def _record_kind_is_local_let(record: dict[str, Any]) -> bool:
+    flags = set(str(flag) for flag in (record.get("flags", []) or []))
+    return record.get("kind") == "let" and "let_inferred_local_abort" in flags
+
+
+def _record_merge_quality(record: dict[str, Any]) -> float:
+    duration = max(0.0, float(record.get("t_end", 0.0)) - float(record.get("t_start", 0.0)))
+    return (
+        float(record.get("chunk_edge_margin_sec", 0.0))
+        + (0.35 * float(record.get("confidence", 0.0)))
+        + (0.035 * duration)
+    )
+
+
+def _prefer_step3_1_record(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    # Local visual LET wins over a duplicate scoring candidate.  Otherwise prefer
+    # scoring over ambiguous LET-like duplicates and choose the chunk with the
+    # best context away from clip edges.
+    if _record_kind_is_local_let(candidate) and not _record_kind_is_local_let(current):
+        return candidate
+    if _record_kind_is_local_let(current) and not _record_kind_is_local_let(candidate):
+        return current
+    if current.get("kind") != candidate.get("kind"):
+        if candidate.get("kind") == "scoring" and not _record_kind_is_local_let(current):
+            return candidate
+        if current.get("kind") == "scoring" and not _record_kind_is_local_let(candidate):
+            return current
+    return candidate if _record_merge_quality(candidate) > _record_merge_quality(current) else current
+
+
+def _dedupe_step3_1_records(records: list[dict[str, Any]], *, tolerance_sec: float) -> list[dict[str, Any]]:
+    if not records:
+        return []
+    ordered = sorted(records, key=lambda row: (float(row.get("t_start", 0.0)), float(row.get("t_end", 0.0))))
+    clusters: list[list[dict[str, Any]]] = []
+    for record in ordered:
+        if not clusters:
+            clusters.append([record])
+            continue
+        anchor_t = float(clusters[-1][0].get("t_start", 0.0))
+        if abs(float(record.get("t_start", 0.0)) - anchor_t) <= tolerance_sec:
+            clusters[-1].append(record)
+            continue
+        clusters.append([record])
+
+    merged: list[dict[str, Any]] = []
+    for cluster in clusters:
+        selected = cluster[0]
+        for candidate in cluster[1:]:
+            selected = _prefer_step3_1_record(selected, candidate)
+        selected = dict(selected)
+        selected["duplicate_source_count"] = len(cluster)
+        selected["duplicate_source_chunks"] = sorted(
+            {
+                int(item.get("chunk_index", 0))
+                for item in cluster
+                if item.get("chunk_index") is not None
+            }
+        )
+        merged.append(selected)
+    return sorted(merged, key=lambda row: (float(row.get("t_start", 0.0)), float(row.get("t_end", 0.0))))
+
+
+def _chunk_timeline_records(
+    timeline: RallyTimeline,
+    *,
+    chunk_start_sec: float,
+    chunk_end_sec: float,
+    chunk_index: int,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+
+    def shifted_record(
+        *,
+        kind: str,
+        t_start: float,
+        t_end: float,
+        starter_role: str,
+        flags: list[str],
+        confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        source_t_start = float(t_start) + float(chunk_start_sec)
+        source_t_end = float(t_end) + float(chunk_start_sec)
+        edge_margin = min(
+            max(0.0, source_t_start - float(chunk_start_sec)),
+            max(0.0, float(chunk_end_sec) - source_t_start),
+        )
+        return {
+            "kind": kind,
+            "t_start": source_t_start,
+            "t_end": source_t_end,
+            "starter_role": starter_role,
+            "flags": sorted(set(list(flags or []) + [f"chunk_{chunk_index:02d}"])),
+            "confidence": float(confidence),
+            "chunk_index": int(chunk_index),
+            "chunk_start_sec": float(chunk_start_sec),
+            "chunk_end_sec": float(chunk_end_sec),
+            "chunk_edge_margin_sec": float(edge_margin),
+        }
+
+    for point in timeline.points:
+        kind = "scoring" if counts_toward_score(point) else "let"
+        records.append(
+            shifted_record(
+                kind=kind,
+                t_start=float(point.t_start),
+                t_end=float(point.t_end),
+                starter_role=str(point.starter_role or ""),
+                flags=list(point.flags or []),
+                confidence=float(point.confidence),
+            )
+        )
+
+    metadata = timeline.analysis_metadata if isinstance(timeline.analysis_metadata, dict) else {}
+    for bucket in ("excluded_let_starts", "unattached_trailing_let_starts"):
+        for item in metadata.get(bucket, []) or []:
+            if not isinstance(item, dict):
+                continue
+            t_start = float(item.get("t_start", 0.0))
+            records.append(
+                shifted_record(
+                    kind="let",
+                    t_start=t_start,
+                    t_end=float(item.get("t_end", t_start)),
+                    starter_role=str(item.get("starter_role", "") or ""),
+                    flags=list(item.get("flags", []) or []),
+                    confidence=float(item.get("confidence", 0.0) or 0.0),
+                )
+            )
+    return records
+
+
+def _records_to_rally_timeline(
+    records: list[dict[str, Any]],
+    *,
+    video_path: Path,
+    video_fps: float | None,
+    best_of: int,
+    roi: dict[str, Any],
+    video_end_sec: float,
+    chunk_summaries: list[dict[str, Any]],
+) -> RallyTimeline:
+    merged = _dedupe_step3_1_records(
+        records,
+        tolerance_sec=STEP3_1_DUPLICATE_TOLERANCE_SEC,
+    )
+    points: list[RallyTimelinePoint] = []
+    excluded_let_starts: list[dict[str, Any]] = []
+    pending_let_starts: list[dict[str, Any]] = []
+
+    for record in merged:
+        kind = str(record.get("kind", "scoring"))
+        flags = sorted(set(list(record.get("flags", []) or []) + ["chunked_step3_1"]))
+        if kind == "let":
+            let_record = {
+                "t_start": float(record.get("t_start", 0.0)),
+                "t_end": float(record.get("t_end", record.get("t_start", 0.0))),
+                "starter_role": str(record.get("starter_role", "") or ""),
+                "flags": flags,
+                "chunk_index": int(record.get("chunk_index", 0) or 0),
+                "duplicate_source_count": int(record.get("duplicate_source_count", 1) or 1),
+                "duplicate_source_chunks": list(record.get("duplicate_source_chunks", []) or []),
+            }
+            excluded_let_starts.append(let_record)
+            pending_let_starts.append(let_record)
+            continue
+
+        preceding_let_starts = [float(item["t_start"]) for item in pending_let_starts]
+        points.append(
+            RallyTimelinePoint(
+                id=f"pt_{len(points) + 1:04d}",
+                t_start=float(record.get("t_start", 0.0)),
+                t_end=float(record.get("t_end", record.get("t_start", 0.0))),
+                active_start=float(record.get("t_start", 0.0)),
+                starter_role=str(record.get("starter_role", "") or "") or None,
+                preceding_let_count=len(preceding_let_starts),
+                preceding_let_starts=preceding_let_starts,
+                service_attempt_index=len(preceding_let_starts) + 1,
+                winner="unknown",
+                confidence=float(record.get("confidence", 0.0) or 0.0),
+                flags=flags,
+                source="ai",
+            )
+        )
+        pending_let_starts = []
+
+    unattached_trailing_let_starts = list(pending_let_starts)
+    for idx, point in enumerate(points):
+        if idx + 1 < len(points):
+            point.active_end = float(points[idx + 1].t_start)
+            point.boundary_mode = "next_start_exclusive"
+        else:
+            point.active_end = float(max(video_end_sec, point.t_end))
+            point.boundary_mode = "video_end_open_tail"
+
+    return RallyTimeline(
+        video_path=str(video_path.resolve()),
+        video_fps=float(video_fps or 0.0),
+        best_of=int(best_of),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        roi={k: int(v) if k in {"x", "y", "w", "h"} else v for k, v in dict(roi or {}).items()},
+        points=points,
+        analysis_metadata={
+            "detector_algorithm": STEP3_1_ALGORITHM,
+            "step3_1_detector": STEP3_1_DETECTOR_ID,
+            "chunk_sec": STEP3_1_CHUNK_SEC,
+            "chunk_overlap_sec": STEP3_1_CHUNK_OVERLAP_SEC,
+            "duplicate_tolerance_sec": STEP3_1_DUPLICATE_TOLERANCE_SEC,
+            "chunk_count": len(chunk_summaries),
+            "chunks": chunk_summaries,
+            "raw_chunk_record_count": len(records),
+            "merged_start_count": len(merged),
+            "active_window_mode": "chunked_accepted_start_to_next_accepted_start",
+            "let_policy": "local_visual_abort_only_no_serve_order_forcing",
+            "excluded_let_count": len(excluded_let_starts),
+            "excluded_let_starts": excluded_let_starts,
+            "unattached_trailing_let_count": len(unattached_trailing_let_starts),
+            "unattached_trailing_let_starts": unattached_trailing_let_starts,
+        },
+    )
+
+
+def _build_chunked_step3_1_rally_timeline(
+    *,
+    video_path: str | Path,
+    timeline_path: Path,
+    table_weights_path: str,
+    pose_weights_path: str,
+    best_of: int,
+    stride: int,
+    mode: str,
+    player_margin_px: int,
+    player_fuse_gain: float,
+    player_signal_source: str,
+    ball_fuse_gain: float,
+    ball_signal_source: str,
+    table_roi,
+    log_fn: Callable[[str], None] | None,
+) -> RallyTimeline:
+    build_rally_timeline = _load_build_rally_timeline()
+    video_path = Path(video_path).resolve()
+    duration_sec = _probe_video_duration_sec(video_path)
+    chunk_ranges = _step3_1_chunk_ranges(duration_sec)
+    if not chunk_ranges:
+        raise RuntimeError("Unable to determine input video duration for Step 3.1 chunked detection")
+
+    chunk_dir = timeline_path.parent / "step3_1_detector_chunks"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    all_records: list[dict[str, Any]] = []
+    chunk_summaries: list[dict[str, Any]] = []
+    base_video_fps: float | None = None
+    base_roi: dict[str, Any] | None = None
+
+    for chunk_index, (chunk_start, chunk_end) in enumerate(chunk_ranges, start=1):
+        start_tag = f"{chunk_start:.3f}".replace(".", "p")
+        end_tag = f"{chunk_end:.3f}".replace(".", "p")
+        clip_name = f"chunk_{chunk_index:02d}_{start_tag}_{end_tag}.mp4"
+        clip_path = chunk_dir / clip_name
+        timeline_chunk_path = chunk_dir / f"chunk_{chunk_index:02d}_timeline.json"
+        if log_fn:
+            log_fn(
+                "Step 3.1: total rally start detection - "
+                f"chunk {chunk_index}/{len(chunk_ranges)} source {chunk_start:.3f}s->{chunk_end:.3f}s"
+            )
+        _run_step3_1_chunk_clip(
+            video_path=video_path,
+            clip_path=clip_path,
+            start_sec=chunk_start,
+            end_sec=chunk_end,
+        )
+        child_timeline = build_rally_timeline(
+            str(clip_path),
+            table_weights_path,
+            pose_weights_path=pose_weights_path,
+            best_of=best_of,
+            stride=stride,
+            mode=mode,
+            player_margin_px=player_margin_px,
+            player_fuse_gain=player_fuse_gain,
+            player_signal_source=player_signal_source,
+            ball_fuse_gain=ball_fuse_gain,
+            ball_signal_source=ball_signal_source,
+            table_roi=table_roi,
+            log_fn=log_fn,
+        )
+        save_rally_timeline(timeline_chunk_path, child_timeline)
+        base_video_fps = base_video_fps if base_video_fps is not None else child_timeline.video_fps
+        base_roi = base_roi if base_roi is not None else dict(child_timeline.roi or {})
+        chunk_records = _chunk_timeline_records(
+            child_timeline,
+            chunk_start_sec=chunk_start,
+            chunk_end_sec=chunk_end,
+            chunk_index=chunk_index,
+        )
+        all_records.extend(chunk_records)
+        child_metadata = child_timeline.analysis_metadata if isinstance(child_timeline.analysis_metadata, dict) else {}
+        child_excluded = int(child_metadata.get("excluded_let_count", 0) or 0)
+        chunk_summaries.append(
+            {
+                "index": chunk_index,
+                "source_start_sec": float(chunk_start),
+                "source_end_sec": float(chunk_end),
+                "clip_path": str(clip_path.resolve()).replace("\\", "/"),
+                "timeline_path": str(timeline_chunk_path.resolve()).replace("\\", "/"),
+                "scoring_points": len(child_timeline.points),
+                "local_let_starts": child_excluded,
+                "raw_start_records": len(chunk_records),
+            }
+        )
+        if log_fn:
+            log_fn(
+                "Step 3.1: total rally start detection - "
+                f"chunk {chunk_index} yielded {len(chunk_records)} start candidate(s) "
+                f"({len(child_timeline.points)} scoring + {child_excluded} LET)"
+            )
+
+    if log_fn:
+        log_fn(
+            "Step 3.1: total rally start detection - merging chunk candidates "
+            f"({len(all_records)} raw across {len(chunk_summaries)} chunk(s))"
+        )
+    timeline = _records_to_rally_timeline(
+        all_records,
+        video_path=video_path,
+        video_fps=base_video_fps,
+        best_of=best_of,
+        roi=base_roi or (table_roi.to_dict() if hasattr(table_roi, "to_dict") else {}),
+        video_end_sec=duration_sec,
+        chunk_summaries=chunk_summaries,
+    )
+    save_rally_timeline(timeline_path, timeline)
+    if log_fn:
+        meta = timeline.analysis_metadata
+        log_fn(
+            "Step 3.1: total rally start detection - chunk merge complete: "
+            f"{meta.get('merged_start_count', 0)} total start(s), "
+            f"{len(timeline.points)} scoring, {meta.get('excluded_let_count', 0)} LET"
+        )
+    return timeline
+
+
 def load_or_build_rally_timeline(
     *,
     video_path: str | Path,
@@ -1921,22 +2405,36 @@ def load_or_build_rally_timeline(
     log_fn: Callable[[str], None] | None = None,
 ) -> RallyTimeline:
     if timeline_path.exists() and not force_rebuild:
+        cached = load_rally_timeline(timeline_path)
+        metadata = cached.analysis_metadata if isinstance(cached.analysis_metadata, dict) else {}
+        if metadata.get("step3_1_detector") == STEP3_1_DETECTOR_ID:
+            if log_fn:
+                log_fn("Step 3.1: total rally start detection - reusing cached chunked total-rally timeline")
+            return cached
         if log_fn:
-            log_fn("Step 3.1: total rally start detection - reusing cached total-rally timeline")
-        return load_rally_timeline(timeline_path)
+            log_fn(
+                "Step 3.1: total rally start detection - cached timeline uses an older detector; rebuilding"
+            )
     if legacy_cache_path is not None and legacy_cache_path.exists() and not force_rebuild:
+        legacy_timeline = load_rally_timeline(legacy_cache_path)
+        metadata = legacy_timeline.analysis_metadata if isinstance(legacy_timeline.analysis_metadata, dict) else {}
+        if metadata.get("step3_1_detector") == STEP3_1_DETECTOR_ID:
+            if log_fn:
+                log_fn("Step 3.1: total rally start detection - migrating cached chunked detector output")
+            save_rally_timeline(timeline_path, legacy_timeline)
+            return legacy_timeline
         if log_fn:
-            log_fn("Step 3.1: total rally start detection - migrating cached full-video detector output")
-        timeline = load_rally_timeline(legacy_cache_path)
-        save_rally_timeline(timeline_path, timeline)
-        return timeline
+            log_fn("Step 3.1: total rally start detection - ignoring older legacy detector cache")
 
-    build_rally_timeline = _load_build_rally_timeline()
     if log_fn:
-        log_fn("Step 3.1: total rally start detection - running existing start-time detector")
-    timeline = build_rally_timeline(
-        str(video_path),
-        table_weights_path,
+        log_fn(
+            "Step 3.1: total rally start detection - running chunked overlap detector "
+            f"({STEP3_1_CHUNK_SEC:.0f}s chunks, {STEP3_1_CHUNK_OVERLAP_SEC:.0f}s overlap)"
+        )
+    return _build_chunked_step3_1_rally_timeline(
+        video_path=video_path,
+        timeline_path=timeline_path,
+        table_weights_path=table_weights_path,
         pose_weights_path=pose_weights_path,
         best_of=best_of,
         stride=stride,
@@ -1949,8 +2447,6 @@ def load_or_build_rally_timeline(
         table_roi=table_roi,
         log_fn=log_fn,
     )
-    save_rally_timeline(timeline_path, timeline)
-    return timeline
 
 
 def build_step3_1_rally_start_review(
@@ -2002,11 +2498,18 @@ def build_step3_1_rally_start_review(
         force_rebuild=force_rebuild,
         log_fn=log_fn,
     )
+    if log_fn:
+        log_fn(
+            "Step 3.1: total rally start detection - detector timeline ready; "
+            "merging scoring rallies + existing LET metadata"
+        )
     events = timeline_total_rally_start_events(
         timeline,
         player_context=player_context,
         source_time_offset_sec=source_time_offset_sec,
     )
+    if log_fn:
+        log_fn(f"Step 3.1: total rally start detection - merged {len(events)} start event(s)")
     side_id_summary = {"enabled": False, "reason": "disabled"}
     if enable_side_identification:
         side_id_summary = annotate_events_with_single_player_side_identification(
@@ -2026,12 +2529,16 @@ def build_step3_1_rally_start_review(
         # Refresh the serve-order expected names after per-rally side evidence
         # remaps the current server identity.
         annotate_serve_order_rule_reviews(events, player_context=player_context)
+    if log_fn:
+        log_fn("Step 3.1: total rally start detection - exporting annotated start frames")
     export_info = export_rally_start_event_frames(
         video_path,
         events,
         table_roi=table_roi,
         out_dir=frame_dir,
     )
+    if log_fn:
+        log_fn("Step 3.1: total rally start detection - writing Step 3.1 JSON summary")
     summary = summarize_rally_start_events(
         events,
         timeline_path=timeline_path,
@@ -2064,9 +2571,13 @@ def build_step3_2_side_state_review(
 
     payload = json.loads(Path(source_events_json_path).read_text(encoding="utf-8"))
     events = [dict(event) for event in list(payload.get("events") or [])]
+    if log_fn:
+        log_fn(f"Step 3.2: side-state detection - loaded {len(events)} event(s), resetting side evidence")
     for event in events:
         reset_side_evidence_fields(event, player_context=player_context)
 
+    if log_fn:
+        log_fn("Step 3.2: side-state detection - scanning local identity/side windows")
     side_id_summary = annotate_events_with_single_player_side_identification(
         video_path,
         events,
@@ -2081,7 +2592,11 @@ def build_step3_2_side_state_review(
         end_time_field=end_time_field,
         log_fn=log_fn,
     )
+    if log_fn:
+        log_fn("Step 3.2: side-state detection - applying serve-order rule review markers")
     annotate_serve_order_rule_reviews(events, player_context=player_context)
+    if log_fn:
+        log_fn("Step 3.2: side-state detection - exporting side-state debug frames")
     export_info = export_rally_start_event_frames(
         video_path,
         events,
@@ -2089,6 +2604,8 @@ def build_step3_2_side_state_review(
         out_dir=frame_dir,
         frame_time_field=time_field,
     )
+    if log_fn:
+        log_fn("Step 3.2: side-state detection - writing Step 3.2 JSON summary")
     summary = summarize_rally_start_events(
         events,
         timeline_path=source_events_json_path,
