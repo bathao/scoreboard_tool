@@ -27,9 +27,9 @@ B. Identify Players button
    Step 2: Identify players                         -> PAUSE / confirm or enroll
     |
 C. Run AI Pipeline button
-   Step 3: Detect rallies                           -> PAUSE / confirm rally timeline
-   Step 4: Predict winners                          -> PAUSE / inspect AI predictions
-   Step 5: GUI confirm winners                      -> operator review loop
+   Step 3: Detect rallies + side/set state          -> auto, no operator timeline preview
+   Step 4: Predict winners                          -> auto, then hand off to review
+   Step 5: GUI confirm winners                      -> first operator preview/review loop
    Step 6: Final output video with scoreboard       -> completed artifact
 ```
 
@@ -138,6 +138,13 @@ Run AI Pipeline
 | Default mode | `player` (YOLO pose wrist velocity as primary signal) |
 | UI checkpoints | Pause 1: confirm total rally/LET start-times. Later pauses TBD |
 
+Current debug warning:
+- Step 3.1 / Step 3.2 / Step 3.3 are **not good enough yet** on `2_sets.mp4`.
+- The canonical `summary.md` format is still rough and needs more iteration.
+- Step 3.3 correctly blocks invalid output, but the upstream rally/side-state
+  data still has many failures. Treat all current Step 3 results as debugging
+  artifacts, not production-ready output.
+
 #### Step 3.1 — `detect_total_rallies`
 
 Code path: `run_pipeline_stage_detect_sets()` orchestrates the stage, while the
@@ -154,14 +161,15 @@ Current sub-steps:
 6. Save the raw detector timeline to `step3_1_total_rally_timeline.json`.
 7. Build one chronological review list from both sources:
    `timeline.points` for scoring rallies, plus `analysis_metadata["excluded_let_starts"]` and `analysis_metadata["unattached_trailing_let_starts"]` for LET/non-scoring rallies.
-8. Map `starter_role` to the trusted Step 2 names only while side state is still known from the initial setup: role `A` = initial near-side player, role `B` = initial far-side player. This mapping is **not enough after a side swap** and must not be treated as current NEAR/FAR.
+8. Keep the initial Step 2 name map as provisional debug context only: role `A` = initial near-side player, role `B` = initial far-side player. This mapping is **not enough after a side swap** and must not be treated as current NEAR/FAR.
 9. Apply the existing serve-order engine (`_infer_player_serve_mode_from_starter_roles`) as a review guard. If double-serve order shows a singleton scoring run between two complete runs from the other player, add a `needs_review` marker in the gap instead of silently accepting the missing start.
 10. Count review rows as `scoring + LET/non-scoring + needs_review`. Confirmed detector starts remain available as `detected_total`.
 11. Export one annotated JPG per detected/review start-time into `step3_1_rally_start_frames/`.
-12. Export `rally_start_times.csv` in the same folder, including `starter_role`, current side when available (`current_side=NEAR/FAR/unknown`), mapped server player name, and review reason.
-13. Export the merged start-time event list to `step3_1_rally_start_events.json`.
-14. Save summary and events into `job.timeline_summary["detected_total_rallies"]`.
-15. Pause for operator review at `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"`.
+12. Do **not** run player side-state identification here. Step 3.1 is detector-only: total rally/LET start-times plus serve-order review markers.
+13. Export `rally_start_times.csv` in the same folder, including `starter_role` for debugging and initial Step 2 server mapping only.
+14. Export the merged start-time event list to `step3_1_rally_start_events.json`.
+15. Save summary and events into `job.timeline_summary["detected_total_rallies"]`.
+16. Pause for operator review at `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"`.
 
 Rule-driven repair loop for Step 3.1:
 1. First pass: scan the full working video once to get the total chronological list of scoring rallies and LET/non-scoring starts.
@@ -173,13 +181,22 @@ Current command-line support for the targeted repair loop:
 - Full first pass: `scripts/step3_1_rally_start_review.py --video ... --start ... --end ...`
 - Targeted repair only after an existing first pass: add `--rescan-only --rescan-review-gaps`.
 - The rescan window source must come from rule-audit fields such as `gap_start`, `gap_end`, `source_gap_start`, and `source_gap_end`; never scan unrelated time ranges.
+- Step 3.1 side-id is off by default. For temporary combined debug only, use `--with-side-id`; normal pipeline should run Step 3.2 separately.
 
 Operator feedback from `2_sets.mp4` full summary:
 - `rally_0013` in the first segment is accepted by the operator.
 - From `rally_0016` onward in the combined report, the displayed player names are suspected wrong because the players have already swapped sides.
 - Therefore any user-facing Step 3.1/Step 3.2 report must include a separate `current_side` column (`NEAR`, `FAR`, or `unknown`) for each rally start.
 - `A/B` is a detector/debug role only. It must not be used as a proxy for current side after a swap.
-- Whenever the pipeline rescans or re-identifies players around a rally/gap, it must also detect which side that player is currently standing on. Identity without side is insufficient for multi-set clips.
+- `current_side` must be detected independently at each rally start time using player identification / side evidence around that timestamp. Do **not** infer `current_side` by first detecting one side-swap timestamp and then globally remapping the rest of the video.
+- The existing side-swap detector can be used later for set-boundary logic, but it is not the source of truth for the per-rally `NEAR/FAR` column in this Step 3.1/3.2 review report.
+- Whenever the pipeline rescans or re-identifies players around a rally/gap, it must also detect which side that player is currently standing on at that exact timestamp. Identity without side is insufficient for multi-set clips.
+- Per-rally side detection does **not** need to identify both players. It is enough to identify one of the two trusted Step 2 players at that rally start, determine whether that identified player is currently `NEAR` or `FAR`, then infer the other player's side by exclusion because exactly two players are in the match.
+- The side-id scan must be spatially constrained to the main match player zone only: `table ROI + 25% table width on X + 110% table height on Y`. Do not scan the full frame for faces/players, because adjacent tables and audience faces can create false matches.
+- During this phase, identity matching is restricted to the two trusted Step 2 player names. The matcher must not choose arbitrary FaceDB players.
+- Side-id must be conservative: a face result is accepted only when it has enough accepted samples and similarity quality. Weak evidence must become `unknown/needs_review`, not a guessed player/side.
+- Side-id must be start-anchored. First scan only around `start_time`. If that is weak, post-rally extension is allowed only when the next rally starts soon enough that the gap is not a likely set break / side swap. A long gap after the rally blocks `t_end + N` evidence, because that evidence belongs to players walking/swapping sides, not to the rally start.
+- Jersey/color evidence is auxiliary by default. Do not use jersey-only fallback as source of truth unless explicitly enabled for a match with clearly distinct shirts, because similar red/yellow jerseys can be confidently wrong.
 - Until side state is applied, post-swap player-name mapping should be considered provisional and must be review-marked instead of silently trusted.
 
 Single entrypoint rule:
@@ -202,10 +219,9 @@ Pause after Step 3.1:
 
 | Pause | Runtime state | GUI shows | Next click does |
 |-------|---------------|-----------|-----------------|
-| `confirm_total_rallies` | `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"` | Total scoring/LET count, exported start-time images, CSV/JSON paths | No automatic next step yet; wait for operator feedback |
+| `confirm_total_rallies` | `status="awaiting_confirmation"`, `current_step="confirm_total_rallies"` | Total scoring/LET count, exported start-time images, CSV/JSON paths | Click Next to run Step 3.2 side-state detection |
 
-Current limitation: Step 3.2+ is intentionally paused until the operator reviews
-the total start-time frames and gives feedback.
+After Step 3.1 finishes, the pipeline should continue into Step 3.2/3.3 automatically in production flow. Command-line debug may still inspect Step 3.1 artifacts while the algorithm is being developed.
 
 #### Step 3.2 — `detect_side_state`
 
@@ -214,17 +230,124 @@ It must resolve side state and set split before winner prediction consumes the
 timeline.
 
 Required Step 3.2 outputs:
-1. Detect the first side-swap interval using the trusted Step 2 identities plus rally-start anchors from Step 3.1.
-2. Add `current_side` for each rally start: `NEAR`, `FAR`, or `unknown`.
-3. Add `side_state`: `initial`, `swapped`, or `unknown`.
-4. Re-map server player names using `current_side` and identity-side evidence, not just initial `A/B`.
-5. Keep any post-swap identity/side ambiguity as `unknown` or `needs_review`; do not guess.
-6. Update the human summary table to show:
-   `id | kind | start | end | server | current_side | note | image`.
-7. Keep `starter_role` available in CSV/JSON for debugging, but hide or de-emphasize it in the human-facing summary.
+1. For each Step 3.1 rally start, run local identity/side evidence around that start timestamp.
+2. Detect at least one trusted Step 2 player in that local window when possible; if one player is identified with side `NEAR`/`FAR`, infer the other player's side by exclusion.
+3. Add `current_side` for the server/player row: `NEAR`, `FAR`, or `unknown`.
+4. Add `side_evidence_source`, for example `single_player_face_id_at_start`, `single_player_body_id_at_start`, or `unknown`.
+5. Re-map server player names using per-rally identity-side evidence, not a global side-swap remap and not initial `A/B`.
+6. Keep any post-swap identity/side ambiguity as `unknown` or `needs_review`; do not guess.
+7. Update the human summary table to show:
+   `id | kind | start_time | server | current_side | note | image`.
+8. Keep `starter_role` available in CSV/JSON for debugging, but hide or de-emphasize it in the human-facing summary.
+9. Human-facing Markdown reports must show only timestamps in the final input
+   video's timeline (`source_t_start` / `source_t_end`). Segment/debug clip time
+   exists only to speed up internal scans and must stay out of Markdown tables
+   to avoid confusing operator review.
+10. Step 3.2 creates the canonical Step 3 human summary. Step 3.3 must update
+    that same Markdown summary after audit/rescan instead of creating a second
+    user-facing report. JSON/CSV files may remain separate technical artifacts.
 
-Temporary guardrail: do not proceed to winner prediction or final timeline
-generation until Step 3.1 start-times and Step 3.2 side state are accepted.
+Step 3.2 two-pass scan:
+1. Fast pass (`start_anchor`): scan a short window around `start_time` with the standard FPS/thresholds.
+2. Safe extension (`safe_post_rally_extension`): if fast pass is weak, extend only when the next rally starts soon enough that the gap is not a likely break/side-swap. Never scan into the next rally.
+3. Retry pass (`unknown_retry_start_anchor`): only for rows still `unknown`, scan a longer start-anchored window at higher FPS (default `12s`, `8 FPS`, min `3` accepted face samples). This retry remains break-safe: if the rally is followed by a long gap / side-swap candidate, the retry is capped at the rally end instead of using post-rally evidence.
+4. Strong-candidate promotion: if a row only missed the sample-count threshold but has 3 strong face samples (`best/avg/margin` all high), promote it instead of leaving it unknown.
+5. Continuity fill (`side_continuity_fill`): if direct scans still leave `unknown`, fill only when neighboring known side maps are consistent, or when a terminal unknown run has no long gap that could hide a side swap. These rows are marked `inferred`, not face-identified.
+6. Goal: reduce unknowns as much as possible before Step 3.3. Guardrail remains unchanged: if scan evidence and continuity are both unsafe, keep `unknown`; do not guess.
+
+Production rule: Step 3 must not rely on operator preview/confirmation. It must produce a complete, internally consistent rally timeline before Step 4 starts. If Step 3 cannot resolve a required field safely, it should fail/pause with an explicit error for developer debugging, not ask the operator to manually approve a partial timeline.
+
+Implementation note:
+- Step 3.2 is now a separate code path: `build_step3_2_side_state_review()` in `backend/step3_rally_start_review.py`.
+- CLI wrapper: `scripts/step3_2_side_state_review.py --video ... --events-json ...`.
+- GUI review for Step 3 artifacts is debug-only while developing. In the intended production/debug-mode flow requested by the operator, the first user-facing preview is Step 5 after winner prediction.
+- `current_side`/server remap must come from per-rally evidence. Do not reintroduce `--side-swap-cutoff` or any global cutoff-based remap for this report.
+- Side evidence uses face evidence first. Jersey-anchor evidence may be exported for debugging, but jersey-only identity must not override weak/missing face evidence by default.
+
+Known failure fixed from `2_sets.mp4`:
+- `rally_0016` at `02:52.188` was incorrectly reported as `Nguyễn Bá Thảo=FAR` because the previous rule accepted only 2 weak face samples (`best_sim≈0.413`) from a short window. Correct human-verified side is `FAR=Trần Quang Vinh`, `NEAR=Nguyễn Bá Thảo`.
+- Fix: constrain player ROI to `table ROI +25% X/+110% Y`, widen the local scan through `t_end + 4s`, require at least 4 accepted face samples, require stronger best/average similarity, and leave weak rows as `unknown/needs_review` instead of filling a wrong name.
+- `rally_0015` at `02:23.176` exposed the opposite failure mode: full batch scanned through `t_end + 4s`, crossing the confirmed side-swap break starting around `02:28`. Correct start-time side is `FAR=Nguyễn Bá Thảo`, `NEAR=Trần Quang Vinh`; post-rally evidence after the set-ending rally must not be assigned backward to the rally start.
+- Fix: side-id now uses `start_anchor` first and blocks `safe_post_rally_extension` whenever the next-start gap is long (`side-id-break-gap-sec`, default `12s`) or the event is terminal. Extension is also guarded so it never scans into the next rally.
+
+#### Step 3.3 — `logic_audit_and_repair`
+
+Step 3.3 consumes the Step 3.2 `summary.md` / events JSON and validates whether
+the side-state/server timeline is internally legal enough to be trusted by Step
+4. This is a code-owned audit step, not an operator preview step.
+
+Core rule: Step 3.3 audits by **real server identity** (`server_player_key/name`)
+after Step 3.2 has mapped `starter_role` + `current_side`. Do not audit by raw
+`A/B` alone, because `A/B` is only a tracker side role and changes meaning after
+players swap sides.
+
+Required Step 3.3 behavior:
+1. Read Step 3.2 events, including `kind`, `source_t_start`, `server_player_key`, `current_side`, and `side_evidence_status`.
+2. Apply basic table-tennis service rules:
+   - Scoring rallies advance the service count.
+   - LET/non-scoring rows do **not** advance the service count.
+   - Before deuce, service should run in two scoring points per player.
+   - After the deuce threshold is reached, service switches every point.
+3. Treat likely set boundaries as audit resets only when there is enough evidence: long gap, side-state swap, and at least the minimum legal scoring count before the boundary.
+4. If a player appears to serve only once in the middle of a normal two-serve block, or the other player appears to serve three times, mark the local events as suspicious.
+5. Recursively call the Step 3.2 side-state scan only on suspicious event IDs / neighboring rows. Do **not** rescan the whole video.
+6. Re-run the Step 3.3 audit after each targeted Step 3.2 repair pass until the timeline is legal or the repair limit is reached.
+7. If the remaining issue indicates a missing rally start rather than a side-state error, mark it as requiring Step 3.1 targeted gap-rescan. Step 3.2 must not invent new rally starts.
+8. Step 3.3 is a hard gate. Only when `logic_ok=true` and `blocking_issue_count=0`
+   can the pipeline continue to Step 3.4. If any blocking issue remains, the
+   pipeline must stop here and keep repairing/debugging Step 3.2/Step 3.1
+   inputs. Do not continue to winner prediction with a logically invalid
+   summary.
+9. When Step 3.3 finishes cleanly, its output summary/events are the trusted Step 3 timeline source for Step 3.4.
+10. The user-facing result of Step 3.3 is an updated Step 3.2 summary file:
+    one Markdown table for the whole Step 3 state, including total rally/LET
+    counts, start time, server, `server_side`, opponent, `opponent_side`, and
+    logic gate status. Do not repeat the same player name multiple times in one
+    row just to show both `server` and full NEAR/FAR assignment.
+
+Implementation note:
+- Backend entrypoint: `build_step3_3_logic_audit_review()` in `backend/step3_rally_start_review.py`.
+- CLI wrapper: `scripts/step3_3_logic_audit.py --video ... --events-json <step3_2_events.json>`.
+- Audit function: `audit_step3_side_state_logic()`.
+- The final report uses dedicated `step3_3_*` fields so old Step 3.1/3.2 debug flags do not become the source of truth.
+
+#### Step 3.4 — `detect_set_boundaries_side_swaps`
+
+Step 3.4 is allowed to run **only after Step 3.3 passes 100%**. Its job is to
+detect set boundaries / side swaps from the audited Step 3.3 events, assign set
+metadata, then produce the final rally timeline consumed by Step 4 winner
+prediction.
+
+Gate rule:
+- If Step 3.3 has `logic_ok=false` or `blocking_issue_count > 0`, Step 3.4 must
+  not run.
+- Do not silently bypass this gate.
+- Do not ask the operator to approve an invalid Step 3 timeline.
+- Keep the pipeline blocked at Step 3.3 until targeted Step 3.2/Step 3.1 repair
+  produces a logically valid summary.
+
+Required Step 3.4 behavior:
+1. Consume only the audited Step 3.3 events where `logic_ok=true`.
+2. Detect set boundaries from verified side-state transitions, service-order
+   resets, legal set-completion constraints, and long break gaps.
+3. Detect side swaps after every completed set.
+4. Detect deciding-set side swap when the total score in the deciding set reaches 5:
+   set 3 of BO3, set 5 of BO5, or set 7 of BO7.
+5. Assign `set_number`, `set_rally_index`, `set_score_index`, and current
+   `NEAR/FAR` side state to each scoring/LET row.
+6. Export a final Step 3 timeline JSON that Step 4 can consume directly.
+7. If set boundary / side-swap evidence is inconsistent, stop at Step 3.4 with
+   an explicit debug error. Do not guess and do not continue to Step 4.
+
+Implementation status:
+- Not implemented yet.
+- This is the next missing Step 3 sub-step before Step 4.
+
+No Step 3 GUI checkpoint:
+- There is no `GUI confirm final rally timeline` step.
+- The operator does not preview the rally timeline before winner prediction.
+- Any Step 3 report/summary is for developer debugging only.
+- The first operator-facing preview/review is Step 5, after Step 4 winner prediction has already run.
 
 ### Step 4/6 — `predict_winners`
 
@@ -237,7 +360,7 @@ internal sub-step here; it is not a separate top-level Web UI step.
 | Predictor class | `WinnerAdapterPredictor` in `backend/production_pipeline.py` |
 | Base model | `models/Qwen3-VL-4B-Instruct` |
 | Adapter | `models/adapters/qwen3vl4b_table_tennis_pilot_4ep_cache_v2/checkpoint-108` |
-| Input | Confirmed `timeline.json` + one exported MP4 clip per scoring rally |
+| Input | Final Step 3 `timeline.json` + one exported MP4 clip per scoring rally |
 | Output artifacts | `review_clips/{point_id}.mp4`, predictions JSONL, updated `timeline.json` |
 | GPU | Required. Review clips use CUDA/NVENC, and Qwen3-VL is pinned to `cuda:0` with `bfloat16`; no `device_map="auto"` CPU offload |
 | UI checkpoint | Show prediction summary: known/review/unknown counts and low-confidence examples |
@@ -334,7 +457,8 @@ and provides ground truth for splitting the timeline.
 ### Inputs (relies on Step 1 + Step 2 having run)
 - Video file
 - Face DB / confirmed player identities when available. If identity evidence is
-  insufficient, Step 3 must stop for operator input instead of guessing.
+  insufficient, Step 3 must stop with an explicit developer/debug error instead
+  of guessing or asking the operator to approve Step 3 manually.
 - YOLOv8x-table + YOLOv8x-pose + ArcFace weights
 
 ### Algorithm
@@ -484,5 +608,5 @@ See `PROJECT_PROGRESS.md` for current known bugs:
   - Side-swap split recovered more rallies than the continuous run.
   - Detected Set 1 = `13` scoring rallies, Set 2 = `17` scoring rallies.
   - Operator verdict: still wrong.
-  - Practical meaning: Step 3 must pause for rally-count confirmation before
-    Step 4 winner prediction.
+  - Practical meaning: Step 3 must be fixed to produce a correct timeline
+    automatically before Step 4 winner prediction.

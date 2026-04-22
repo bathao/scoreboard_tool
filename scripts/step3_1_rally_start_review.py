@@ -15,6 +15,9 @@ from backend.production_defaults import PRODUCTION_RALLY_DEFAULTS
 from backend.production_jobs import load_match_job
 from backend.step3_rally_start_review import (
     Step3PlayerContext,
+    Step3SideIdentificationConfig,
+    annotate_serve_order_rule_reviews,
+    annotate_events_with_single_player_side_identification,
     build_step3_1_rally_start_review,
     write_rally_start_events_json,
 )
@@ -24,6 +27,13 @@ def _fmt_seconds_tag(value: float) -> str:
     if abs(value - round(value)) < 1e-6:
         return str(int(round(value)))
     return f"{value:.3f}".replace(".", "p")
+
+
+def _fmt_mmss(value: float) -> str:
+    value = max(0.0, float(value))
+    minutes = int(value // 60)
+    seconds = value - minutes * 60
+    return f"{minutes:02d}:{seconds:06.3f}"
 
 
 def _run_ffmpeg_nvenc_clip(
@@ -90,6 +100,7 @@ def _load_table_roi_from_job(job) -> TableROI | None:
 def _write_summary_md(path: Path, summary: dict, events: list[dict]) -> None:
     first_server = summary.get("first_server") or {}
     gap_rescans = list(summary.get("gap_rescans", []) or [])
+    side_id = summary.get("side_identification") or {}
     lines = [
         "# Step 3.1 Rally Start Debug",
         "",
@@ -100,16 +111,15 @@ def _write_summary_md(path: Path, summary: dict, events: list[dict]) -> None:
         f"- Needs-review rows: {summary.get('needs_review', 0)}",
         f"- Serve-order gap markers: {summary.get('rule_gap_review_count', 0)}",
         f"- Rule-conflict detected rows: {summary.get('rule_conflict_review_count', 0)}",
+        f"- Side evidence: identified {side_id.get('identified', 0)} / inferred {side_id.get('inferred', 0)} / unknown {side_id.get('unknown', 0)} "
+        f"({side_id.get('algorithm', side_id.get('reason', ''))})",
         f"- First server: {first_server.get('server_player_name', 'unknown')} "
-        f"(role={first_server.get('starter_role', '-')}, "
-        f"clip_t={float(first_server.get('t_start', 0.0)):.3f}s, "
-        f"source_t={float(first_server.get('source_t_start', first_server.get('t_start', 0.0))):.3f}s)",
+        f"(side={first_server.get('current_side', '-')}, role={first_server.get('starter_role', '-')}, "
+        f"start_time={_fmt_mmss(float(first_server.get('source_t_start', first_server.get('t_start', 0.0))))})",
         f"- Events JSON: {summary.get('events_json_path', '')}",
         f"- CSV: {summary.get('csv_path', '')}",
         f"- Start frames: {summary.get('start_frames_dir', '')}",
         f"- Source video: {summary.get('source_video_path', '')}",
-        f"- Clip: {summary.get('clip_path', '')}",
-        f"- Clip window: {summary.get('clip_start_sec', 0.0)}s -> {summary.get('clip_end_sec', 0.0)}s",
         "",
     ]
     if gap_rescans:
@@ -131,10 +141,10 @@ def _write_summary_md(path: Path, summary: dict, events: list[dict]) -> None:
             else:
                 best_text = "none"
             lines.append(
-                "| {gap_id} | {src_start:.3f}s -> {src_end:.3f}s | {server} ({role}) | {count} | {best} | {folder} |".format(
+                "| {gap_id} | {src_start} -> {src_end} | {server} ({role}) | {count} | {best} | {folder} |".format(
                     gap_id=item.get("gap_id", ""),
-                    src_start=float(item.get("source_gap_start", 0.0)),
-                    src_end=float(item.get("source_gap_end", 0.0)),
+                    src_start=_fmt_mmss(float(item.get("source_gap_start", 0.0))),
+                    src_end=_fmt_mmss(float(item.get("source_gap_end", 0.0))),
                     server=item.get("expected_server_name", "unknown"),
                     role=item.get("expected_role", ""),
                     count=int(item.get("candidate_count_in_gap", 0)),
@@ -145,8 +155,8 @@ def _write_summary_md(path: Path, summary: dict, events: list[dict]) -> None:
         lines.append("")
     lines.extend(
         [
-        "| id | kind | clip_t_start | source_t_start | server | role | note | image |",
-        "|---|---|---:|---:|---|---|---|---|",
+        "| id | kind | start_time | server | current_side | side_evidence | note | image |",
+        "|---|---|---:|---|---|---|---|---|",
         ]
     )
     for event in events:
@@ -155,14 +165,21 @@ def _write_summary_md(path: Path, summary: dict, events: list[dict]) -> None:
         expected_server = event.get("serve_order_expected_server_name", "")
         if note and expected_role:
             note = f"{note}; expected {expected_server} ({expected_role})"
+        side_evidence = event.get("side_evidence_status", "")
+        identified = event.get("side_identified_player_name", "")
+        identified_side = event.get("side_identified_current_side", "")
+        if side_evidence == "identified" and identified:
+            side_evidence = f"{identified}={identified_side}"
+        elif side_evidence == "inferred":
+            side_evidence = f"inferred({event.get('side_evidence_reason', '')})"
         lines.append(
-            "| {id} | {kind} | {t_start:.3f} | {source_t_start:.3f} | {server} | {role} | {note} | {image} |".format(
+            "| {id} | {kind} | {start_time} | {server} | {current_side} | {side_evidence} | {note} | {image} |".format(
                 id=event.get("id", ""),
                 kind=event.get("kind", ""),
-                t_start=float(event.get("t_start", 0.0)),
-                source_t_start=float(event.get("source_t_start", event.get("t_start", 0.0))),
+                start_time=_fmt_mmss(float(event.get("source_t_start", event.get("t_start", 0.0)))),
                 server=event.get("server_player_name", "unknown"),
-                role=event.get("starter_role", ""),
+                current_side=event.get("current_side", "unknown"),
+                side_evidence=side_evidence,
                 note=note,
                 image=event.get("image_file", ""),
             )
@@ -299,6 +316,28 @@ def main() -> int:
     parser.add_argument("--rescan-review-gaps", action="store_true", help="Run raw candidate rescan around needs-review serve-order gaps.")
     parser.add_argument("--rescan-mode", choices=["raw", "sandwich"], default="raw", help="Candidate selection used for review-gap rescan.")
     parser.add_argument("--rescan-pad-sec", type=float, default=1.5, help="Seconds of padding on each side of a review gap rescan.")
+    parser.add_argument("--with-side-id", action="store_true", help="Also run Step 3.2 side ID in this Step 3.1 debug command. Off by default.")
+    parser.add_argument("--no-side-id", action="store_true", help="Compatibility flag; Step 3.1 is detector-only by default.")
+    parser.add_argument("--face-db", default=str(PROJECT_ROOT / "data" / "players" / "faces.json"), help="FaceDB path.")
+    parser.add_argument("--face-model", default=str(PROJECT_ROOT / "data" / "models" / "face" / "w600k_r50.onnx"), help="ArcFace ONNX model path.")
+    parser.add_argument("--side-id-before-sec", type=float, default=1.00, help="Seconds before rally start for local side ID scan.")
+    parser.add_argument("--side-id-after-sec", type=float, default=4.00, help="Seconds after rally start for the primary local side ID scan.")
+    parser.add_argument("--side-id-break-gap-sec", type=float, default=12.00, help="Gap after a rally that blocks post-rally side ID extension.")
+    parser.add_argument("--side-id-next-guard-sec", type=float, default=0.25, help="Seconds to stop before the next rally when extending side ID scan.")
+    parser.add_argument("--side-id-sample-fps", type=float, default=4.0, help="Sampling FPS for local side ID scan.")
+    parser.add_argument("--side-id-threshold", type=float, default=0.35, help="Face similarity threshold for trusted Step 2 players.")
+    parser.add_argument("--side-id-margin", type=float, default=0.04, help="Minimum best-vs-second similarity margin.")
+    parser.add_argument("--side-id-min-best-sim", type=float, default=0.45, help="Minimum best face similarity before accepting current side.")
+    parser.add_argument("--side-id-min-avg-sim", type=float, default=0.38, help="Minimum average accepted face similarity before accepting current side.")
+    parser.add_argument("--side-id-min-samples", type=int, default=4, help="Minimum accepted face samples before accepting current side.")
+    parser.add_argument("--side-id-no-retry-unknown", action="store_true", help="Disable Step 3.2 retry scan for unknown rows.")
+    parser.add_argument("--side-id-retry-after-sec", type=float, default=12.00, help="Longer start-anchored retry window for unknown rows.")
+    parser.add_argument("--side-id-retry-fps", type=float, default=8.0, help="Sampling FPS for unknown retry scan.")
+    parser.add_argument("--side-id-retry-min-samples", type=int, default=3, help="Minimum accepted face samples for unknown retry scan.")
+    parser.add_argument("--side-id-no-promote-strong-candidate", action="store_true", help="Disable strong-candidate promotion for rows that only miss sample count.")
+    parser.add_argument("--side-id-no-continuity-fill", action="store_true", help="Disable side continuity fill for rows still unknown after scan.")
+    parser.add_argument("--side-id-continuity-terminal-gap-sec", type=float, default=12.00, help="Max start gap for terminal continuity fill.")
+    parser.add_argument("--enable-jersey-side-id", action="store_true", help="Allow jersey-only side ID fallback. Off by default because similar shirts can be confidently wrong.")
     args = parser.parse_args()
 
     video_path = Path(args.video)
@@ -325,6 +364,27 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     clip_path = out_dir / f"clip_{_fmt_seconds_tag(start_sec)}_{_fmt_seconds_tag(end_sec)}.mp4"
+    side_id_config = Step3SideIdentificationConfig(
+        window_before_sec=float(args.side_id_before_sec),
+        window_after_sec=float(args.side_id_after_sec),
+        break_gap_sec=float(args.side_id_break_gap_sec),
+        next_event_guard_sec=float(args.side_id_next_guard_sec),
+        sample_fps=float(args.side_id_sample_fps),
+        match_threshold=float(args.side_id_threshold),
+        match_margin=float(args.side_id_margin),
+        min_best_similarity=float(args.side_id_min_best_sim),
+        min_avg_similarity=float(args.side_id_min_avg_sim),
+        min_accepted_samples=int(args.side_id_min_samples),
+        enable_jersey_fallback=bool(args.enable_jersey_side_id),
+        retry_unknown_enabled=not bool(args.side_id_no_retry_unknown),
+        retry_window_after_sec=float(args.side_id_retry_after_sec),
+        retry_sample_fps=float(args.side_id_retry_fps),
+        retry_min_accepted_samples=int(args.side_id_retry_min_samples),
+        promote_strong_candidate_enabled=not bool(args.side_id_no_promote_strong_candidate),
+        continuity_fill_unknown_enabled=not bool(args.side_id_no_continuity_fill),
+        continuity_terminal_max_gap_sec=float(args.side_id_continuity_terminal_gap_sec),
+    )
+    enable_side_id = bool(args.with_side_id) and not bool(args.no_side_id)
     if args.rescan_only:
         events_json_path = out_dir / "step3_1_rally_start_events.json"
         if not events_json_path.exists():
@@ -334,31 +394,78 @@ def main() -> int:
         payload = json.loads(events_json_path.read_text(encoding="utf-8"))
         summary = dict(payload.get("summary") or {})
         events = list(payload.get("events") or [])
+        job = load_match_job(args.job_json) if args.job_json else None
+        if job is not None:
+            player_context = Step3PlayerContext(
+                player_a_name=job.player_a_name,
+                player_b_name=job.player_b_name,
+                player_a_starts_near=job.player_a_starts_near,
+            )
+        elif args.player_a_name or args.player_b_name:
+            player_context = Step3PlayerContext(
+                player_a_name=args.player_a_name or "unknown",
+                player_b_name=args.player_b_name or "unknown",
+                player_a_starts_near=bool(args.player_a_starts_near),
+            )
+        else:
+            player_context = None
+        table_roi = _load_table_roi_from_job(job) if job is not None else None
+        if table_roi is None and enable_side_id:
+            from backend.player_identification import detect_table_roi_and_player_zone
+
+            table_roi, _zone = detect_table_roi_and_player_zone(video_path, PRODUCTION_RALLY_DEFAULTS.table_weights_path)
+        if enable_side_id:
+            side_id_summary = annotate_events_with_single_player_side_identification(
+                video_path,
+                events,
+                player_context=player_context,
+                face_db_path=Path(args.face_db),
+                face_model_path=Path(args.face_model),
+                pose_weights_path=PRODUCTION_RALLY_DEFAULTS.pose_weights_path,
+                table_roi=table_roi,
+                config=side_id_config,
+                time_field="source_t_start",
+                end_time_field="source_t_end",
+                log_fn=lambda msg: print(f"[step3.1] {msg}", flush=True),
+            )
+            summary.setdefault("side_identification", {}).update(side_id_summary)
+            annotate_serve_order_rule_reviews(events, player_context=player_context)
         summary["source_video_path"] = str(video_path).replace("\\", "/")
         summary["clip_path"] = str(clip_path).replace("\\", "/")
         summary["clip_start_sec"] = start_sec
         summary["clip_end_sec"] = end_sec
-        summary["gap_rescans"] = _rescan_review_gaps(
-            clip_path=clip_path,
-            events=events,
-            out_dir=out_dir,
-            source_time_offset_sec=start_sec,
-            selection_mode=args.rescan_mode,
-            pad_sec=float(args.rescan_pad_sec),
-        )
+        if args.rescan_review_gaps:
+            summary["gap_rescans"] = _rescan_review_gaps(
+                clip_path=clip_path,
+                events=events,
+                out_dir=out_dir,
+                source_time_offset_sec=start_sec,
+                selection_mode=args.rescan_mode,
+                pad_sec=float(args.rescan_pad_sec),
+            )
         write_rally_start_events_json(events_json_path, summary, events)
         summary_path = out_dir / "summary.md"
         _write_summary_md(summary_path, summary, events)
-        print(f"[step3.1] rescan-only complete: {len(summary['gap_rescans'])} targeted gap window(s)")
+        print(f"[step3.1] rescan-only complete: {len(summary.get('gap_rescans', []))} targeted gap window(s)")
         print(f"[step3.1] summary: {summary_path}")
         return 0
 
     job = load_match_job(args.job_json) if args.job_json else None
     table_roi = _load_table_roi_from_job(job) if job is not None else None
+    player_zone_xyxy = None
+    if job is not None:
+        zone_data = job.timeline_summary.get("player_zone")
+        if isinstance(zone_data, dict):
+            player_zone_xyxy = (
+                float(zone_data["x1"]),
+                float(zone_data["y1"]),
+                float(zone_data["x2"]),
+                float(zone_data["y2"]),
+            )
     if table_roi is None:
         from backend.player_identification import detect_table_roi_and_player_zone
 
-        table_roi, _zone = detect_table_roi_and_player_zone(video_path, PRODUCTION_RALLY_DEFAULTS.table_weights_path)
+        table_roi, player_zone_xyxy = detect_table_roi_and_player_zone(video_path, PRODUCTION_RALLY_DEFAULTS.table_weights_path)
     if table_roi is None or table_roi.w <= 0:
         raise RuntimeError("Table ROI detection failed")
 
@@ -408,6 +515,14 @@ def main() -> int:
         legacy_cache_path=None,
         force_rebuild=bool(args.force),
         source_time_offset_sec=start_sec,
+        enable_side_identification=enable_side_id,
+        side_identification_video_path=video_path,
+        side_identification_time_field="source_t_start",
+        side_identification_end_time_field="source_t_end",
+        face_db_path=Path(args.face_db),
+        face_model_path=Path(args.face_model),
+        player_zone_xyxy=player_zone_xyxy,
+        side_identification_config=side_id_config,
         log_fn=lambda msg: print(f"[step3.1] {msg}", flush=True),
     )
     summary_path = out_dir / "summary.md"
